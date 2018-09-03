@@ -17,6 +17,8 @@ from qmb import sigmaz, sigmax, sigmay
 from functools import reduce
 from itertools import product
 
+from time import time
+from pathos.multiprocessing import ProcessingPool as Pool
 
 class fMPS(object):
     """finite MPS:
@@ -483,7 +485,7 @@ class fMPS(object):
         """
         return self.E_L(H)
 
-    def dA_dt(self, H):
+    def dA_dt(self, H, fullH=False, par=False):
         """dA_dt: Finds A_dot (from TDVP) [B(n) for n in range(n)], energy. Uses inverses. 
         Indexing is A[0], A[1]...A[L-1]
 
@@ -492,7 +494,7 @@ class fMPS(object):
         """
         L, d, A = self.L, self.d, self.data
         l, r = self.get_envs()
-        pr = self.left_null_projector
+        pr = lambda n: self.left_null_projector(n, l)
 
         H = H.reshape([self.d, self.d]*self.L)
 
@@ -506,9 +508,13 @@ class fMPS(object):
                 links[n+1] = [links[n+1][0], -3, links[n+1][2]]
             return -1j*ncon([pr(m) if m==n else c(inv(r(n)))@a.conj() if m==n+1 else a.conj() for m, a in enumerate(A)]+[H]+A, links)
 
-        return fMPS([B(n) for n in range(L)])
+        if par:
+            with Pool(2) as p:
+                return fMPS(list(p.map(B, range(L))))
+        else:
+            return fMPS([B(n) for n in range(L)])
 
-    def left_null_projector(self, n):
+    def left_null_projector(self, n, l=None):
         """left_null_projector:           |    
                          - inv(sqrt(l)) - vL = vL- inv(sqrt(l))-
                                                |
@@ -516,18 +522,23 @@ class fMPS(object):
 
         :param n: site
         """
-        l, _ = self.get_envs()
+        if l is None:
+            l, _ = self.get_envs()
         L_ = cT(self[n])@ch(l(n-1))
         L = sw(L_, 0, 1).reshape(-1, self.d*L_.shape[-1])
         vL = null(L).reshape((self.d, int(L.shape[1]/self.d), -1))
         pr = ncon([inv(ch(l(n-1))), vL, c(vL), c(inv(ch(l(n-1))))], [[-2, 2], [-1, 2, 1], [-3, 4, 1], [-4, 4]])
         return pr
     
-    def serialize(self):
+    def serialize(self, real=False):
         """serialize: return a vector with mps data in it"""
-        return concatenate([a.reshape(-1) for a in self])
+        vec = concatenate([a.reshape(-1) for a in self])
+        if real:
+            return ct([vec.real, vec.imag])
+        else:
+            return vec
 
-    def deserialize(self, vec, L, d, D):
+    def deserialize(self, vec, L, d, D, real=False):
         """deserialize: take a vector with mps data (from serialize), 
                         make MPS
 
@@ -536,6 +547,8 @@ class fMPS(object):
         :param d: local hilbert space dimension
         :param D: bond dimension
         """
+        if real:
+            vec = reduce(lambda x, y: x+1j*y, chop(vec, 2))
         self.L, self.d, self.D = L, d, D
         structure = [(d, *x) for x in self.create_structure(L, d, D)]
         self.data = []
@@ -838,6 +851,25 @@ class TestfMPS(unittest.TestCase):
         mps.store('x')
         mps_ = fMPS().load('x.npy')
         self.assertTrue(mps==mps_)
+
+    def test_serialize_deserialize_real(self):
+        mps = self.mps_0_4
+        mps_ = fMPS().deserialize(mps.serialize(True), mps.L, mps.d, mps.D, True)
+        self.assertTrue(mps==mps_)
+
+    def test_dA_dt_multiprocessing(self):
+        d, L = 2, 10 
+        mps = fMPS().random(L, d, 5)
+        H = randn(d**L, d**L)+1j*randn(d**L, d**L)
+        H = H+H.conj().T
+        t1 = time()
+        B = mps.dA_dt(H, par=False)
+        t2 = time()
+        print('ser: ', t2-t1)
+        t1 = time()
+        B = mps.dA_dt(H, par=True)
+        t2 = time()
+        print('par: ', t2-t1)
 
 
 class TestvfMPS(unittest.TestCase):
