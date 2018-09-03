@@ -919,20 +919,31 @@ class TestfMPS(unittest.TestCase):
     def test_profile_dA_dt(self):
         """test_profile_dA_dt: profile dA_dt: """
         #list hamiltonian slower until L~6
-        d, L = 2, 6 
-        mps = fMPS().random(L, d, 256)
-        H = randn(d**L, d**L)+1j*randn(d**L, d**L)
-        fullH = H+H.conj().T
+        # ~10s for 100 sites D=10
+        d, L = 2, 10 
+        mps = fMPS().random(L, d, 10)
         listH = [randn(4, 4)+1j*randn(4, 4) for _ in range(L-1)]
         listH = [h+h.conj().T for h in listH]
+        print('')
         t1 = time()
         B = mps.dA_dt(listH, fullH=False)
         t2 = time()
-        print('list: ', t2-t1)
-        t1 = time()
-        B = mps.dA_dt(fullH, fullH=True)
-        t2 = time()
-        print('full: ', t2-t1)
+        print('ser, list: ', t2-t1)
+        if L<9:
+            H = randn(d**L, d**L)+1j*randn(d**L, d**L)
+            fullH = H+H.conj().T
+            t1 = time()
+            B = mps.dA_dt(listH, fullH=False, par=True)
+            t2 = time()
+            print('par, list: ', t2-t1)
+            t1 = time()
+            B = mps.dA_dt(fullH, fullH=True)
+            t2 = time()
+            print('ser, full: ', t2-t1)
+            t1 = time()
+            B = mps.dA_dt(fullH, fullH=True, par=True)
+            t2 = time()
+            print('par, full: ', t2-t1)
 
     def test_local_hamiltonians_2(self):
         Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
