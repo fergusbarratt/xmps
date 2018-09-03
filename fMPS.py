@@ -496,7 +496,7 @@ class fMPS(object):
         else:
             return self.E_L(H)
 
-    def dA_dt(self, H, fullH=True, par=False):
+    def dA_dt(self, H, fullH=False, par=False):
         """dA_dt: Finds A_dot (from TDVP) [B(n) for n in range(n)], energy. Uses inverses. 
         Indexing is A[0], A[1]...A[L-1]
 
@@ -917,8 +917,10 @@ class TestfMPS(unittest.TestCase):
         self.assertTrue(mps==mps_)
 
     def test_profile_dA_dt(self):
-        d, L = 2, 10 
-        mps = fMPS().random(L, d, 5)
+        """test_profile_dA_dt: profile dA_dt: """
+        #list hamiltonian slower until L~6
+        d, L = 2, 6 
+        mps = fMPS().random(L, d, 256)
         H = randn(d**L, d**L)+1j*randn(d**L, d**L)
         fullH = H+H.conj().T
         listH = [randn(4, 4)+1j*randn(4, 4) for _ in range(L-1)]
