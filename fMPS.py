@@ -1,4 +1,5 @@
 import unittest
+from spin import n_body
 from ncon import ncon
 from numpy.random import rand, randint, randn
 from scipy.linalg import null_space as null
@@ -485,13 +486,15 @@ class fMPS(object):
         """
         return self.E_L(H)
 
-    def dA_dt(self, H, fullH=False, par=False):
+    def dA_dt(self, H, fullH=True, par=False):
         """dA_dt: Finds A_dot (from TDVP) [B(n) for n in range(n)], energy. Uses inverses. 
         Indexing is A[0], A[1]...A[L-1]
 
         :param self: matrix product states @ current time
         :param H: Hamiltonian
         """
+        if fullH==False:
+            H = sum([n_body(a, i, len(H), 2) for i, a in enumerate(H)], axis=0)
         L, d, A = self.L, self.d, self.data
         l, r = self.get_envs()
         pr = lambda n: self.left_null_projector(n, l)
@@ -857,7 +860,7 @@ class TestfMPS(unittest.TestCase):
         mps_ = fMPS().deserialize(mps.serialize(True), mps.L, mps.d, mps.D, True)
         self.assertTrue(mps==mps_)
 
-    def test_dA_dt_multiprocessing(self):
+    def test_profile_dA_dt_multiprocessing(self):
         d, L = 2, 10 
         mps = fMPS().random(L, d, 5)
         H = randn(d**L, d**L)+1j*randn(d**L, d**L)
@@ -871,6 +874,11 @@ class TestfMPS(unittest.TestCase):
         t2 = time()
         print('par: ', t2-t1)
 
+    def test_local_hamiltonians(self):
+        mps = self.mps_0_4
+        listH = [a+a.conj().T for a in [randn(4, 4)+1j*randn(4, 4) for _ in range(mps.L-1)]]
+        fullH = sum([n_body(a, i, len(listH), d=2) for i, a in enumerate(listH)], axis=0)
+        self.assertTrue(mps.dA_dt(listH, fullH=False)==mps.dA_dt(fullH, fullH=True))
 
 class TestvfMPS(unittest.TestCase):
     """TestvfMPS"""

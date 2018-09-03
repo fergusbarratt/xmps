@@ -2,6 +2,7 @@ from numpy import array, allclose, sqrt, zeros, reshape
 from numpy import tensordot, kron, identity
 from itertools import product
 from functools import reduce
+from math import log as logd
 
 
 def levi_civita(dim):
@@ -44,20 +45,25 @@ def tensor(ops):
     return reduce(kron, ops)
 
 
-def n_body(op, i, n):
+def n_body(op, i, n, d=None):
     """n_body: n_body versions of local operator
 
     :param op: operator to tensor into chain of identities
     :param i: site for operator. 1-indexed
     :param n: length of chain
     :param tensorise: if True return a tensor, if False return an array of matrices
+    :param d: local dimension of identities to tensor. If None, use size of op
     """
     i = i-1
-
-    d = op.shape[0]
+    if d is None:
+        d = op.shape[0]
+        l = [identity(d)*(1-m) + op*m for m in map(lambda j: int(not i-j), range(n))]
+    else:
+        l = [identity(d) for _ in range(n+2-int(logd(op.shape[0], d)))]
+        l[i] = op
+        #l = [op if j==i else identity(d) for j in range(n-int(logd(op.shape[0], d)))]
     if not i < n:
         raise Exception("i must be less than n")
-    l = [identity(d)*(1-m) + op*m for m in map(lambda j: int(not i-j), range(n))]
     return tensor(l)
 
 
