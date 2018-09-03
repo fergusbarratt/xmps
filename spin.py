@@ -51,7 +51,6 @@ def n_body(op, i, n, d=None):
     :param op: operator to tensor into chain of identities
     :param i: site for operator. 1-indexed
     :param n: length of chain
-    :param tensorise: if True return a tensor, if False return an array of matrices
     :param d: local dimension of identities to tensor. If None, use size of op
     """
     i = i-1
@@ -60,7 +59,7 @@ def n_body(op, i, n, d=None):
         l = [identity(d)*(1-m) + op*m for m in map(lambda j: int(not i-j), range(n))]
     else:
         l = [identity(d) for _ in range(n+2-int(logd(op.shape[0], d)))]
-        l[i] = op
+        l[i+1] = op
         #l = [op if j==i else identity(d) for j in range(n-int(logd(op.shape[0], d)))]
     if not i < n:
         raise Exception("i must be less than n")
