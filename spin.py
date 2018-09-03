@@ -58,8 +58,8 @@ def n_body(op, i, n, d=None):
         d = op.shape[0]
         l = [identity(d)*(1-m) + op*m for m in map(lambda j: int(not i-j), range(n))]
     else:
-        l = [identity(d) for _ in range(n+2-int(logd(op.shape[0], d)))]
-        l[i+1] = op
+        l = [identity(d) for _ in range(n+1-int(logd(op.shape[0], d)))]
+        l.insert(i+1, op)
         #l = [op if j==i else identity(d) for j in range(n-int(logd(op.shape[0], d)))]
     if not i < n:
         raise Exception("i must be less than n")

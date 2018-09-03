@@ -503,57 +503,68 @@ class fMPS(object):
         :param self: matrix product states @ current time
         :param H: Hamiltonian
         """
+        #print(sum([n_body(a, i, len(H), d=2) for i, a in enumerate(H)], axis=0).shape)
+
         L, d, A = self.L, self.d, self.data
         l, r = self.get_envs()
         pr = lambda n: self.left_null_projector(n, l)
+        def Bfull(n, H=H):
+            H = H.reshape([self.d, self.d]*self.L)
+            links = self.links()
+            # open up links for projector 
+            links[n] = [-1, -2]+links[n][:2]
+            if n == L-1:
+                links[-1] = links[-1][:2]+[-3]
+            else:
+                links[n+1] = [links[n+1][0], -3, links[n+1][2]]
+            return -1j*ncon([pr(m) if m==n else c(inv(r(n)))@a.conj() if m==n+1 else a.conj() for m, a in enumerate(A)]+[H]+A, links)
 
         if fullH:
-            def B(n, H=H):
-                H = H.reshape([self.d, self.d]*self.L)
-                links = self.links()
-                # open up links for projector 
-                links[n] = [-1, -2]+links[n][:2]
-                if n == L-1:
-                    links[-1] = links[-1][:2]+[-3]
-                else:
-                    links[n+1] = [links[n+1][0], -3, links[n+1][2]]
-                return -1j*ncon([pr(m) if m==n else c(inv(r(n)))@a.conj() if m==n+1 else a.conj() for m, a in enumerate(A)]+[H]+A, links)
+            B = Bfull
         else:
             def B(n, H=H):  
                 e = []
-                B = zl(A[n])
+                B = -1j*zl(A[n])
                 Dn = A[n].shape[1]
                 Dn_1 = A[n].shape[2]
 
                 if d*Dn==Dn_1:
+                    B_ = Bfull(n, sum([n_body(a, i, len(H), d=2) for i, a in enumerate(H)], axis=0))
                     # Projector is full of zeros
-                    return B
+                    return -1j*B
 
-                M = eye(Dn**2).reshape(Dn, Dn, Dn, Dn)
+                R = ncon([pr(n), A[n]], [[-3, -4, 1, -2], [1, -1, -5]])
+                Rs = [R]
+                for m in reversed(range(n)):
+                    Rs.insert(0, ncon([A[m].conj(), A[m], Rs[0]], [[3, -2, 2], [3, -1, 1], [1, 2, -3, -4, -5]]))
+
                 for m, h in reversed(list(enumerate(H))):
+                    if m > n:
+                        # from gauge symmetry
+                        continue
+
                     h = h.reshape(2,2,2,2)
                     Am, Am_1 = self.data[m:m+2]
                     C = ncon([h]+[Am, Am_1], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
                     K = ncon([c(l(m-1))@Am.conj(), Am_1.conj()]+[C], [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]]) #AAHAA
                     e.append(trace(K@c(r(m+1))))
 
-                    if m > n:
-                        # from gauge symmetry
-                        break 
                     if m==n:
-                        B += ncon([pr(m)@l(m-1), c(inv(r(m)))@c(Am_1)]+[C], [[-1, -2, 1, 3], [2, -3, 4], [1, 2, 3, 4]])
+                        B += -1j*ncon([pr(m)@l(m-1), c(inv(r(m)))@c(Am_1)@c(r(m+1))]+[C], [[-1, -2, 1, 3], [2, -3, 4], [1, 2, 3, 4]])
                     if m==n-1:
-                        B += ncon([c(l(m-1))@c(Am), pr(m+1)]+[C], [[1, 3, 4], [-1, -2, 2, 4], [1, 2, 3, -3]])
+                        B += -1j*ncon([c(l(m-1))@c(Am), pr(m+1)]+[C], [[1, 3, 4], [-1, -2, 2, 4], [1, 2, 3, -3]])
                     if m < n-1:
-                        R = ncon([pr(n), A[n]], [[-3, -4, 1, -2], [1, -1, -5]])
-                        B += ncon([K, M, R], [[1, 2], [1, 2, 3, 4], [3, 4, -1, -2, -3]])
-                        M = ncon([A[m+1].conj(), M, A[m+1]], [[1, -1, 2], [2, 3, -3, -4], [1, -2, 3]])
+                        B += -1j*ncon([K, Rs[m+2]], [[1, 2], [1, 2, -1, -2, -3]])
+
+                B_ = Bfull(n, sum([n_body(a, i, len(H), d=2) for i, a in enumerate(H)], axis=0))
+                print('norm: ', norm(B-B_))
                 return B
 
         if par:
             with Pool(2) as p:
                 return fMPS(list(p.map(B, range(L))))
         else:
+            print('\n')
             return fMPS([B(n) for n in range(L)])
 
     def left_null_projector(self, n, l=None):
@@ -926,7 +937,43 @@ class TestfMPS(unittest.TestCase):
         t2 = time()
         print('par: ', t2-t1)
 
-    def test_local_hamiltonians(self):
+    def test_local_hamiltonians_2(self):
+        Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
+        Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
+
+        mps = self.mps_0_2
+        listH = [Sz12@Sz22+Sx12+Sx22]
+        fullH = listH[0]
+        self.assertTrue(mps.dA_dt(listH, fullH=False)==mps.dA_dt(fullH, fullH=True))
+
+    def test_local_hamiltonians_3(self):
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 3)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 3)
+        Sx3, Sy3, Sz3 = N_body_spins(0.5, 3, 3)
+
+        Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
+        Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
+
+        mps = self.mps_0_3
+        listH = [Sz12@Sz22+Sx12, Sz12@Sz22+Sx12+Sx22]
+        fullH = Sz1@Sz2+Sz2@Sz3 + Sx1+Sx2+Sx3
+        self.assertTrue(mps.dA_dt(listH, fullH=False)==mps.dA_dt(fullH, fullH=True))
+
+    def test_local_hamiltonians_4(self):
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 4)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 4)
+        Sx3, Sy3, Sz3 = N_body_spins(0.5, 3, 4)
+        Sx4, Sy4, Sz4 = N_body_spins(0.5, 4, 4)
+
+        Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
+        Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
+
+        mps = self.mps_0_4
+        listH = [Sz12@Sz22+Sx12, Sz12@Sz22+Sx12+Sx22, Sz12@Sz22+Sx22]
+        fullH = Sz1@Sz2+Sz2@Sz3+Sz3@Sz4+Sx1+Sx2+Sx3+Sx4
+        self.assertTrue(mps.dA_dt(listH, fullH=False)==mps.dA_dt(fullH, fullH=True))
+
+    def test_local_hamiltonians_5(self):
         Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 5)
         Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 5)
         Sx3, Sy3, Sz3 = N_body_spins(0.5, 3, 5)
@@ -939,6 +986,39 @@ class TestfMPS(unittest.TestCase):
         mps = self.mps_0_5
         listH = [Sz12@Sz22+Sx12, Sz12@Sz22+Sx12+Sx22, Sz12@Sz22+Sx12+Sx22, Sz12@Sz12+Sx22]
         fullH = Sz1@Sz2+Sz2@Sz3+Sz3@Sz4+Sz4@Sz5+Sx1+Sx2+Sx3+Sx4+Sx5
+        self.assertTrue(mps.dA_dt(listH, fullH=False)==mps.dA_dt(fullH, fullH=True))
+
+    def test_local_hamiltonians_6(self):
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 6)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 6)
+        Sx3, Sy3, Sz3 = N_body_spins(0.5, 3, 6)
+        Sx4, Sy4, Sz4 = N_body_spins(0.5, 4, 6)
+        Sx5, Sy5, Sz5 = N_body_spins(0.5, 5, 6)
+        Sx6, Sy6, Sz6 = N_body_spins(0.5, 6, 6)
+
+        Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
+        Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
+
+        mps = self.mps_0_6
+        listH = [Sz12@Sz22+Sx12, Sz12@Sz22+Sx12+Sx22, Sz12@Sz22+Sx12+Sx22, Sz12@Sz12+Sx12+Sx22, Sz12@Sz12+Sx22]
+        fullH = Sz1@Sz2+Sz2@Sz3+Sz3@Sz4+Sz4@Sz5+Sz5@Sz6+Sx1+Sx2+Sx3+Sx4+Sx5+Sx6
+        self.assertTrue(mps.dA_dt(listH, fullH=False)==mps.dA_dt(fullH, fullH=True))
+
+    def test_local_hamiltonians_7(self):
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 7)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 7)
+        Sx3, Sy3, Sz3 = N_body_spins(0.5, 3, 7)
+        Sx4, Sy4, Sz4 = N_body_spins(0.5, 4, 7)
+        Sx5, Sy5, Sz5 = N_body_spins(0.5, 5, 7)
+        Sx6, Sy6, Sz6 = N_body_spins(0.5, 6, 7)
+        Sx7, Sy7, Sz7 = N_body_spins(0.5, 7, 7)
+
+        Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
+        Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
+
+        mps = self.mps_0_7
+        listH = [Sz12@Sz22+Sx12, Sz12@Sz22+Sx12+Sx22, Sz12@Sz22+Sx12+Sx22, Sz12@Sz12+Sx12+Sx22, Sz12@Sz12+Sx12+Sx22, Sz12@Sz12+Sx22]
+        fullH = Sz1@Sz2+Sz2@Sz3+Sz3@Sz4+Sz4@Sz5+Sz5@Sz6+Sz6@Sz7+Sx1+Sx2+Sx3+Sx4+Sx5+Sx6+Sx7
         self.assertTrue(mps.dA_dt(listH, fullH=False)==mps.dA_dt(fullH, fullH=True))
 
     def test_local_recombine(self):
