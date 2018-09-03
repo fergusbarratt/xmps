@@ -508,19 +508,18 @@ class fMPS(object):
         L, d, A = self.L, self.d, self.data
         l, r = self.get_envs()
         pr = lambda n: self.left_null_projector(n, l)
-        def Bfull(n, H=H):
-            H = H.reshape([self.d, self.d]*self.L)
-            links = self.links()
-            # open up links for projector 
-            links[n] = [-1, -2]+links[n][:2]
-            if n == L-1:
-                links[-1] = links[-1][:2]+[-3]
-            else:
-                links[n+1] = [links[n+1][0], -3, links[n+1][2]]
-            return -1j*ncon([pr(m) if m==n else c(inv(r(n)))@a.conj() if m==n+1 else a.conj() for m, a in enumerate(A)]+[H]+A, links)
 
         if fullH:
-            B = Bfull
+            def B(n, H=H):
+                H = H.reshape([self.d, self.d]*self.L)
+                links = self.links()
+                # open up links for projector 
+                links[n] = [-1, -2]+links[n][:2]
+                if n == L-1:
+                    links[-1] = links[-1][:2]+[-3]
+                else:
+                    links[n+1] = [links[n+1][0], -3, links[n+1][2]]
+                return -1j*ncon([pr(m) if m==n else c(inv(r(n)))@a.conj() if m==n+1 else a.conj() for m, a in enumerate(A)]+[H]+A, links)
         else:
             def B(n, H=H):  
                 e = []
@@ -529,7 +528,6 @@ class fMPS(object):
                 Dn_1 = A[n].shape[2]
 
                 if d*Dn==Dn_1:
-                    B_ = Bfull(n, sum([n_body(a, i, len(H), d=2) for i, a in enumerate(H)], axis=0))
                     # Projector is full of zeros
                     return -1j*B
 
@@ -555,16 +553,12 @@ class fMPS(object):
                         B += -1j*ncon([c(l(m-1))@c(Am), pr(m+1)]+[C], [[1, 3, 4], [-1, -2, 2, 4], [1, 2, 3, -3]])
                     if m < n-1:
                         B += -1j*ncon([K, Rs[m+2]], [[1, 2], [1, 2, -1, -2, -3]])
-
-                B_ = Bfull(n, sum([n_body(a, i, len(H), d=2) for i, a in enumerate(H)], axis=0))
-                print('norm: ', norm(B-B_))
                 return B
 
         if par:
             with Pool(2) as p:
                 return fMPS(list(p.map(B, range(L))))
         else:
-            print('\n')
             return fMPS([B(n) for n in range(L)])
 
     def left_null_projector(self, n, l=None):
@@ -624,7 +618,6 @@ class fMPS(object):
         params, arr = chop(load(filename), [3])
         self.L, self.d, self.D = map(lambda x: int(re(x)), params)
         return self.deserialize(arr, self.L, self.d, self.D)
-
          
 class vfMPS(object):
     """vidal finite MPS
@@ -727,7 +720,7 @@ class TestfMPS(unittest.TestCase):
         H2 = randn(4, 4)+1j*randn(4, 4)
         H2 = (H2+H2.conj().T)/2
         e_ed = self.psi_0_2.conj()@H2@self.psi_0_2
-        e_mps = self.mps_0_2.energy(H2)
+        e_mps = self.mps_0_2.energy(H2, fullH=True)
         self.assertTrue(isclose(e_ed, e_mps))
 
     def test_energy_3(self):
@@ -735,7 +728,7 @@ class TestfMPS(unittest.TestCase):
         H3 = randn(8, 8)+1j*randn(8, 8)
         H3 = (H3+H3.conj().T)/2
         e_ed = self.psi_0_3.conj()@H3@self.psi_0_3
-        e_mps = self.mps_0_3.energy(H3)
+        e_mps = self.mps_0_3.energy(H3, fullH=True)
         self.assertTrue(isclose(e_ed, e_mps))
 
     def test_energy_4(self):
@@ -743,7 +736,7 @@ class TestfMPS(unittest.TestCase):
         H4 = randn(16, 16)+1j*randn(16, 16)
         H4 = (H4+H4.conj().T)/2
         e_ed = self.psi_0_4.conj()@H4@self.psi_0_4
-        e_mps = self.mps_0_4.energy(H4)
+        e_mps = self.mps_0_4.energy(H4, fullH=True)
         self.assertTrue(isclose(e_ed, e_mps))
 
     def test_left_from_state(self):
@@ -923,19 +916,21 @@ class TestfMPS(unittest.TestCase):
         mps_ = fMPS().deserialize(mps.serialize(True), mps.L, mps.d, mps.D, True)
         self.assertTrue(mps==mps_)
 
-    def test_profile_dA_dt_multiprocessing(self):
+    def test_profile_dA_dt(self):
         d, L = 2, 10 
         mps = fMPS().random(L, d, 5)
         H = randn(d**L, d**L)+1j*randn(d**L, d**L)
-        H = H+H.conj().T
+        fullH = H+H.conj().T
+        listH = [randn(4, 4)+1j*randn(4, 4) for _ in range(L-1)]
+        listH = [h+h.conj().T for h in listH]
         t1 = time()
-        B = mps.dA_dt(H, par=False)
+        B = mps.dA_dt(listH, fullH=False)
         t2 = time()
-        print('ser: ', t2-t1)
+        print('list: ', t2-t1)
         t1 = time()
-        B = mps.dA_dt(H, par=True)
+        B = mps.dA_dt(fullH, fullH=True)
         t2 = time()
-        print('par: ', t2-t1)
+        print('full: ', t2-t1)
 
     def test_local_hamiltonians_2(self):
         Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
@@ -956,7 +951,7 @@ class TestfMPS(unittest.TestCase):
 
         mps = self.mps_0_3
         listH = [Sz12@Sz22+Sx12, Sz12@Sz22+Sx12+Sx22]
-        fullH = Sz1@Sz2+Sz2@Sz3 + Sx1+Sx2+Sx3
+        fullH = sum([n_body(a, i, len(listH), d=2) for i, a in enumerate(listH)], axis=0)
         self.assertTrue(mps.dA_dt(listH, fullH=False)==mps.dA_dt(fullH, fullH=True))
 
     def test_local_hamiltonians_4(self):
@@ -970,7 +965,7 @@ class TestfMPS(unittest.TestCase):
 
         mps = self.mps_0_4
         listH = [Sz12@Sz22+Sx12, Sz12@Sz22+Sx12+Sx22, Sz12@Sz22+Sx22]
-        fullH = Sz1@Sz2+Sz2@Sz3+Sz3@Sz4+Sx1+Sx2+Sx3+Sx4
+        fullH = sum([n_body(a, i, len(listH), d=2) for i, a in enumerate(listH)], axis=0)
         self.assertTrue(mps.dA_dt(listH, fullH=False)==mps.dA_dt(fullH, fullH=True))
 
     def test_local_hamiltonians_5(self):
@@ -985,7 +980,7 @@ class TestfMPS(unittest.TestCase):
 
         mps = self.mps_0_5
         listH = [Sz12@Sz22+Sx12, Sz12@Sz22+Sx12+Sx22, Sz12@Sz22+Sx12+Sx22, Sz12@Sz12+Sx22]
-        fullH = Sz1@Sz2+Sz2@Sz3+Sz3@Sz4+Sz4@Sz5+Sx1+Sx2+Sx3+Sx4+Sx5
+        fullH = sum([n_body(a, i, len(listH), d=2) for i, a in enumerate(listH)], axis=0)
         self.assertTrue(mps.dA_dt(listH, fullH=False)==mps.dA_dt(fullH, fullH=True))
 
     def test_local_hamiltonians_6(self):
@@ -1001,7 +996,7 @@ class TestfMPS(unittest.TestCase):
 
         mps = self.mps_0_6
         listH = [Sz12@Sz22+Sx12, Sz12@Sz22+Sx12+Sx22, Sz12@Sz22+Sx12+Sx22, Sz12@Sz12+Sx12+Sx22, Sz12@Sz12+Sx22]
-        fullH = Sz1@Sz2+Sz2@Sz3+Sz3@Sz4+Sz4@Sz5+Sz5@Sz6+Sx1+Sx2+Sx3+Sx4+Sx5+Sx6
+        fullH = sum([n_body(a, i, len(listH), d=2) for i, a in enumerate(listH)], axis=0)
         self.assertTrue(mps.dA_dt(listH, fullH=False)==mps.dA_dt(fullH, fullH=True))
 
     def test_local_hamiltonians_7(self):
@@ -1017,8 +1012,8 @@ class TestfMPS(unittest.TestCase):
         Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
 
         mps = self.mps_0_7
-        listH = [Sz12@Sz22+Sx12, Sz12@Sz22+Sx12+Sx22, Sz12@Sz22+Sx12+Sx22, Sz12@Sz12+Sx12+Sx22, Sz12@Sz12+Sx12+Sx22, Sz12@Sz12+Sx22]
-        fullH = Sz1@Sz2+Sz2@Sz3+Sz3@Sz4+Sz4@Sz5+Sz5@Sz6+Sz6@Sz7+Sx1+Sx2+Sx3+Sx4+Sx5+Sx6+Sx7
+        listH = [Sz12@Sz22+Sx12, Sz12@Sz22+Sx12+Sx22, Sz12@Sz22+Sx12+Sx22, Sz12@Sz22+Sx12+Sx22, Sz12@Sz22+Sx12+Sx22, Sz12@Sz22+Sx22]
+        fullH = sum([n_body(a, i, len(listH), d=2) for i, a in enumerate(listH)], axis=0)
         self.assertTrue(mps.dA_dt(listH, fullH=False)==mps.dA_dt(fullH, fullH=True))
 
     def test_local_recombine(self):
@@ -1030,10 +1025,10 @@ class TestfMPS(unittest.TestCase):
         Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
         Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
 
-        listH = [Sz12@Sz22+Sx12, Sz12@Sz22+Sx12+Sx22, Sz12@Sz22+Sx22]
-        comH = sum([n_body(a, i, len(listH), d=2) for i, a in enumerate(listH)], axis=0)
-        fullH = Sz1@Sz2+Sz2@Sz3+Sz3@Sz4+Sx1+Sx2+Sx3+Sx4
-        self.assertTrue(allclose(fullH, comH))
+        listH4 = [Sz12@Sz22+Sx12, Sz12@Sz22+Sx12+Sx22, Sz12@Sz22+Sx22]
+        comH4 = sum([n_body(a, i, len(listH3), d=2) for i, a in enumerate(listH3)], axis=0)
+        fullH4 = Sz1@Sz2+Sz2@Sz3+Sz3@Sz4+Sx1+Sx2+Sx3+Sx4
+        self.assertTrue(allclose(fullH4, comH4))
 
     def test_local_energy(self):
         Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 4)
