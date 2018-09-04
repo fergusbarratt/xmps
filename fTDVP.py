@@ -87,6 +87,8 @@ def jac(x, f, epsilon=None, args=(), kwargs={}, centered=False):
 
     return grad.squeeze().T
 
+def jac_2(x, f
+
 def trajectory(mps_0, H, dt, N, D=None, m=None, plot=True, timeit=False):
     """trajectory: calculate trajectory and optionally lyapunov exponents.
                    Now with rk4!

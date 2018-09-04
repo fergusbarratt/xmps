@@ -464,13 +464,14 @@ class fMPS(object):
         """
         if op:
             L = self.L
-            links = [[n, 2*L+n, 2*L+n+1] for n in range(1, L+1)]+[list(range(1, 2*L+1))]+\
+            links = [[n, 2*L+n, 2*L+n+1] for n in range(1, L+1)]+[range(1, 2*L+1)]+\
                     [[L+n, 3*L+n if n!=1 else 2*L+n , 3*L+n+1 if n!=L else 2*L+n+1] for n in range(1, L+1)]
             return links
         else:
             L = self.L
             links = [[n, L+n, L+n+1] for n in range(1, L+1)]+[[n, (1+int(n!=1))*L+n, (1+int(n!=L))*L+n+1] for n in range(1, L+1)]
             return links
+
 
     def E(self, op, site):
         """E: one site expectation value
@@ -567,104 +568,31 @@ class fMPS(object):
         else:
             return fMPS([B(n) for n in range(L)])
     
-    def d2A_d2t(self, H, fullH=True):
-        """ddA_dt: find d/dt(dA/dt) - in 2nd tangent space
+    def ddA_dt(self, H, fullH=True):
+        """ddA_dt: find d/dt(dA) - in 2nd tangent space
 
         :param H: hamiltonian
         :param fullH: is the hamiltonian full
         """
-        if fullH:
-            H = H.reshape([self.d, self.d]*self.L)
         L, d, A = self.L, self.d, self.data
         dA_dt = self.dA_dt(H, fullH=True, store_envs=True)
         l, r = self.l, self.r
         pr = lambda n: self.left_null_projector(n, l)
+        Γ = lambda i, j, k: self.christoffel(i, j, k, envs=(l, r))
 
-        Γ = lambda i: sum([self.christoffel(j, i, k, envs=(l, r), closed=[c(dA_dt[j]), None, dA_dt[k]])
-                           for j, k in product(range(L), range(L))], axis=0)
-        #<d_id_jψ|d_kψ>dA_j*/dt dA_k/dt
-
-        def F1(i, j=None, close=True):
-            #<d_id_j ψ|H|ψ>dA*_j/dt
-            def F1(i_, j_):
-                #<d_id_j ψ|H|ψ>
-                i, j = (j_, i_) if j_<i_ else (i_, j_)
-                if fullH:
-                    if i==j:
-                        G = zeros((*A[i].shape, *A[j].shape))
-                    else:
-                        links = self.links(True)
-                        if i==j-1:
-                            bottom = [pr(i) if m==i else ncon([c(r(j-1)), pr(j)], [[-2, 1], [-1, 1, -3, -4]]) if m==j else a.conj() for m, a in enumerate(A)]
-                        else:
-                            bottom = [pr(m) if (m==i or m==j) else a.conj() for m, a in enumerate(A)]
-                            bottom = [c(inv(r(m-1)))@a.conj() if m==i+1 or m==j+1 else a for m, a in enumerate(bottom)]
-                        top = A
-                        links[i] = links[i][:2]+[-1, -2] 
-                        links[i+1][1] = -3
-                        links[j] = links[j][:2]+[-4, -5] 
-                        if j == L-1:
-                            links[-1][-1] = -6
-                        else:
-                            links[j+1][1] = -6
-                        G = ncon(bottom+[H]+top, links)
-                if j_<i_:
-                    return tra(G, [3, 4, 5, 0, 1, 2])
-                else:
-                    return G
-            if close:
-                assert j is None
-                return -1j*sum([ncon([F1(i, j), c(dA_dt[j])], [[-1, -2, -3, 1, 2, 3], [1, 2, 3]]) for j in range(L)], axis=0)
-            else:
-                assert j is not None
-                return F2(i, j)
+        def F1(i, j):
+            #<d_id_j ψ|H|ψ>
+            pass
             
-        def F2(i, j=None, close=True):
-            #<d_iψ|H|d_jψ>dA_j/dt
-            def F2(i, j):
-                #<d_iψ|H|d_jψ> not summed
-                if fullH:
-                    links = self.links(True)
-                    bottom = [pr(m) if m==i else c(inv(r(m-1)))@a.conj() if m==i+1 else a.conj() for m, a in enumerate(A)]
-                    top = [c(pr(m)) if m==j else c(inv(r(m-1)))@a.conj() if m==j+1 else a.conj() for m, a in enumerate(A)]
-                    if i!=L-1 and j!=L-1:
-                        links[i] = links[i][:2] + [-1, -2]
-                        links[i+1][1] = -3
-                        links[L+1+j] = links[L+1+j][:2] + [-4, -5]
-                        links[L+1+j+1][1] = -6
-                    elif i!=L-1:
-                        links[i] = links[i][:2] + [-1, -2]
-                        links[i+1][1] = -3
-                        links[L+1+j] = links[L+1+j][:2] + [-4, -5]
-                        links[L-1][-1] = -6
-                    elif j!=L-1:
-                        links[i] = links[i][:2] + [-1, -2]
-                        links[2*L][-1] = -3
-                        links[L+1+j] = links[L+1+j][:2] + [-4, -5]
-                        links[L+1+j+1][1] = -6
-                    else:
-                        links[i] = links[i][:2] + [-1, -2]
-                        links[L+1+j] = links[L+1+j][:2] + [-4, -5]
-                    G = ncon(bottom+[H]+top, links)
-                    if i==L-1 and j==L-1:
-                        G = ed(ed(G, -1), 2)
-                    return G
-            if close:
-                assert j is None
-                return -1j*sum([ncon([F2(i, j), dA_dt[j]], [[-1, -2, -3, 1, 2, 3], [1, 2, 3]]) for j in range(L)], axis=0)
-            else: 
-                assert j is not None
-                return F2(i, j)
+        def F2(i, j):
+            #<d_iψ|H|d_jψ>
+            pass
 
-        def ddA(i):
-            return F1(i) + F2(i) + Γ(i) + c(Γ(i))
+        return Γ(1, 0, 0).shape
 
-        return fMPS([ddA(i) for i in range(L)])
-
-    def christoffel(self, i, j, k, envs=None, closed=(None, None, None)):
+    def christoffel(self, i, j, k, envs=None, close=(None, None, None)):
         """christoffel: return the christoffel symbol in basis c(A_i), c(A_j), A_k. 
-           Close indices i, j, k, with elements of closed tuple: i.e. (B_i, B_j, B_k).
-           Will leave any indices marked none open"""
+           Close indices i, j, k, with elements of close tuple: i.e. (B_i, B_j, B_k)"""
         L, d, A = self.L, self.d, self.data
         l, r = self.get_envs() if envs is None else envs
         pr = lambda n: self.left_null_projector(n, l)
@@ -674,56 +602,65 @@ class fMPS(object):
             #j always greater than i (Γ symmetric in i, j)
             i, j = (j_, i_) if j_<i_ else (i_, j_)
 
-            if j==i:
-                G = zeros((*A[i].shape, *A[j].shape, *A[k].shape))
+            if j == i:
+                return zeros((*A[i].shape, *A[j].shape, *A[k].shape))
+            if j==i+1:
+                bottom = [pr(i) if m==i else ncon([c(r(j-1)), pr(j)], [[-2, 1], [-1, 1, -3, -4]]) if m==j else a.conj() for m, a in enumerate(A)]
             else:
-                if j==i+1:
-                    bottom = [pr(i) if m==i else ncon([c(r(j-1)), pr(j)], [[-2, 1], [-1, 1, -3, -4]]) if m==j else a.conj() for m, a in enumerate(A)]
+                bottom = [pr(m) if (m==i or m==j) else a.conj() for m, a in enumerate(A)]
+                bottom = [c(inv(r(m-1)))@a.conj() if m==i+1 or m==j+1 else a for m, a in enumerate(bottom)]
+
+            top = [c(pr(k)) if m==k else r(k)@a if m==k+1 else a for m, a in enumerate(A)]
+
+            links = self.links(False)
+
+            links[i] = links[i][:2]+[-1, -2]
+            links[i+1][1] = -3
+            if j==L-1: 
+                if k==L-1:
+                    links[j] = links[j][:2]+[-4, -5]
+
+                    links[L+k] = links[L+k][:2]+[-6, -7]
+                    G = ed(ed(ncon(bottom+top, links), -1), 5)
                 else:
-                    bottom = [pr(m) if (m==i or m==j) else a.conj() for m, a in enumerate(A)]
-                    bottom = [c(inv(r(m-1)))@a.conj() if m==i+1 or m==j+1 else a for m, a in enumerate(bottom)]
-                top = [c(pr(k)) if m==k else r(k)@a if m==k+1 else a for m, a in enumerate(A)]
-
-                links = self.links(False)
-
-                links[i] = links[i][:2]+[-1, -2]
-                links[i+1][1] = -3
-
-                links[j] = links[j][:2]+[-4, -5]
-
-                links[L+k] = [-7, -8]+links[L+k][:2]
-
-                if j!=L-1 and k!=L-1:
-                    links[j+1][1] = -6
-                    links[L+k+1][1] = -9
-                elif j==L-1 and k!=L-1:
+                    links[j] = links[j][:2]+[-4, -5]
                     links[-1][-1] = -6
-                    links[L+k+1][1] = -9
-                elif k==L-1 and j!=L-1:
-                    links[j+1][1] = -6
-                    links[L-1][-1] = -9
 
-                G = ncon(bottom+top, links)
-                if j==L-1 and k==L-1:
-                    G = ed(ed(G, -1), 5)
+                    links[L+k] = links[L+k][:2]+[-7, -8]
+                    links[L+k+1][1] = -9
+                    G = ncon(bottom+top, links)
+            else:
+                if k==L-1:
+                    links[j] = links[j][:2]+[-4, -5]
+                    links[j+1][1] = -6
+
+                    links[L+k] = links[L+k][:2]+[-7, -8]
+                    links[L-1][-1] = -9
+                    G = ncon(bottom+top, links)
+                else:
+                    links[j] = links[j][:2]+[-4, -5]
+                    links[j+1][1] = -6
+
+                    links[L+k] = links[L+k][:2]+[-7, -8]
+                    links[L+k+1][1] = -9
+                    G = ncon(bottom+top, links)
 
             if j_<i_:
                 return tra(G, [3, 4, 5, 0, 1, 2, 6, 7, 8])
             else:
                 return G
 
-        if any([c is None for c in closed]):
-            c_ind = [m for m, A in enumerate(closed) if A is not None]
-            o_ind = [m for m, A in enumerate(closed) if A is None]
-            links = [reduce(lambda x, y: x+y,
-                           [list(array([-1, -2, -3])-3*(o_ind.index(n))) if n in o_ind else 
-                           [c_ind.index(n), c_ind.index(n)+3, c_ind.index(n)+6] for n in range(3)])]+\
+        if (array(close)==None).any():
+            c_ind = [m for m, A in enumerate(close) if A is not None]
+            o_ind = [m for m, A in enumerate(close) if A is None]
+            links = [array([-1, -2, -3])+3*(o_ind.index(n)) if n in o_ind else 
+                     [c_ind.index(n), c_ind.index(n)+3, c_ind.index(n)+6] for n in range(3)]+\
                     [[n, n+3, n+6] for n in range(len(c_ind))]
-            Γ_c = ncon([Γ(i, j, k)]+[closed[j] for j in c_ind], links)
-        else:
-            Γ_c = Γ(i, j, k)
+            print(links)
+            Γ_c = ncon([Γ]+[close[j] for j in c_ind], links)
+            raise Exception
 
-        return -Γ_c
+        return Γ(i, j, k)
 
     def left_null_projector(self, n, l=None, get_vL=False):
         """left_null_projector:           |    
@@ -1166,16 +1103,16 @@ class TestfMPS(unittest.TestCase):
         fullH = sum([n_body(a, i, len(listH), d=2) for i, a in enumerate(listH)], axis=0)
         self.assertTrue(mps.dA_dt(listH, fullH=False)==mps.dA_dt(fullH, fullH=True))
 
-    def test_d2A_d2t_2(self):
+    def test_ddA_dt_2(self):
         Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
         Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
 
         mps = self.mps_0_2
         listH = [Sz12@Sz22+Sx12+Sx22]
         fullH = listH[0]
-        print(mps.d2A_d2t(fullH))
+        print(mps.ddA_dt(fullH))
 
-    def test_d2A_d2t_3(self):
+    def test_ddA_dt_3(self):
         Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 3)
         Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 3)
         Sx3, Sy3, Sz3 = N_body_spins(0.5, 3, 3)
@@ -1186,7 +1123,7 @@ class TestfMPS(unittest.TestCase):
         mps = self.mps_0_3
         listH = [Sz12@Sz22+Sx12, Sz12@Sz22+Sx12+Sx22]
         fullH = sum([n_body(a, i, len(listH), d=2) for i, a in enumerate(listH)], axis=0)
-        print(mps.d2A_d2t(fullH).data)
+        print(mps.ddA_dt(fullH))
 
     def test_local_recombine(self):
         Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 4)
