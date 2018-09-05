@@ -12,6 +12,9 @@ from numba import jit
 from qmb import sigmaz
 
 
+def direct_sum(basis1, basis2):
+    return [ct([b1, b2]) for b1, b2 in product(basis1, basis2)]
+
 def T(tensor):
     """T: transpose last two indices of tensor
 

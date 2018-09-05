@@ -87,8 +87,6 @@ def jac(x, f, epsilon=None, args=(), kwargs={}, centered=False):
 
     return grad.squeeze().T
 
-def jac_2(x, f
-
 def trajectory(mps_0, H, dt, N, D=None, m=None, plot=True, timeit=False):
     """trajectory: calculate trajectory and optionally lyapunov exponents.
                    Now with rk4!
@@ -191,7 +189,7 @@ class Trajectory(object):
         self.ode = c_ode(lambda v, L, d, D, H: fMPS().deserialize(v, L, d, D).dA_dt(H).serialize())
 
     def odeint(self, T, D=None, plot=False, timeit=False, lyapunovs=False):
-        """odeint: pass to scipy odeint:
+        """odeint: pass to scipy odeint: can do lyapunov exponents with finite differences. Dunno if this works.
 
         :param mps_0: initial 
         :param plot: plot the result
@@ -242,6 +240,24 @@ class Trajectory(object):
         self.mps = fMPS().deserialize(traj.T[-1, :], L, d, D)
         return self
 
+    def lyapunov(self, T, D=None):
+        mps = self.mps
+        H = self.H
+        Q = split(mps.tangent_space_basis(), 2)[0]
+        print(Q.shape)
+        dt = T[1]-T[0]
+        e = []
+        for t in T:
+            for m, v in enumerate(Q):
+                print(m)
+                dA = mps.import_tangent_vector(v)
+                Q[m] = mps.extract_tangent_vector(dA + mps.ddA_dt(dA, H)*dt)
+            e.append(mps.E(Sx, 0))
+            mps = mps+mps.dA_dt(H, fullH=True)*dt
+        plt.plot(e)
+        plt.show()
+
+
 class TestTrajectory(unittest.TestCase):
     """TestF"""
     def setUp(self):
@@ -260,6 +276,15 @@ class TestTrajectory(unittest.TestCase):
 
         self.mps_0_4 = fMPS().left_from_state(self.tens_0_4)
         self.psi_0_4 = self.mps_0_4.recombine().reshape(-1)
+
+    def test_lyapunov(self):
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 4)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 4)
+        Sx3, Sy3, Sz3 = N_body_spins(0.5, 3, 4)
+        Sx4, Sy4, Sz4 = N_body_spins(0.5, 4, 4)
+        mps = self.mps_0_4
+        H = Sz1@Sz2 +Sz2@Sz3 + Sz3@Sz4 + Sx1+Sx2+Sx3+Sx4
+        Trajectory(mps, H).lyapunov(linspace(0, 5, 5))
 
     def test_fd_lyapunovs(self):
         """test_fd_lyapunovs: 2 spins, lyapunov trajectory"""

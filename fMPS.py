@@ -8,7 +8,7 @@ from numpy import array, concatenate, diag, dot, allclose, isclose, swapaxes as 
 from numpy import identity, swapaxes, trace, tensordot, sum, prod
 from numpy import real as re, stack as st, concatenate as ct
 from numpy import split as chop, zeros, ones, ones_like, empty
-from numpy import save, load, zeros_like as zl, eye
+from numpy import save, load, zeros_like as zl, eye, cumsum as cs
 from numpy import sqrt, expand_dims as ed, transpose as tra
 from tests import is_right_canonical, is_right_env_canonical, is_full_rank
 from tests import is_left_canonical, is_left_env_canonical, has_trace_1
@@ -97,6 +97,13 @@ class fMPS(object):
         """
         return fMPS([other*a for a in self.data], self.d)
 
+    def __rmul__(self, other):
+        """__rmul__: right scalar multiplication
+
+        :param other: scalar to multiply
+        """
+        return self.__mul__(other)
+
     def __truediv__(self, other):
         """__mul__: This is not multiplying an MPS by a scalar: it's itemwise:
                     Hack for time evolution.
@@ -105,13 +112,6 @@ class fMPS(object):
         :param other: scalar to multiply
         """
         return self.__mul__(1/other)
-
-    def __rmul__(self, other):
-        """__rmul__: right scalar multiplication
-
-        :param other: scalar to multiply
-        """
-        return self.__mul__(other)
 
     def get_envs(self, store_envs=False):
         """get_envs: return all envs (slow). indexing is a bit weird: l(-1) is |=
@@ -567,8 +567,9 @@ class fMPS(object):
         else:
             return fMPS([B(n) for n in range(L)])
     
-    def d2A_d2t(self, H, fullH=True):
-        """ddA_dt: find d/dt(dA/dt) - in 2nd tangent space
+    def ddA_dt(self, dA, H, fullH=True):
+        """d(dA)_dt: find - in 2nd tangent space: time evolution of tangent mps dA
+           TEST: if dA = dA_dt*dt: ddA_dt = d2A_d2t = dA_dt(H).dA_dt(H)?
 
         :param H: hamiltonian
         :param fullH: is the hamiltonian full
@@ -580,12 +581,12 @@ class fMPS(object):
         l, r = self.l, self.r
         pr = lambda n: self.left_null_projector(n, l)
 
-        Γ = lambda i: sum([self.christoffel(j, i, k, envs=(l, r), closed=[c(dA_dt[j]), None, dA_dt[k]])
+        Γ = lambda i: sum([self.christoffel(j, i, k, envs=(l, r), closed=[c(dA_dt[j]), None, dA[k]])
                            for j, k in product(range(L), range(L))], axis=0)
         #<d_id_jψ|d_kψ>dA_j*/dt dA_k/dt
 
         def F1(i, j=None, close=True):
-            #<d_id_j ψ|H|ψ>dA*_j/dt
+            #<d_id_j ψ|H|ψ>dA*_j
             def F1(i_, j_):
                 #<d_id_j ψ|H|ψ>
                 i, j = (j_, i_) if j_<i_ else (i_, j_)
@@ -614,13 +615,13 @@ class fMPS(object):
                     return G
             if close:
                 assert j is None
-                return -1j*sum([ncon([F1(i, j), c(dA_dt[j])], [[-1, -2, -3, 1, 2, 3], [1, 2, 3]]) for j in range(L)], axis=0)
+                return -1j*sum([ncon([F1(i, j), c(dA[j])], [[-1, -2, -3, 1, 2, 3], [1, 2, 3]]) for j in range(L)], axis=0)
             else:
                 assert j is not None
                 return F2(i, j)
             
         def F2(i, j=None, close=True):
-            #<d_iψ|H|d_jψ>dA_j/dt
+            #<d_iψ|H|d_jψ>dA_j
             def F2(i, j):
                 #<d_iψ|H|d_jψ> not summed
                 if fullH:
@@ -651,7 +652,7 @@ class fMPS(object):
                     return G
             if close:
                 assert j is None
-                return -1j*sum([ncon([F2(i, j), dA_dt[j]], [[-1, -2, -3, 1, 2, 3], [1, 2, 3]]) for j in range(L)], axis=0)
+                return -1j*sum([ncon([F2(i, j), dA[j]], [[-1, -2, -3, 1, 2, 3], [1, 2, 3]]) for j in range(L)], axis=0)
             else: 
                 assert j is not None
                 return F2(i, j)
@@ -661,7 +662,7 @@ class fMPS(object):
 
         return fMPS([ddA(i) for i in range(L)])
 
-    def christoffel(self, i, j, k, envs=None, closed=(None, None, None)):
+    def christoffel(self, i, j, k, envs=None, closed=(None, None, None), testing=False):
         """christoffel: return the christoffel symbol in basis c(A_i), c(A_j), A_k. 
            Close indices i, j, k, with elements of closed tuple: i.e. (B_i, B_j, B_k).
            Will leave any indices marked none open"""
@@ -669,8 +670,8 @@ class fMPS(object):
         l, r = self.get_envs() if envs is None else envs
         pr = lambda n: self.left_null_projector(n, l)
 
-        def Γ(i_, j_, k):
-            """Γ: Christoffel symbol"""
+        def Γ_f(i_, j_, k):
+            """Γ: Christoffel symbol: does not take advantage of gauge! also wrong i think"""
             #j always greater than i (Γ symmetric in i, j)
             i, j = (j_, i_) if j_<i_ else (i_, j_)
 
@@ -712,7 +713,42 @@ class fMPS(object):
             else:
                 return G
 
-        if any([c is None for c in closed]):
+        def Γ(i_, j_, k):
+                """Γ: Christoffel symbol: does take advantage of gauge"""
+                #j always greater than i (Γ symmetric in i, j)
+                i, j = (j_, i_) if j_<i_ else (i_, j_)
+
+                if j==i or i!=k or allclose(pr(i), 0):
+                    G = 1j*zeros((*A[i].shape, *A[j].shape, *A[k].shape))
+                else:
+                    # reorder projector indices (spin, spin, aux, aux)
+                    pr_ = lambda n: tra(pr(n), [0, 2, 1, 3]) 
+                    top = A[i+1:j+1]
+                    bot = [pr_(j) if m==j-i-1 else a.conj() for m, a in enumerate(top)]
+                    top[0], top[-1] = inv(ch(r(i)))@top[0], top[-1]@ch(r(j))
+                    bot[0] = c(inv(ch(r(i))))@bot[0]
+                    bot[j-i-1] = tra(bot[j-i-1], [0, 2, 1, 3])
+
+                    links = [[n, j+n, j+n+1] for n in range(i+1, j+1)]+[[n, 2*j+n, 2*j+n+1] for n in range(i+1, j+1)]
+
+                    links[0][1], links[j-i-1][2], links[j-i][1] = [-9, -6, -3]
+                    links[2*(j-i)-1] = [-4, -5]+links[2*(j-i)-1][:2]
+                    links.insert(0, [-1, -2, -7, -8])
+                    G = ncon([pr(i)]+top+bot, links)
+                if j_<i_:
+                    return tra(G, [3, 4, 5, 0, 1, 2, 6, 7, 8])
+                else:
+                    return G
+
+        if testing:
+            ok = True
+            all_zeros = True
+            for i, j, k in product(*[range(self.L) for _ in range(3)]):
+                ok = allclose(Γ(i, j, k), Γ_f(i, j, k)) and ok 
+                all_zeros =  allclose(Γ(i, j, k), 0) and all_zeros
+            return ok, all_zeros 
+
+        if any([c is not None for c in closed]):
             c_ind = [m for m, A in enumerate(closed) if A is not None]
             o_ind = [m for m, A in enumerate(closed) if A is None]
             links = [reduce(lambda x, y: x+y,
@@ -725,7 +761,7 @@ class fMPS(object):
 
         return -Γ_c
 
-    def left_null_projector(self, n, l=None, get_vL=False):
+    def left_null_projector(self, n, l=None, get_vL=False, store_envs=False):
         """left_null_projector:           |    
                          - inv(sqrt(l)) - vL = vL- inv(sqrt(l))-
                                                |
@@ -734,7 +770,7 @@ class fMPS(object):
         :param n: site
         """
         if l is None:
-            l, _ = self.get_envs()
+            l, _ = self.get_envs(store_envs)
         L_ = cT(self[n])@ch(l(n-1))
         L = sw(L_, 0, 1).reshape(-1, self.d*L_.shape[-1])
         vL = null(L).reshape((self.d, int(L.shape[1]/self.d), -1))
@@ -742,6 +778,62 @@ class fMPS(object):
         if get_vL:
             return pr, vL
         return pr
+
+    def tangent_state(self, x, n, envs=None, vL=None):
+        l , r = self.get_envs() if envs is None else envs
+        _, vL = self.left_null_projector(n, l, get_vL=True) if vL is None else 1, vL
+        return fMPS([inv(ch(l(n-1)))@vL@x if m==n else inv(ch(r(n)))@A if m==n+1 else A for m, A in enumerate(self.data)])
+
+    def tangent_space_dims(self, l=None, get_vLs=False):
+        l, _ = self.get_envs() if l is None else (l, None)
+        vLs = [self.left_null_projector(n, l=l, get_vL=True)[1] for n in range(self.L)]
+        shapes = [(vL.shape[-1], self.data[n+1].shape[1] if n+1<self.L else 1)
+                  for vL, n in zip(vLs, range(self.L))]
+        if get_vLs:
+            return vLs, shapes
+        else:
+            return shapes
+
+    def tangent_space_basis(self, Qs=None):
+        """turn a basis of local variations into a matrix of vectors of the total tangent space
+          
+        :param Q: Matrix of vectors spanning local tangent spaces. if None, use the identity
+        :param envs: environments. if None, calculate
+        """
+        Qs = [ct([eye(d1*d2), 1j*eye(d1*d2)], axis=0) for d1, d2 in self.tangent_space_dims() if d1!=0 and d2!=0]
+        def direct_sum(basis1, basis2):
+            d1 = len(basis1[0])
+            d2 = len(basis2[0])
+            return [ct([b1, zeros(d2)]) for b1 in basis1]+[ct([zeros(d1), b2]) for b2 in basis2]
+        return array(reduce(direct_sum, Qs))
+
+    def extract_tangent_vector(self, dA):
+        """extract_tangent_vector from dA: 
+           assume mps represents element of tangent space i.e.
+           [B1...BN] <=> A1...Bn...AN + A1...Bn+1...AN+...
+           return x1++x2++x3...++xN (concatenate + flatten)"""
+        xs = []
+        for n, shape in enumerate(self.tangent_space_dims()):
+            if prod(shape) == 0:
+                continue
+            _, vL = self.left_null_projector(n, get_vL=True, store_envs=True)
+            l, r = self.l, self.r
+            x = ncon([vL, ch(l(n-1))@dA[n]@ch(r(n))], [[1, 2, -1], [1, 2, -2]])
+            xs.append(x.reshape(-1))
+        return ct(xs)
+
+    def import_tangent_vector(self, v, xs=False):
+        l, r = self.get_envs()
+        vLs, shapes = self.tangent_space_dims(l, get_vLs=True)
+        vLs = [vL for vL in vLs if prod(vL.shape)!=0]
+        S = [shape for shape in shapes if prod(shape)!=0]
+        nulls = len([shape for shape in shapes if prod(shape)==0])
+        vs = chop(v, cs([prod(s) for s in S]))
+        xs = [x.reshape(*shape) for x, shape in zip(vs, S)]
+        l_, r_ = lambda n: l(n+nulls), lambda n: r(n+nulls)
+        Bs = [zl(A) for A in self.data[:nulls]] + \
+             [inv(ch(l_(n-1)))@vL@x@inv(ch(r_(n))) for n, (vL, x) in enumerate(zip(vLs, xs))]
+        return fMPS(Bs)
     
     def serialize(self, real=False):
         """serialize: return a vector with mps data in it"""
@@ -1082,6 +1174,16 @@ class TestfMPS(unittest.TestCase):
         mps_ = fMPS().deserialize(mps.serialize(True), mps.L, mps.d, mps.D, True)
         self.assertTrue(mps==mps_)
 
+    def test_import_extract_tangent_vector(self):
+        Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
+        Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
+
+        mps = self.mps_0_4
+        H = [Sz12@Sz22+Sx12, Sz12@Sz22+Sx12+Sx22, Sz12@Sz22+Sx22]
+        dA = mps.dA_dt(H)
+        dA_ = mps.import_tangent_vector(mps.extract_tangent_vector(dA))
+        self.assertTrue(dA==dA_)
+
     def test_local_hamiltonians_2(self):
         Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
         Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
@@ -1166,16 +1268,28 @@ class TestfMPS(unittest.TestCase):
         fullH = sum([n_body(a, i, len(listH), d=2) for i, a in enumerate(listH)], axis=0)
         self.assertTrue(mps.dA_dt(listH, fullH=False)==mps.dA_dt(fullH, fullH=True))
 
-    def test_d2A_d2t_2(self):
+    def test_christoffel(self):
+        mps = self.mps_0_5.left_canonicalise(3)
+        # tests if christoffel symbol calculated with gauge tricks is the same as without
+        ok, all_zeros = mps.christoffel(0, 0, 0, testing=True)
+        print(mps.christoffel(2, 3, 2, None, (c(mps[2]), c(mps[3]), mps[2])))
+        print('all zeros?: ', all_zeros)
+        self.assertTrue(ok)
+
+    def test_ddA_dt_2(self):
         Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
         Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
 
         mps = self.mps_0_2
         listH = [Sz12@Sz22+Sx12+Sx22]
         fullH = listH[0]
-        print(mps.d2A_d2t(fullH))
+        dt = 0.1
+        d2A_d2t1 = mps.ddA_dt(mps.dA_dt(fullH, fullH=True), fullH)
+        # can't construct the environments: not positive definite
+        #d2A_d2t2 = mps.dA_dt(listH).dA_dt(listH)
+        #print([norm(x-x_) for x, x_ in zip(d2A_d2t1, d2A_d2t2)])
 
-    def test_d2A_d2t_3(self):
+    def test_ddA_dt_3(self):
         Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 3)
         Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 3)
         Sx3, Sy3, Sz3 = N_body_spins(0.5, 3, 3)
@@ -1186,7 +1300,7 @@ class TestfMPS(unittest.TestCase):
         mps = self.mps_0_3
         listH = [Sz12@Sz22+Sx12, Sz12@Sz22+Sx12+Sx22]
         fullH = sum([n_body(a, i, len(listH), d=2) for i, a in enumerate(listH)], axis=0)
-        print(mps.d2A_d2t(fullH).data)
+        mps.ddA_dt(mps.dA_dt(fullH, fullH=True), fullH)
 
     def test_local_recombine(self):
         Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 4)
