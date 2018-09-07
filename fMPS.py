@@ -2,8 +2,8 @@ import unittest
 from spin import n_body, N_body_spins
 from ncon import ncon
 from numpy.random import rand, randint, randn
-from numpy.linalg import svd, inv, norm, cholesky as ch
-from scipy.linalg import null_space as null#, sqrtm as ch
+from numpy.linalg import svd, inv, norm#, cholesky as ch
+from scipy.linalg import null_space as null, sqrtm as ch
 from numpy import array, concatenate, diag, dot, allclose, isclose, swapaxes as sw
 from numpy import identity, swapaxes, trace, tensordot, sum, prod
 from numpy import real as re, stack as st, concatenate as ct
@@ -704,6 +704,8 @@ class fMPS(object):
                 if i==L-1 and j==L-1:
                     G = ed(ed(G, -1), 2)
                 return G
+            else:
+
 
     def christoffel(self, i, j, k, envs=None, closed=(None, None, None)):
         """christoffel: return the christoffel symbol in basis c(A_i), c(A_j), A_k. 
@@ -1271,13 +1273,31 @@ class TestfMPS(unittest.TestCase):
         ijks = ((4, 5, 4), (3, 5, 3), (3, 4, 3)) # all non zero indexes (for full rank)
         for i, j, k in ijks:
             # Gauge projectors are in the right place
+            mps.left_canonicalise()
+            l, r = mps.get_envs()
             self.assertTrue(not allclose(mps.christoffel(i, j, k), 0))
-            i_true=allclose(mps.christoffel(i, j, k, closed=(c(mps[i]), None, None)), 0)
-            i_false=allclose(mps.christoffel(i, j, k, closed=(mps[i], None, None)), 0)
-            j_true=allclose(mps.christoffel(i, j, k, closed=(None, c(mps[j]), None)), 0)
-            j_false=allclose(mps.christoffel(i, j, k, closed=(None, mps[j], None)), 0)
-            k_true=allclose(mps.christoffel(i, j, k, closed=(None, None, mps[k])), 0)
-            k_false=allclose(mps.christoffel(i, j, k, closed=(None, None, c(mps[k]))), 0)
+            i_true=allclose(mps.christoffel(i, j, k, closed=(l(i-1)@c(mps[i]), None, None)), 0)
+            i_false=allclose(mps.christoffel(i, j, k, closed=(l(i-1)@mps[i], None, None)), 0)
+            j_true=allclose(mps.christoffel(i, j, k, closed=(None, l(j-1)@c(mps[j]), None)), 0)
+            j_false=allclose(mps.christoffel(i, j, k, closed=(None, l(j-1)@mps[j], None)), 0)
+            k_true=allclose(mps.christoffel(i, j, k, closed=(None, None, l(k-1)@mps[k])), 0)
+            k_false=allclose(mps.christoffel(i, j, k, closed=(None, None, l(k-1)@c(mps[k]))), 0)
+            self.assertTrue(i_true)
+            self.assertTrue(j_true)
+            self.assertTrue(k_true)
+            self.assertTrue(not i_false)
+            self.assertTrue(not j_false)
+            self.assertTrue(not k_false)
+
+            mps.right_canonicalise()
+            l, r = mps.get_envs()
+            self.assertTrue(not allclose(mps.christoffel(i, j, k), 0))
+            i_true=allclose(mps.christoffel(i, j, k, closed=(l(i-1)@c(mps[i]), None, None)), 0)
+            i_false=allclose(mps.christoffel(i, j, k, closed=(l(i-1)@mps[i], None, None)), 0)
+            j_true=allclose(mps.christoffel(i, j, k, closed=(None, l(j-1)@c(mps[j]), None)), 0)
+            j_false=allclose(mps.christoffel(i, j, k, closed=(None, l(j-1)@mps[j], None)), 0)
+            k_true=allclose(mps.christoffel(i, j, k, closed=(None, None, l(k-1)@mps[k])), 0)
+            k_false=allclose(mps.christoffel(i, j, k, closed=(None, None, l(k-1)@c(mps[k]))), 0)
             self.assertTrue(i_true)
             self.assertTrue(j_true)
             self.assertTrue(k_true)
@@ -1298,6 +1318,7 @@ class TestfMPS(unittest.TestCase):
             self.assertTrue(not allclose(mps.christoffel(i, j, k), 0))
 
     def test_F1_F2(self):
+        '''<d_id_j ψ|H|ψ>'''
         Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 5)
         Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 5)
         Sx3, Sy3, Sz3 = N_body_spins(0.5, 3, 5)
@@ -1312,18 +1333,28 @@ class TestfMPS(unittest.TestCase):
         fullH = Sz1@Sz2+Sz2@Sz3+Sz3@Sz4+Sz4@Sz5+Sx1+Sx2+Sx3+Sx4+Sx5
 
         for i, j in product(range(mps.L), range(mps.L)):
-            # Test gauge projectors are in the right place
-            # Passes if left canonical, fails if right-> I think this is ok
+            # <d_id_j ψ|H|ψ>
+            # zero for H = I
             self.assertTrue(allclose(mps.F1(i, j, eyeH, fullH=False), 0))
-            z1 = ncon([mps.F1(i, j, listH, fullH=False), c(mps[i])], [[1, 2, 3, -1, -2, -3], [1, 2, 3]])
-            z2 = ncon([mps.F1(i, j, listH, fullH=False), c(mps[j])], [[-1, -2, -3, 1, 2, 3], [1, 2, 3]])
+
+            # Test gauge projectors are in the right place
+            mps.right_canonicalise()
+            l, r = mps.get_envs()
+            z1 = ncon([mps.F1(i, j, listH, fullH=False), l(i-1)@c(mps[i])], [[1, 2, 3, -1, -2, -3], [1, 2, 3]])
+            z2 = ncon([mps.F1(i, j, listH, fullH=False), l(j-1)@c(mps[j])], [[-1, -2, -3, 1, 2, 3], [1, 2, 3]])
             self.assertTrue(allclose(z1, 0))
             self.assertTrue(allclose(z2, 0))
+
+            mps.left_canonicalise()
+            l, r = mps.get_envs()
+            z1 = ncon([mps.F1(i, j, listH, fullH=False), l(i-1)@c(mps[i])], [[1, 2, 3, -1, -2, -3], [1, 2, 3]])
+            z2 = ncon([mps.F1(i, j, listH, fullH=False), l(j-1)@c(mps[j])], [[-1, -2, -3, 1, 2, 3], [1, 2, 3]])
+            self.assertTrue(allclose(z1, 0))
+            self.assertTrue(allclose(z2, 0))
+
+            # TODO: testing for F2
             # TODO: fullH fails gauge projectors test (listH doesn't): 
             # TODO: fullH different from listH:
-                # self.assertTrue(allclose(ncon([mps.F1(i, j, fullH, fullH=True), c(mps[i]), c(mps[j])], [range(1, 7), range(1, 4), range(4, 7)]), 0))
-                # print(norm(mps.F1(i, j, listH, fullH=False)-mps.F1(i, j, fullH, fullH=True)), allclose(mps.F1(i, j, fullH, fullH=True), 0), i,j)
-            #self.assertTrue(allclose(ncon([mps.F2(i, j, listH, fullH=False), c(mps[i]), mps[j]], [range(1, 7), range(1, 4), range(4, 7)]), 0))
 
 
     def test_ddA_dt(self):
