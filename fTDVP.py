@@ -16,6 +16,7 @@ import numpy as np
 from tensor import get_null_space, H as cT, C as c
 from matplotlib import pyplot as plt
 from functools import reduce
+from copy import copy
 Sx, Sy, Sz = spins(0.5)
 Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
 Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
@@ -98,10 +99,10 @@ def trajectory(mps_0, H, dt, N, D=None, m=None, plot=True, timeit=False):
     :param m: calculate exponents every m steps - don't calculate them if m is None
     """
     def rk4(mps, H, dt):
-        k1 = mps.dA_dt(H)*dt
-        k2 = (mps+k1/2).dA_dt(H)*dt
-        k3 = (mps+k2/2).dA_dt(H)*dt
-        k4 = (mps+k3).dA_dt(H)*dt
+        k1 = mps.dA_dt(H, fullH=True)*dt
+        k2 = (mps+k1/2).dA_dt(H, fullH=True)*dt
+        k3 = (mps+k2/2).dA_dt(H, fullH=True)*dt
+        k4 = (mps+k3).dA_dt(H, fullH=True)*dt
 
         return mps+(k1+2*k2+2*k3+k4)/6
 
@@ -157,7 +158,7 @@ def trajectory(mps_0, H, dt, N, D=None, m=None, plot=True, timeit=False):
 class Trajectory(object):
     """Trajectory"""
 
-    def __init__(self, mps_0, H):
+    def __init__(self, mps_0, H, fullH=True):
         """__init__
 
         :param mps_0: initial state
@@ -166,30 +167,28 @@ class Trajectory(object):
         """
         self.H = H
         self.mps = mps_0
+        self.fullH=fullH
         self.history = []
 
     def euler(self, dt):
-        self.history.append(mps.serialize())
         mps, H = self.mps, self.H
-        self.mps =  mps + mps.dA_dt(H)*dt
+        self.mps =  self.mps + self.mps.dA_dt(H)*dt
+        self.history.append(mps.serialize())
         return self
 
     def rk4(self, dt):
         mps, H = self.mps, self.H
-        k1 = mps.dA_dt(H)*dt
-        k2 = (mps+k1/2).dA_dt(H)*dt
-        k3 = (mps+k2/2).dA_dt(H)*dt
-        k4 = (mps+k3).dA_dt(H)*dt
+        k1 = mps.dA_dt(H, fullH=self.fullH)*dt
+        k2 = (mps+k1/2).dA_dt(H, fullH=self.fullH)*dt
+        k3 = (mps+k2/2).dA_dt(H, fullH=self.fullH)*dt
+        k4 = (mps+k3).dA_dt(H, fullH=self.fullH)*dt
         self.history.append(mps.serialize())
 
         self.mps = mps+(k1+2*k2+2*k3+k4)/6
         return self
 
-    def ode(self, T, plot=False, timeit=False):
-        self.ode = c_ode(lambda v, L, d, D, H: fMPS().deserialize(v, L, d, D).dA_dt(H).serialize())
-
     def odeint(self, T, D=None, plot=False, timeit=False, lyapunovs=False):
-        """odeint: pass to scipy odeint: can do lyapunov exponents with finite differences. Dunno if this works.
+        """odeint: pass to scipy odeint
 
         :param mps_0: initial 
         :param plot: plot the result
@@ -199,12 +198,7 @@ class Trajectory(object):
         L, d, D = mps_0.L, mps_0.d, mps_0.D
         v = mps_0.serialize(real=True)
 
-        if lyapunovs:
-            dt = T[1]-T[0]
-            self.Q = eye(len(self.mps.serialize(real=True)))
-            self.inst_exp = []
-
-        def f_odeint_r(v, t, L, d, D, H, lyapunovs=False):
+        def f_odeint_r(v, t, L, d, D, H):
             """f_odeint: f acting on real vector
 
             :param v: Vector: [reals, imags]
@@ -214,16 +208,7 @@ class Trajectory(object):
             :param D: Bond dimension
             :param H: Hamiltonian
             """
-            Q = self.Q
-            if lyapunovs:
-                t1 = time()
-                J = jac(v, lambda v: f_odeint_r(v, t, L, d, D, H, False), dt)
-                t2 = time()
-                Q = expm(dt*J)@Q
-                self.Q, R = qr(Q)
-                self.inst_exp.append(log(abs(diag(R))))
-
-            return fMPS().deserialize(v, L, d, D, real=True).dA_dt(H).serialize(real=True)
+            return fMPS().deserialize(v, L, d, D, real=True).dA_dt(H, fullH=self.fullH).serialize(real=True)
 
         t1 = time()
         traj = odeint(f_odeint_r, v, T, args=(L, d, D, H, lyapunovs))
@@ -232,31 +217,26 @@ class Trajectory(object):
             print(t2-t1)
         if plot:
             plt.plot(T, [mps.E(Sy, 0) for mps in map(lambda x: fMPS().deserialize(x, L, d, D, real=True), traj)])
-        if lyapunovs:
-            self.inst_exp = array(self.inst_exp)
-            self.exponents = (1/(dt))*cs(self.inst_exp, axis=0)/ed(ar(1, len(self.inst_exp)+1), 1)
 
         self.history = traj.T
-        self.mps = fMPS().deserialize(traj.T[-1, :], L, d, D)
+        self.mps = fMPS().deserialize(traj.T[-1, :], L, d, D, real=True)
         return self
 
     def lyapunov(self, T, D=None):
         mps = self.mps
         H = self.H
-        Q = split(mps.tangent_space_basis(), 2)[0]
-        print(Q.shape)
+        Q = mps.tangent_space_basis()
         dt = T[1]-T[0]
         e = []
+        lys = []
         for t in T:
             for m, v in enumerate(Q):
-                print(m)
                 dA = mps.import_tangent_vector(v)
-                Q[m] = mps.extract_tangent_vector(dA + mps.ddA_dt(dA, H)*dt)
-            e.append(mps.E(Sx, 0))
-            mps = mps+mps.dA_dt(H, fullH=True)*dt
-        plt.plot(e)
-        plt.show()
-
+                q = mps.extract_tangent_vector(mps.ddA_dt(dA, H))
+                Q[m] = q
+            Q, R = qr(Q)
+            print(log(abs(diag(R))))
+            self.rk4(dt)
 
 class TestTrajectory(unittest.TestCase):
     """TestF"""
@@ -284,30 +264,32 @@ class TestTrajectory(unittest.TestCase):
         Sx4, Sy4, Sz4 = N_body_spins(0.5, 4, 4)
         mps = self.mps_0_4
         H = Sz1@Sz2 +Sz2@Sz3 + Sz3@Sz4 + Sx1+Sx2+Sx3+Sx4
-        Trajectory(mps, H).lyapunov(linspace(0, 5, 5))
+        Trajectory(mps, H).lyapunov(linspace(0, 1, 2))
 
-    def test_fd_lyapunovs(self):
-        """test_fd_lyapunovs: 2 spins, lyapunov trajectory"""
+    def test_trajectory(self):
+        """test_trajectory"""
         Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
         Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
-        mps_0 = self.mps_0_2
         H = Sz1@Sz2 + Sx1+Sx2
-        N = 1000
-        dt = 1e-1
-        print('t: ', end='')
-        a=Trajectory(mps_0, H).odeint(linspace(0, N*dt, N), D=1, plot=False, timeit=True, lyapunovs=True)
-        b=Trajectory(mps_0, H).odeint(linspace(0, N*dt, N), plot=False, timeit=True, lyapunovs=True)
-        fig, ax = plt.subplots(2, 1)
-        ax[0].plot(a.exponents)
-        ax[1].plot(b.exponents)
-        plt.show()
+        mps_0 = self.mps_0_2
+        psi_0 = self.psi_0_2
+        tol = 1e-2
+        dt = 1e-2
+        N = 100 
+        T = linspace(0, N*dt, N)
+        mps_n = mps_0
+        psi_n = psi_0
+
+        psis = [expm(-1j*H*t)@psi_0 for t in T]
+        mpss = Trajectory(mps_0, H, fullH=True).odeint(T)
+
 
     def test_exps_2(self):
         """test_exps_2: 2 spins: 100 timesteps, expectation values within tol=1e-2 of ed results"""
         Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
         Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
         H = Sz1@Sz2 + Sx1+Sx2
-        mps_0 = self.mps_0_2
+        mps_0 = self.mps_0_2.right_canonicalise()
         psi_0 = self.psi_0_2
         dt = 1e-2
         N = 100 
@@ -322,7 +304,7 @@ class TestTrajectory(unittest.TestCase):
             self.assertTrue(isclose(psi_n.conj()@Sy2@psi_n, mps_n.E(Sy, 1), atol=tol))
             self.assertTrue(isclose(psi_n.conj()@Sz2@psi_n, mps_n.E(Sz, 1), atol=tol))
 
-            mps_n = mps_n + mps_n.dA_dt(H)*dt
+            mps_n = mps_n + mps_n.dA_dt(H, fullH=True)*dt
             psi_n = expm(-1j*H*dt)@psi_n
 
     def test_exps_3(self):
@@ -346,7 +328,7 @@ class TestTrajectory(unittest.TestCase):
             self.assertTrue(isclose(psi_n.conj()@Sy2@psi_n, mps_n.E(Sy, 1), atol=tol))
             self.assertTrue(isclose(psi_n.conj()@Sz2@psi_n, mps_n.E(Sz, 1), atol=tol))
 
-            mps_n = mps_n + mps_n.dA_dt(H)*dt
+            mps_n = mps_n + mps_n.dA_dt(H, fullH=True)*dt
             psi_n = expm(-1j*H*dt)@psi_n
 
     def test_exps_4(self):
@@ -371,7 +353,7 @@ class TestTrajectory(unittest.TestCase):
             self.assertTrue(isclose(psi_n.conj()@Sy2@psi_n, mps_n.E(Sy, 1), atol=tol))
             self.assertTrue(isclose(psi_n.conj()@Sz2@psi_n, mps_n.E(Sz, 1), atol=tol))
 
-            mps_n = mps_n + mps_n.dA_dt(H)*dt
+            mps_n = mps_n + mps_n.dA_dt(H, fullH=True)*dt
             psi_n = expm(-1j*H*dt)@psi_n
 
     def test_trajectory_2_D_1(self):

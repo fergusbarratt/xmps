@@ -2,8 +2,8 @@ import unittest
 from spin import n_body, N_body_spins
 from ncon import ncon
 from numpy.random import rand, randint, randn
-from scipy.linalg import null_space as null
-from numpy.linalg import svd, inv, norm, cholesky as ch
+from numpy.linalg import svd, inv, norm, cholesky
+from scipy.linalg import null_space as null, sqrtm as ch
 from numpy import array, concatenate, diag, dot, allclose, isclose, swapaxes as sw
 from numpy import identity, swapaxes, trace, tensordot, sum, prod
 from numpy import real as re, stack as st, concatenate as ct
@@ -158,7 +158,6 @@ class fMPS(object):
         self.Ls = Ls
 
         self.D = max([max(shape[1:]) for shape in self.structure()])
-        #print(self.D)
 
         return self
 
@@ -568,150 +567,116 @@ class fMPS(object):
             return fMPS([B(n) for n in range(L)])
     
     def ddA_dt(self, dA, H, fullH=True):
-        """d(dA)_dt: find - in 2nd tangent space: time evolution of tangent mps dA
-           TEST: if dA = dA_dt*dt: ddA_dt = d2A_d2t = dA_dt(H).dA_dt(H)?
+        """d(dA)_dt: find - in 2nd tangent space: time evolution  of dA
 
         :param H: hamiltonian
         :param fullH: is the hamiltonian full
         """
-        if fullH:
-            H = H.reshape([self.d, self.d]*self.L)
         L, d, A = self.L, self.d, self.data
-        dA_dt = self.dA_dt(H, fullH=True, store_envs=True)
+        dA_dt = self.dA_dt(H, fullH=fullH, store_envs=True)
         l, r = self.l, self.r
-        pr = lambda n: self.left_null_projector(n, l)
 
-        Γ = lambda i: sum([self.christoffel(j, i, k, envs=(l, r), closed=[c(dA_dt[j]), None, dA[k]])
-                           for j, k in product(range(L), range(L))], axis=0)
-        #<d_id_jψ|d_kψ>dA_j*/dt dA_k/dt
+        # Get tensors
+        Γ = lambda i, j, k: self.christoffel(i, j, k, envs=(l, r))
+        F1_ = lambda i, j: self.F1(i, j, H, envs=(l, r), fullH=fullH)
+        F2_ = lambda i, j: self.F2(i, j, H, envs=(l, r), fullH=fullH)
 
-        def F1(i, j=None, close=True):
-            #<d_id_j ψ|H|ψ>dA*_j
-            def F1(i_, j_):
-                #<d_id_j ψ|H|ψ>
-                i, j = (j_, i_) if j_<i_ else (i_, j_)
-                if fullH:
-                    if i==j:
-                        G = zeros((*A[i].shape, *A[j].shape))
-                    else:
-                        links = self.links(True)
-                        if i==j-1:
-                            bottom = [pr(i) if m==i else ncon([c(r(j-1)), pr(j)], [[-2, 1], [-1, 1, -3, -4]]) if m==j else a.conj() for m, a in enumerate(A)]
-                        else:
-                            bottom = [pr(m) if (m==i or m==j) else a.conj() for m, a in enumerate(A)]
-                            bottom = [c(inv(r(m-1)))@a.conj() if m==i+1 or m==j+1 else a for m, a in enumerate(bottom)]
-                        top = A
-                        links[i] = links[i][:2]+[-1, -2] 
-                        links[i+1][1] = -3
-                        links[j] = links[j][:2]+[-4, -5] 
-                        if j == L-1:
-                            links[-1][-1] = -6
-                        else:
-                            links[j+1][1] = -6
-                        G = ncon(bottom+[H]+top, links)
-                if j_<i_:
-                    return tra(G, [3, 4, 5, 0, 1, 2])
-                else:
-                    return G
-            if close:
-                assert j is None
-                return -1j*sum([ncon([F1(i, j), c(dA[j])], [[-1, -2, -3, 1, 2, 3], [1, 2, 3]]) for j in range(L)], axis=0)
-            else:
-                assert j is not None
-                return F2(i, j)
-            
-        def F2(i, j=None, close=True):
-            #<d_iψ|H|d_jψ>dA_j
-            def F2(i, j):
-                #<d_iψ|H|d_jψ> not summed
-                if fullH:
-                    links = self.links(True)
-                    bottom = [pr(m) if m==i else c(inv(r(m-1)))@a.conj() if m==i+1 else a.conj() for m, a in enumerate(A)]
-                    top = [c(pr(m)) if m==j else c(inv(r(m-1)))@a.conj() if m==j+1 else a.conj() for m, a in enumerate(A)]
-                    if i!=L-1 and j!=L-1:
-                        links[i] = links[i][:2] + [-1, -2]
-                        links[i+1][1] = -3
-                        links[L+1+j] = links[L+1+j][:2] + [-4, -5]
-                        links[L+1+j+1][1] = -6
-                    elif i!=L-1:
-                        links[i] = links[i][:2] + [-1, -2]
-                        links[i+1][1] = -3
-                        links[L+1+j] = links[L+1+j][:2] + [-4, -5]
-                        links[L-1][-1] = -6
-                    elif j!=L-1:
-                        links[i] = links[i][:2] + [-1, -2]
-                        links[2*L][-1] = -3
-                        links[L+1+j] = links[L+1+j][:2] + [-4, -5]
-                        links[L+1+j+1][1] = -6
-                    else:
-                        links[i] = links[i][:2] + [-1, -2]
-                        links[L+1+j] = links[L+1+j][:2] + [-4, -5]
-                    G = ncon(bottom+[H]+top, links)
-                    if i==L-1 and j==L-1:
-                        G = ed(ed(G, -1), 2)
-                    return G
-            if close:
-                assert j is None
-                return -1j*sum([ncon([F2(i, j), dA[j]], [[-1, -2, -3, 1, 2, 3], [1, 2, 3]]) for j in range(L)], axis=0)
-            else: 
-                assert j is not None
-                return F2(i, j)
+        #<d_id_j ψ|H|ψ>dA*_j
+        F1 = lambda i: -1j*sum([ncon([F1_(i, j), c(dA[j])], [[-1, -2, -3, 1, 2, 3], [1, 2, 3]]) for j in range(L)], axis=0)
+        #<d_iψ|H|d_jψ>dA_j
+        F2 = lambda i: -1j*sum([ncon([F2_(i, j), dA[j]], [[-1, -2, -3, 1, 2, 3], [1, 2, 3]]) for j in range(L)], axis=0)
+        #<d_id_jψ|d_kψ> dA_k/dt dA_j*
+        Γ1 = lambda i: sum([ncon([Γ(i, j, i), c(dA[j]), dA_dt[i]], [[-1, -2, -3, 1, 2, 3, 4, 5, 6], [1, 2, 3], [4, 5, 6]])
+                           for j in range(L)], axis=0)
+        #<d_iψ|d_jd_kψ> dA_k/dt dA_j
+        Γ2 = lambda i: sum([ncon([c(Γ(i, j, i)), dA[j], dA_dt[i]], [[-1, -2, -3, 1, 2, 3, 4, 5, 6], [1, 2, 3], [4, 5, 6]])
+                           for j in range(L)], axis=0)
 
         def ddA(i):
-            return F1(i) + F2(i) + Γ(i) + c(Γ(i))
+            return F1(i)+ F2(i)+ Γ1(i)+ Γ2(i)
 
         return fMPS([ddA(i) for i in range(L)])
 
-    def christoffel(self, i, j, k, envs=None, closed=(None, None, None), testing=False):
+    def F1(self, i_, j_, H, envs=None, fullH=True):
+        '''<d_id_j ψ|H|ψ>'''
+        L, d, A = self.L, self.d, self.data
+        l, r = self.get_envs() if envs is None else envs
+        pr = lambda n: self.left_null_projector(n, l)
+
+        i, j = (j_, i_) if j_<i_ else (i_, j_)
+        if fullH:
+            H = H.reshape([self.d, self.d]*self.L)
+            if i==j:
+                G = zeros((*A[i].shape, *A[j].shape))
+            else:
+                links = self.links(True)
+                if i==j-1:
+                    bottom = [pr(i) if m==i else ncon([c(r(j-1)), pr(j)], [[-2, 1], [-1, 1, -3, -4]]) if m==j else a.conj() for m, a in enumerate(A)]
+                else:
+                    bottom = [pr(m) if (m==i or m==j) else a.conj() for m, a in enumerate(A)]
+                    bottom = [c(inv(r(m-1)))@a.conj() if m==i+1 or m==j+1 else a for m, a in enumerate(bottom)]
+                top = A
+                links[i] = links[i][:2]+[-1, -2] 
+                links[i+1][1] = -3
+                links[j] = links[j][:2]+[-4, -5] 
+                if j == L-1:
+                    links[-1][-1] = -6
+                else:
+                    links[j+1][1] = -6
+                G = ncon(bottom+[H]+top, links)
+        else:
+            G = zeros((*A[i].shape, *A[j].shape))
+
+            for m, h in reversed(list(enumerate(H))):
+                if m > i:
+                    # from gauge symmetry
+                    continue
+
+        if j_<i_:
+            return tra(G, [3, 4, 5, 0, 1, 2])
+        else:
+            return G
+
+    def F2(self, i, j, H, envs=None, fullH=True):
+        '''<d_iψ|H|d_jψ>'''
+        L, d, A = self.L, self.d, self.data
+        l, r = self.get_envs() if envs is None else envs
+        pr = lambda n: self.left_null_projector(n, l)
+        if fullH:
+            H = H.reshape([self.d, self.d]*self.L)
+            links = self.links(True)
+            bottom = [pr(m) if m==i else c(inv(r(m-1)))@a.conj() if m==i+1 else a.conj() for m, a in enumerate(A)]
+            top = [c(pr(m)) if m==j else c(inv(r(m-1)))@a.conj() if m==j+1 else a.conj() for m, a in enumerate(A)]
+            if i!=L-1 and j!=L-1:
+                links[i] = links[i][:2] + [-1, -2]
+                links[i+1][1] = -3
+                links[L+1+j] = links[L+1+j][:2] + [-4, -5]
+                links[L+1+j+1][1] = -6
+            elif i!=L-1:
+                links[i] = links[i][:2] + [-1, -2]
+                links[i+1][1] = -3
+                links[L+1+j] = links[L+1+j][:2] + [-4, -5]
+                links[L-1][-1] = -6
+            elif j!=L-1:
+                links[i] = links[i][:2] + [-1, -2]
+                links[2*L][-1] = -3
+                links[L+1+j] = links[L+1+j][:2] + [-4, -5]
+                links[L+1+j+1][1] = -6
+            else:
+                links[i] = links[i][:2] + [-1, -2]
+                links[L+1+j] = links[L+1+j][:2] + [-4, -5]
+            G = ncon(bottom+[H]+top, links)
+            if i==L-1 and j==L-1:
+                G = ed(ed(G, -1), 2)
+            return G
+
+    def christoffel(self, i, j, k, envs=None, closed=(None, None, None)):
         """christoffel: return the christoffel symbol in basis c(A_i), c(A_j), A_k. 
            Close indices i, j, k, with elements of closed tuple: i.e. (B_i, B_j, B_k).
            Will leave any indices marked none open"""
         L, d, A = self.L, self.d, self.data
         l, r = self.get_envs() if envs is None else envs
         pr = lambda n: self.left_null_projector(n, l)
-
-        def Γ_f(i_, j_, k):
-            """Γ: Christoffel symbol: does not take advantage of gauge! also wrong i think"""
-            #j always greater than i (Γ symmetric in i, j)
-            i, j = (j_, i_) if j_<i_ else (i_, j_)
-
-            if j==i:
-                G = zeros((*A[i].shape, *A[j].shape, *A[k].shape))
-            else:
-                if j==i+1:
-                    bottom = [pr(i) if m==i else ncon([c(r(j-1)), pr(j)], [[-2, 1], [-1, 1, -3, -4]]) if m==j else a.conj() for m, a in enumerate(A)]
-                else:
-                    bottom = [pr(m) if (m==i or m==j) else a.conj() for m, a in enumerate(A)]
-                    bottom = [c(inv(r(m-1)))@a.conj() if m==i+1 or m==j+1 else a for m, a in enumerate(bottom)]
-                top = [c(pr(k)) if m==k else r(k)@a if m==k+1 else a for m, a in enumerate(A)]
-
-                links = self.links(False)
-
-                links[i] = links[i][:2]+[-1, -2]
-                links[i+1][1] = -3
-
-                links[j] = links[j][:2]+[-4, -5]
-
-                links[L+k] = [-7, -8]+links[L+k][:2]
-
-                if j!=L-1 and k!=L-1:
-                    links[j+1][1] = -6
-                    links[L+k+1][1] = -9
-                elif j==L-1 and k!=L-1:
-                    links[-1][-1] = -6
-                    links[L+k+1][1] = -9
-                elif k==L-1 and j!=L-1:
-                    links[j+1][1] = -6
-                    links[L-1][-1] = -9
-
-                G = ncon(bottom+top, links)
-                if j==L-1 and k==L-1:
-                    G = ed(ed(G, -1), 5)
-
-            if j_<i_:
-                return tra(G, [3, 4, 5, 0, 1, 2, 6, 7, 8])
-            else:
-                return G
 
         def Γ(i_, j_, k):
                 """Γ: Christoffel symbol: does take advantage of gauge"""
@@ -721,32 +686,31 @@ class fMPS(object):
                 if j==i or i!=k or allclose(pr(i), 0):
                     G = 1j*zeros((*A[i].shape, *A[j].shape, *A[k].shape))
                 else:
-                    # reorder projector indices (spin, spin, aux, aux)
-                    pr_ = lambda n: tra(pr(n), [0, 2, 1, 3]) 
                     top = A[i+1:j+1]
-                    bot = [pr_(j) if m==j-i-1 else a.conj() for m, a in enumerate(top)]
-                    top[0], top[-1] = inv(ch(r(i)))@top[0], top[-1]@ch(r(j))
-                    bot[0] = c(inv(ch(r(i))))@bot[0]
-                    bot[j-i-1] = tra(bot[j-i-1], [0, 2, 1, 3])
+                    bot = [pr(j) if m==j-i-1 else a.conj() for m, a in enumerate(top)]
 
-                    links = [[n, j+n, j+n+1] for n in range(i+1, j+1)]+[[n, 2*j+n, 2*j+n+1] for n in range(i+1, j+1)]
+                    top[0] = inv(r(i))@top[0]
+                    if j==i+1:
+                        # this is weird - makes the r end up on the right leg
+                        bot[0] = tra(bot[0], [0, 2, 1, 3])
+                        bot[0] = bot[0]@inv(r(i))
+                        bot[0] = tra(bot[0], [0, 2, 1, 3])
+                    else:
+                        bot[0] = inv(r(i))@bot[0]
 
-                    links[0][1], links[j-i-1][2], links[j-i][1] = [-9, -6, -3]
-                    links[2*(j-i)-1] = [-4, -5]+links[2*(j-i)-1][:2]
-                    links.insert(0, [-1, -2, -7, -8])
+                    tlinks = [[n, j+n, j+n+1] for n in range(i+1, j+1)]
+                    blinks = [[n, 2*j-1+n, 2*j+n] for n in range(i+1, j+1)]
+                    tlinks[0][1], tlinks[-1][-1] = -9, -6
+                    blinks[0][1] = -3
+                    blinks[-1] = [-4, -5]+blinks[-1][:2]
+                    links = [[-1, -2, -7, -8]]+tlinks+blinks
+
                     G = ncon([pr(i)]+top+bot, links)
+
                 if j_<i_:
                     return tra(G, [3, 4, 5, 0, 1, 2, 6, 7, 8])
                 else:
                     return G
-
-        if testing:
-            ok = True
-            all_zeros = True
-            for i, j, k in product(*[range(self.L) for _ in range(3)]):
-                ok = allclose(Γ(i, j, k), Γ_f(i, j, k)) and ok 
-                all_zeros =  allclose(Γ(i, j, k), 0) and all_zeros
-            return ok, all_zeros 
 
         if any([c is not None for c in closed]):
             c_ind = [m for m, A in enumerate(closed) if A is not None]
@@ -761,7 +725,7 @@ class fMPS(object):
 
         return -Γ_c
 
-    def left_null_projector(self, n, l=None, get_vL=False, store_envs=False):
+    def left_null_projector(self, n, l=None, get_vL=False, store_envs=False, vL=None):
         """left_null_projector:           |    
                          - inv(sqrt(l)) - vL = vL- inv(sqrt(l))-
                                                |
@@ -771,9 +735,10 @@ class fMPS(object):
         """
         if l is None:
             l, _ = self.get_envs(store_envs)
-        L_ = cT(self[n])@ch(l(n-1))
-        L = sw(L_, 0, 1).reshape(-1, self.d*L_.shape[-1])
-        vL = null(L).reshape((self.d, int(L.shape[1]/self.d), -1))
+        if vL is None:
+            L_ = cT(self[n])@ch(l(n-1))
+            L = sw(L_, 0, 1).reshape(-1, self.d*L_.shape[-1])
+            vL = null(L).reshape((self.d, int(L.shape[1]/self.d), -1))
         pr = ncon([inv(ch(l(n-1))), vL, c(vL), c(inv(ch(l(n-1))))], [[-2, 2], [-1, 2, 1], [-3, 4, 1], [-4, 4]])
         if get_vL:
             return pr, vL
@@ -794,17 +759,15 @@ class fMPS(object):
         else:
             return shapes
 
-    def tangent_space_basis(self, Qs=None):
-        """turn a basis of local variations into a matrix of vectors of the total tangent space
-          
-        :param Q: Matrix of vectors spanning local tangent spaces. if None, use the identity
-        :param envs: environments. if None, calculate
+    def tangent_space_basis(self, full=False):
+        """ return a tangent space basis
         """
-        Qs = [ct([eye(d1*d2), 1j*eye(d1*d2)], axis=0) for d1, d2 in self.tangent_space_dims() if d1!=0 and d2!=0]
+        Qs = [eye(d1*d2)+1j*0 for d1, d2 in self.tangent_space_dims() if d1*d2 != 0]
         def direct_sum(basis1, basis2):
             d1 = len(basis1[0])
             d2 = len(basis2[0])
-            return [ct([b1, zeros(d2)]) for b1 in basis1]+[ct([zeros(d1), b2]) for b2 in basis2]
+            return [ct([b1, zeros(d2)]) for b1 in basis1]+\
+                   [ct([zeros(d1), b2]) for b2 in basis2]
         return array(reduce(direct_sum, Qs))
 
     def extract_tangent_vector(self, dA):
@@ -1269,14 +1232,56 @@ class TestfMPS(unittest.TestCase):
         self.assertTrue(mps.dA_dt(listH, fullH=False)==mps.dA_dt(fullH, fullH=True))
 
     def test_christoffel(self):
-        mps = self.mps_0_5.left_canonicalise(3)
-        # tests if christoffel symbol calculated with gauge tricks is the same as without
-        ok, all_zeros = mps.christoffel(0, 0, 0, testing=True)
-        print(mps.christoffel(2, 3, 2, None, (c(mps[2]), c(mps[3]), mps[2])))
-        print('all zeros?: ', all_zeros)
-        self.assertTrue(ok)
+        mps = self.mps_0_6.left_canonicalise()
+        ijks = ((4, 5, 4), (3, 5, 3), (3, 4, 3)) # all non zero indexes (for full rank)
+        for i, j, k in ijks:
+            # Gauge projectors are in the right place
+            self.assertTrue(not allclose(mps.christoffel(i, j, k), 0))
+            i_true=allclose(mps.christoffel(i, j, k, closed=(c(mps[i]), None, None)), 0)
+            i_false=allclose(mps.christoffel(i, j, k, closed=(mps[i], None, None)), 0)
+            j_true=allclose(mps.christoffel(i, j, k, closed=(None, c(mps[j]), None)), 0)
+            j_false=allclose(mps.christoffel(i, j, k, closed=(None, mps[j], None)), 0)
+            k_true=allclose(mps.christoffel(i, j, k, closed=(None, None, mps[k])), 0)
+            k_false=allclose(mps.christoffel(i, j, k, closed=(None, None, c(mps[k]))), 0)
+            self.assertTrue(i_true)
+            self.assertTrue(j_true)
+            self.assertTrue(k_true)
+            self.assertTrue(not i_false)
+            self.assertTrue(not j_false)
+            self.assertTrue(not k_false)
 
-    def test_ddA_dt_2(self):
+            # symmetric in i, j
+            self.assertTrue(allclose(mps.christoffel(i, j, k, closed=(c(mps[i]), c(mps[j]), mps[k])), 
+                                     mps.christoffel(j, i, k, closed=(c(mps[j]), c(mps[i]), mps[k]))  ))
+
+
+        ijks = ((1, 2, 1),)
+        for i, j, k in ijks:
+            # Christoffel symbols that are zero for untruncated become not zero after truncation
+            self.assertTrue(allclose(mps.christoffel(i, j, k), 0))
+            mps.left_canonicalise(2)
+            self.assertTrue(not allclose(mps.christoffel(i, j, k), 0))
+
+    def test_F1_F2(self):
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 4)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 4)
+        Sx3, Sy3, Sz3 = N_body_spins(0.5, 3, 4)
+        Sx4, Sy4, Sz4 = N_body_spins(0.5, 4, 4)
+
+        Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
+        Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
+        mps = self.mps_0_4.left_canonicalise()
+        listH = [Sz12@Sz22+Sx12, Sz12@Sz22+Sx12+Sx22, Sz12@Sz22+Sx22]
+        fullH = Sz1@Sz2+Sz2@Sz3+Sz3@Sz4+Sx1+Sx2+Sx3+Sx4
+
+        for i, j in product(range(mps.L), range(mps.L)):
+            # Test gauge projectors are in the right place
+            self.assertTrue(allclose(ncon([mps.F1(i, j, fullH), c(mps[i]), c(mps[j])], [range(1, 7), range(1, 4), range(4, 7)]), 0))
+            self.assertTrue(allclose(ncon([mps.F2(i, j, fullH), c(mps[i]), mps[j]], [range(1, 7), range(1, 4), range(4, 7)]), 0))
+
+            self.assertTrue(allclose(ncon([mps.F1(i, j, listH, fullH=False), c(mps[i]), c(mps[j])], [range(1, 7), range(1, 4), range(4, 7)]), 0))
+
+    def test_ddA_dt(self):
         Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
         Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
 
@@ -1285,11 +1290,6 @@ class TestfMPS(unittest.TestCase):
         fullH = listH[0]
         dt = 0.1
         d2A_d2t1 = mps.ddA_dt(mps.dA_dt(fullH, fullH=True), fullH)
-        # can't construct the environments: not positive definite
-        #d2A_d2t2 = mps.dA_dt(listH).dA_dt(listH)
-        #print([norm(x-x_) for x, x_ in zip(d2A_d2t1, d2A_d2t2)])
-
-    def test_ddA_dt_3(self):
         Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 3)
         Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 3)
         Sx3, Sy3, Sz3 = N_body_spins(0.5, 3, 3)
@@ -1338,11 +1338,11 @@ class TestfMPS(unittest.TestCase):
         mps = fMPS().random(L, d, 10)
         listH = [randn(4, 4)+1j*randn(4, 4) for _ in range(L-1)]
         listH = [h+h.conj().T for h in listH]
-        print('')
+        #print('')
         t1 = time()
         B = mps.dA_dt(listH, fullH=False)
         t2 = time()
-        print('ser, list: ', t2-t1)
+        #print('ser, list: ', t2-t1)
         if L<9:
             H = randn(d**L, d**L)+1j*randn(d**L, d**L)
             fullH = H+H.conj().T
