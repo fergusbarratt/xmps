@@ -1280,6 +1280,7 @@ class TestfMPS(unittest.TestCase):
             self.assertTrue(allclose(ncon([mps.F2(i, j, fullH), c(mps[i]), mps[j]], [range(1, 7), range(1, 4), range(4, 7)]), 0))
 
             self.assertTrue(allclose(ncon([mps.F1(i, j, listH, fullH=False), c(mps[i]), c(mps[j])], [range(1, 7), range(1, 4), range(4, 7)]), 0))
+            self.assertTrue(allclose(mps.F1(i, j, listH, fullH=False), mps.F1(i, j, fullH, fullH=True)))
 
     def test_ddA_dt(self):
         Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
