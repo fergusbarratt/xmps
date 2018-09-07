@@ -211,14 +211,14 @@ class Trajectory(object):
             return fMPS().deserialize(v, L, d, D, real=True).dA_dt(H, fullH=self.fullH).serialize(real=True)
 
         t1 = time()
-        traj = odeint(f_odeint_r, v, T, args=(L, d, D, H, lyapunovs))
+        traj = odeint(f_odeint_r, v, T, args=(L, d, D, H))
         t2 = time()
         if timeit:
             print(t2-t1)
         if plot:
             plt.plot(T, [mps.E(Sy, 0) for mps in map(lambda x: fMPS().deserialize(x, L, d, D, real=True), traj)])
 
-        self.history = traj.T
+        self.history = traj
         self.mps = fMPS().deserialize(traj.T[-1, :], L, d, D, real=True)
         return self
 
@@ -266,23 +266,27 @@ class TestTrajectory(unittest.TestCase):
         H = Sz1@Sz2 +Sz2@Sz3 + Sz3@Sz4 + Sx1+Sx2+Sx3+Sx4
         Trajectory(mps, H).lyapunov(linspace(0, 1, 2))
 
-    def test_trajectory(self):
+    def test_fullH_trajectory(self):
         """test_trajectory"""
         Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
         Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
         H = Sz1@Sz2 + Sx1+Sx2
-        mps_0 = self.mps_0_2
+        mps_0 = self.mps_0_2.left_canonicalise()
+        L, d, D = mps_0.L, mps_0.d, mps_0.D
         psi_0 = self.psi_0_2
         tol = 1e-2
         dt = 1e-2
-        N = 100 
+        N = 500 
         T = linspace(0, N*dt, N)
         mps_n = mps_0
         psi_n = psi_0
 
         psis = [expm(-1j*H*t)@psi_0 for t in T]
-        mpss = Trajectory(mps_0, H, fullH=True).odeint(T)
+        mpss = [fMPS().deserialize(x, L, d, D, real=True) for x in Trajectory(mps_0, H, fullH=True).odeint(T).history]
 
+        Sxs_ed = array([psi.conj().T@Sx1@psi for psi in psis])
+        Sxs_mps= array([mps.E(Sx, 0) for mps in mpss])
+        self.assertTrue(norm(Sxs_ed-Sxs_mps)<1e-6)
 
     def test_exps_2(self):
         """test_exps_2: 2 spins: 100 timesteps, expectation values within tol=1e-2 of ed results"""
