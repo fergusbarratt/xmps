@@ -158,7 +158,7 @@ def trajectory(mps_0, H, dt, N, D=None, m=None, plot=True, timeit=False):
 class Trajectory(object):
     """Trajectory"""
 
-    def __init__(self, mps_0, H, fullH=True):
+    def __init__(self, mps_0, H, fullH=False):
         """__init__
 
         :param mps_0: initial state
@@ -235,8 +235,11 @@ class Trajectory(object):
                 q = mps.extract_tangent_vector(mps.ddA_dt(dA, H))
                 Q[m] = q
             Q, R = qr(Q)
-            print(log(abs(diag(R))))
+            lys.append(log(abs(diag(R))))
             self.rk4(dt)
+        fig, ax = plt.subplots(1, 1)
+        ax.plot(T, (1/(dt))*cs(lys, axis=0)/ed(ar(1, len(lys)+1), 1))
+        plt.show()
 
 class TestTrajectory(unittest.TestCase):
     """TestF"""
@@ -258,13 +261,11 @@ class TestTrajectory(unittest.TestCase):
         self.psi_0_4 = self.mps_0_4.recombine().reshape(-1)
 
     def test_lyapunov(self):
-        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 4)
-        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 4)
-        Sx3, Sy3, Sz3 = N_body_spins(0.5, 3, 4)
-        Sx4, Sy4, Sz4 = N_body_spins(0.5, 4, 4)
-        mps = self.mps_0_4
-        H = Sz1@Sz2 +Sz2@Sz3 + Sz3@Sz4 + Sx1+Sx2+Sx3+Sx4
-        Trajectory(mps, H).lyapunov(linspace(0, 1, 2))
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
+        mps = self.mps_0_3
+        H = [Sz1@Sz2+Sx1, Sz1@Sz2+Sx2]
+        Trajectory(mps, H).lyapunov(linspace(0, 0.1, 100))
 
     def test_fullH_trajectory(self):
         """test_trajectory"""

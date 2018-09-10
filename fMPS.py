@@ -2,7 +2,7 @@ import unittest
 from spin import n_body, N_body_spins
 from ncon import ncon
 from numpy.random import rand, randint, randn
-from numpy.linalg import svd, inv, norm#, cholesky as ch
+from numpy.linalg import svd, inv, norm#, cholesky as ch,
 from scipy.linalg import null_space as null, sqrtm as ch
 from numpy import array, concatenate, diag, dot, allclose, isclose, swapaxes as sw
 from numpy import identity, swapaxes, trace, tensordot, sum, prod
@@ -10,6 +10,7 @@ from numpy import real as re, stack as st, concatenate as ct
 from numpy import split as chop, zeros, ones, ones_like, empty
 from numpy import save, load, zeros_like as zl, eye, cumsum as cs
 from numpy import sqrt, expand_dims as ed, transpose as tra
+from numpy import trace as tr, tensordot as td
 from tests import is_right_canonical, is_right_env_canonical, is_full_rank
 from tests import is_left_canonical, is_left_env_canonical, has_trace_1
 from tensor import H as cT, truncate_A, truncate_B, diagonalise, rank, mps_pad
@@ -113,25 +114,6 @@ class fMPS(object):
         """
         return self.__mul__(1/other)
 
-    def get_envs(self, store_envs=False):
-        """get_envs: return all envs (slow). indexing is a bit weird: l(-1) is |=
-           returns: fns tuple of functions l, r"""
-        def get_l(mps):
-            ls = [array([[1]])]
-            for n in range(len(mps)):
-                ls.append(sum(cT(mps[n]) @ ls[-1] @ mps[n], axis=0))
-            return lambda n: ls[n+1]
-
-        def get_r(mps):
-            rs = [array([[1]])]
-            for n in range(len(mps))[::-1]:
-                rs.append(sum(mps[n] @ rs[-1] @ cT(mps[n]), axis=0))
-            return lambda n: rs[::-1][n+1]
-        if store_envs:
-            self.l, self.r = get_l(self), get_r(self)
-            return self.l, self.r
-
-        return get_l(self), get_r(self)
 
     def left_from_state(self, state):
         """left_from_state: generate left canonical mps from state tensor
@@ -456,6 +438,46 @@ class fMPS(object):
         canonicalising version"""
         return self.overlap(self)
 
+    def get_envs(self, store_envs=False):
+        """get_envs: return all envs (slow). indexing is a bit weird: l(-1) is |=
+           returns: fns tuple of functions l, r"""
+        def get_l(mps):
+            ls = [array([[1]])]
+            for n in range(len(mps)):
+                ls.append(sum(cT(mps[n]) @ ls[-1] @ mps[n], axis=0))
+            return lambda n: ls[n+1]
+
+        def get_r(mps):
+            rs = [array([[1]])]
+            for n in range(len(mps))[::-1]:
+                rs.append(sum(mps[n] @ rs[-1] @ cT(mps[n]), axis=0))
+            return lambda n: rs[::-1][n+1]
+        if store_envs:
+            self.l, self.r = get_l(self), get_r(self)
+            return self.l, self.r
+
+        return get_l(self), get_r(self)
+
+    def left_transfer(self, op, j, i, ret_all=True):
+        """transfer an operator (u, d, ...) on aux indices at i to site(s) j
+        Returns a function such that R(j) == op at j. No bounds checking.
+        """
+        Ls = [op]
+        oplinks = [2, 3]+list(range(-3, -len(op.shape)-1, -1))
+        for m in reversed(range(j, i)):
+            Ls.insert(0, ncon([self[m].conj(), self[m], Ls[0]], [[1, -2, 3], [1, -1, 2], oplinks]))
+        return (lambda n: Ls[n-j]) if ret_all else Ls[0]
+
+    def right_transfer(self, op, i, j, ret_all=True):
+        """transfer an operator (..., u, d) on aux indices at i to site(s) j
+        Returns a function such that R(j) == op at j. No bounds checking.
+        """
+        Rs = [op]
+        oplinks = list(range(-1, -len(op.shape)+1, -1))+[2, 3]
+        for m in range(i+1, j+1):
+            Rs.append(ncon([self[m].conj(), self[m], Rs[-1]], [[1, 3, -len(op.shape)+1], [1, 2, -len(op.shape)], oplinks]))
+        return (lambda n: Rs[n-i-1]) if ret_all else Rs[0]
+
     def links(self, op=True):
         """links: op True: return the links for ncon for full contraction of this 
         mps with operator shape of [d,d]*L
@@ -519,16 +541,14 @@ class fMPS(object):
             def B(n, H=H):  
                 e = []
                 B = -1j*zl(A[n])
-                Dn, Dn_1 = A[n].shape[1], A[n].shape[2]
+                _, Dn, Dn_1 = A[n].shape
 
                 if d*Dn==Dn_1:
                     # Projector is full of zeros
                     return -1j*B
 
                 R = ncon([pr(n), A[n]], [[-3, -4, 1, -2], [1, -1, -5]])
-                Rs = [R]
-                for m in reversed(range(n)):
-                    Rs.insert(0, ncon([A[m].conj(), A[m], Rs[0]], [[3, -2, 2], [3, -1, 1], [1, 2, -3, -4, -5]]))
+                Rs = self.left_transfer(R, 0, n) # list of E**k @ R - see left_transfer docs
 
                 for m, h in reversed(list(enumerate(H))):
                     if m > n:
@@ -546,7 +566,7 @@ class fMPS(object):
                     if m==n-1:
                         B += -1j*ncon([c(l(m-1))@c(Am), pr(m+1)]+[C], [[1, 3, 4], [-1, -2, 2, 4], [1, 2, 3, -3]])
                     if m < n-1:
-                        B += -1j*ncon([K, Rs[m+2]], [[1, 2], [1, 2, -1, -2, -3]])
+                        B += -1j*ncon([K, Rs(m+2)], [[1, 2], [1, 2, -1, -2, -3]])
                 return B
         else:
             def B(n, H=H):
@@ -566,7 +586,7 @@ class fMPS(object):
         else:
             return fMPS([B(n) for n in range(L)])
     
-    def ddA_dt(self, dA, H, fullH=True):
+    def ddA_dt(self, dA, H, fullH=False):
         """d(dA)_dt: find - in 2nd tangent space: time evolution  of dA
 
         :param H: hamiltonian
@@ -581,14 +601,14 @@ class fMPS(object):
         F1_ = lambda i, j: self.F1(i, j, H, envs=(l, r), fullH=fullH)
         F2_ = lambda i, j: self.F2(i, j, H, envs=(l, r), fullH=fullH)
 
-        #<d_id_j ψ|H|ψ>dA*_j
-        F1 = lambda i: -1j*sum([ncon([F1_(i, j), c(dA[j])], [[-1, -2, -3, 1, 2, 3], [1, 2, 3]]) for j in range(L)], axis=0)
-        #<d_iψ|H|d_jψ>dA_j
-        F2 = lambda i: -1j*sum([ncon([F2_(i, j), dA[j]], [[-1, -2, -3, 1, 2, 3], [1, 2, 3]]) for j in range(L)], axis=0)
-        #<d_id_jψ|d_kψ> dA_k/dt dA_j*
+        #-i<d_id_j ψ|H|ψ>dA*_j
+        F1 = lambda i: -1j*sum([td(F1_(i, j), c(dA[j]), [[3, 4, 5], [0, 1, 2]]) for j in range(L)], axis=0)
+        #-i<d_iψ|H|d_jψ>dA_j
+        F2 = lambda i: -1j*sum([td(F2_(i, j), dA[j], [[3, 4, 5], [0, 1, 2]]) for j in range(L)], axis=0)
+        #-<d_id_jψ|d_kψ> dA_k/dt dA_j*
         Γ1 = lambda i: sum([ncon([Γ(i, j, i), c(dA[j]), dA_dt[i]], [[-1, -2, -3, 1, 2, 3, 4, 5, 6], [1, 2, 3], [4, 5, 6]])
                            for j in range(L)], axis=0)
-        #<d_iψ|d_jd_kψ> dA_k/dt dA_j
+        #-<d_iψ|d_jd_kψ> dA_k/dt dA_j
         Γ2 = lambda i: sum([ncon([c(Γ(i, j, i)), dA[j], dA_dt[i]], [[-1, -2, -3, 1, 2, 3, 4, 5, 6], [1, 2, 3], [4, 5, 6]])
                            for j in range(L)], axis=0)
 
@@ -597,7 +617,7 @@ class fMPS(object):
 
         return fMPS([ddA(i) for i in range(L)])
 
-    def F1(self, i_, j_, H, envs=None, fullH=True):
+    def F1(self, i_, j_, H, envs=None, fullH=False):
         '''<d_id_j ψ|H|ψ>'''
         L, d, A = self.L, self.d, self.data
         l, r = self.get_envs() if envs is None else envs
@@ -606,6 +626,39 @@ class fMPS(object):
         i, j = (j_, i_) if j_<i_ else (i_, j_)
         if i==j:
             G = zeros((*A[i].shape, *A[j].shape))
+        elif not fullH:
+            G = -1j*zeros((*A[i].shape, *A[j].shape))
+            _, Din_1, Di = self[i].shape
+            d, Djn_1, Dj = self[j].shape 
+            if not (d*Djn_1==Dj or d*Din_1==Di):
+                Rj = ncon([pr(j), A[j]], [[-3, -4, 1, -2], [1, -1, -5]])
+                Rjs = self.left_transfer(Rj, i, j)
+
+                Ri = ncon([pr(i), A[i]], [[-3, -4, 1, -2], [1, -1, -5]])
+                Ris = self.left_transfer(Ri, 0, i)
+
+                for m, h in reversed(list(enumerate(H))):
+                    if m > i:
+                        # from gauge symmetry
+                        continue
+                    h = h.reshape(2,2,2,2)
+                    Am, Am_1 = self.data[m:m+2]
+                    C = ncon([h]+[Am, Am_1], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
+                    K = ncon([c(l(m-1))@Am.conj(), Am_1.conj()]+[C], [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]]) #AAHAA
+                    if m==i:
+                        if j==i+1:
+                            G += ncon([l(m-1)@C, pr(i), pr(j)@inv(r(i))], [[1, 2, 3, -6], [-1, -2, 1, 3], [-4, -5, 2, -3]])
+                        else:
+                            L = ncon([l(m-1)@C, pr(i), inv(r(i))@c(Am_1)], [[1, 2, 3, -4], [-1, -2, 1, 3], [2, -3, -5]]) # tb
+                            G += ncon([L, Rjs(m+2)], [[-1, -2, -3, 1, 2], [1, 2, -4, -5, -6]])
+                    elif m==i-1:
+                        L = ncon([l(m-1)@C, c(Am), pr(i)], [[1, 2, 3, -3], [1, 3, 4], [-1, -2, 2, 4]])
+                        G += ncon([L, ncon([Rjs(m+2), inv(r(i))], [[-1, 2, -3, -4, -5], [2, -2]])], [[-1, -2, 1], [1, -3, -4, -5, -6]])
+                    else:
+                        L = ncon([K, Ris(m+2)], [[1, 2], [1, 2, -1, -2, -3]])
+                        G += ncon([ncon([L@inv(r(i)), Rjs(i+1)], [[-1, -2, 1], [1, -3, -4, -5, -6]]), 
+                                   r(i)], 
+                                   [[-1, -2, 1, -4, -5, -6], [1, -3]])
         elif fullH:
             H = H.reshape([self.d, self.d]*self.L)
             if i==j:
@@ -626,86 +679,150 @@ class fMPS(object):
                 else:
                     links[j+1][1] = -6
                 G = ncon(bottom+[H]+top, links)
-        elif not fullH:
-            G = -1j*zeros((*A[i].shape, *A[j].shape))
-            def R(k):
-                R = ncon([pr(k), A[k]], [[-3, -4, 1, -2], [1, -1, -5]])
-                Rs = [R]
-                for m in reversed(range(k)):
-                    Rs.insert(0, ncon([A[m].conj(), A[m], Rs[0]], [[3, -2, 2], [3, -1, 1], [1, 2, -3, -4, -5]]))
-                #-1 -A-      -Aj----- -5
-                #    |  *n @  |         =  R[j-n]
-                #-2 -A-      -pr(j)-- -4
-                #             |
-                #            -3
-                return Rs
-            
-            Rs = R(j)
-            Ris = R(i)
-
-            for m, h in reversed(list(enumerate(H))):
-                if m > i:
-                    # from gauge symmetry
-                    continue
-                h = h.reshape(2,2,2,2)
-                Am, Am_1 = self.data[m:m+2]
-                C = ncon([h]+[Am, Am_1], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
-                K = ncon([c(l(m-1))@Am.conj(), Am_1.conj()]+[C], [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]]) #AAHAA
-                if m==i:
-                    if j==i+1:
-                        G += ncon([l(m-1)@C, pr(i), pr(j)@inv(r(i))], [[1, 2, 3, -6], [-1, -2, 1, 3], [-4, -5, 2, -3]])
-                    else:
-                        L = ncon([l(m-1)@C, pr(i), inv(r(i))@c(Am_1)], [[1, 2, 3, -4], [-1, -2, 1, 3], [2, -3, -5]]) # tb
-                        G += ncon([L, Rs[m+2]], [[-1, -2, -3, 1, 2], [1, 2, -4, -5, -6]])
-                elif m==i-1:
-                    L = ncon([l(m-1)@C, c(Am), pr(i)], [[1, 2, 3, -3], [1, 3, 4], [-1, -2, 2, 4]])
-                    G += ncon([L, ncon([Rs[m+2], inv(r(i))], [[-1, 2, -3, -4, -5], [2, -2]])], [[-1, -2, 1], [1, -3, -4, -5, -6]])
-                else:
-                    L = ncon([K, Ris[m+2]], [[1, 2], [1, 2, -1, -2, -3]])
-                    R = Rs[i+1]
-                    G += ncon([ncon([L@inv(r(i)), R], [[-1, -2, 1], [1, -3, -4, -5, -6]]), 
-                               r(i)], 
-                               [[-1, -2, 1, -4, -5, -6], [1, -3]])
 
         if j_<i_:
             return tra(G, [3, 4, 5, 0, 1, 2])
         else:
             return G
 
-    def F2(self, i, j, H, envs=None, fullH=True):
-            '''<d_iψ|H|d_jψ>'''
-            L, d, A = self.L, self.d, self.data
-            l, r = self.get_envs() if envs is None else envs
-            pr = lambda n: self.left_null_projector(n, l)
-            if fullH:
-                H = H.reshape([self.d, self.d]*self.L)
-                links = self.links(True)
-                bottom = [pr(m) if m==i else c(inv(r(m-1)))@a.conj() if m==i+1 else a.conj() for m, a in enumerate(A)]
-                top = [c(pr(m)) if m==j else c(inv(r(m-1)))@a.conj() if m==j+1 else a.conj() for m, a in enumerate(A)]
-                if i!=L-1 and j!=L-1:
-                    links[i] = links[i][:2] + [-1, -2]
-                    links[i+1][1] = -3
-                    links[L+1+j] = links[L+1+j][:2] + [-4, -5]
-                    links[L+1+j+1][1] = -6
-                elif i!=L-1:
-                    links[i] = links[i][:2] + [-1, -2]
-                    links[i+1][1] = -3
-                    links[L+1+j] = links[L+1+j][:2] + [-4, -5]
-                    links[L-1][-1] = -6
-                elif j!=L-1:
-                    links[i] = links[i][:2] + [-1, -2]
-                    links[2*L][-1] = -3
-                    links[L+1+j] = links[L+1+j][:2] + [-4, -5]
-                    links[L+1+j+1][1] = -6
-                else:
-                    links[i] = links[i][:2] + [-1, -2]
-                    links[L+1+j] = links[L+1+j][:2] + [-4, -5]
-                G = ncon(bottom+[H]+top, links)
-                if i==L-1 and j==L-1:
-                    G = ed(ed(G, -1), 2)
-                return G
-            else:
+    def F2(self, i_, j_, H, envs=None, fullH=False, testing=False):
+        '''<d_iψ|H|d_jψ>'''
+        L, d, A = self.L, self.d, self.data
+        l, r = self.get_envs() if envs is None else envs
+        pr = lambda n: self.left_null_projector(n, l)
+        if not fullH:
+            i, j = (j_, i_) if j_<i_ else (i_, j_)
+            G = 1j*zeros((*A[i].shape, *A[j].shape))
+            _, Din_1, Di = self[i].shape
+            d, Djn_1, Dj = self[j].shape 
 
+            if not (d*Djn_1==Dj or d*Din_1==Di):
+                Ru = ncon([pr(j), c(A[j])], [[1, -2, -3, -4], [1, -1, -5]])
+                Rus = self.left_transfer(Ru, 0, j)
+
+                Rd = ncon([pr(i), A[i]], [[-3, -4, 1, -2], [1, -1, -5]])
+                Rds = self.left_transfer(Rd, 0, i)
+
+                Rb = ncon([pr(j), pr(j), inv(r(j))], [[-3, -4, 1, -1], [1, -2, -6, -7], [-5, -8]])
+                Rbs = self.left_transfer(Rb, 0, j)
+
+                Lb = ncon([l(i-1)]+[pr(i), pr(i), inv(r(i)), inv(r(i))], [[2, 3], [-1, -2, 1, 2], [1, 3, -4, -5], [-3, -7], [-6, -8]])
+                Lbs = self.right_transfer(Lb, i, L-1)
+
+                for m, h in reversed(list(enumerate(H))):
+                    if m > i:
+                        # from gauge symmetry
+                        if not i==j:
+                            continue
+                        else:
+                            #AAHAA
+                            h = h.reshape(2,2,2,2)
+                            Am, Am_1 = self.data[m:m+2]
+                            C = ncon([h]+[Am, Am_1], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
+                            Kr = ncon([c(Am), c(Am_1)@r(m+1)]+[C], 
+                                     [[1, -2, 4], [2, 4, 3], [1, 2, -1, 3]])
+                            G+=tr(Lbs(m)@Kr, 0, -1, -2)
+
+                    h = h.reshape(2,2,2,2)
+                    Am, Am_1 = self.data[m:m+2]
+
+                    if m==i:
+                        if j==i:
+                            # BAHBA
+                            G += ncon([l(m-1)]+[pr(m), inv(r(m))@Am_1]+[h]+[pr(m), inv(r(m))@c(Am_1)]+[r(m+1)], 
+                                      [[5, 6], [1, 5, -4, -5], [2, -6, 7], [1, 2, 3, 4], [-1, -2, 3, 6], [4, -3, 8], [7, 8]])
+
+                        elif j==i+1:
+                            # ABHBA
+                            G += ncon([l(m-1)]+[Am, pr(m+1)]+[h]+[pr(m), r(m)@c(Am_1)],
+                                     [[5, 6], [1, 6, 7], [2, 7, -4, -5], [1, 2, 3, 4], [-1, -2, 3, 5], [4, -3, -6]])
+                        else:
+                            # AAHBA
+                            O = ncon([l(m-1)@Am, Am_1]+[h]+[pr(m), inv(r(m))@c(Am_1)], 
+                                     [[3, 6, 5], [4, 5, -4], [1, 2, 3, 4], [-1, -2, 1, 6], [2, -3, -5]]) #(A)ud
+                            G += tensordot(O, Rus(m+2), [[-1, -2], [0, 1]])
+                    elif m==i-1:
+                        if j==i:
+                            # ABHAB
+                            x = ncon([l(m-1)@Am, pr(m+1)]+[h]+[c(Am), pr(m+1)]+[inv(r(m+1))],
+                                       [[3, 5, 6], [4, 6, -4, -5], [1, 2, 3, 4], [1, 5, 7], [-1, -2, 2, 7], [-3, -6]]) #AA
+                            G += x
+                        else:
+                            # AAHAB
+                            Q = ncon([l(m-1)@Am, Am_1]+[h]+[c(Am), pr(m+1)], 
+                                     [[3, 6, 5], [4, 5, -3], [1, 2, 3, 4], [1, 6, 7], [-1, -2, 2, 7]]) #(A)
+                            G += tensordot(Q, Rus(m+2), [-1, 0])
+                    elif m<i:
+                        #AAHAA
+                        C = ncon([h]+[Am, Am_1], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
+                        K = ncon([l(m-1)@c(Am), c(Am_1)]+[C], 
+                                 [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]])
+                        if i==j:
+                            x = tensordot(K, Rbs(m+2), [[0, 1], [0, 1]])
+                            G += x
+                        else:
+                            G += tensordot(K, tensordot(Rds(m+2)@inv(r(i)), Rus(i+1), [-1, 0]), 
+                                           [[0, 1], [0, 1]])
+                    if testing:
+                        #AAHAA
+                        K = ncon([c(l(m-1))@Am.conj(), Am_1.conj()]+[C], 
+                                 [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]])
+                        # BAHBA
+                        M = ncon([l(m-1)]+[pr(m), inv(r(m))@Am_1]+[h]+[pr(m), inv(r(m))@c(Am_1)]+[r(m+1)], 
+                                  [[5, 6], [1, 5, -4, -5], [2, -6, 7], [1, 2, 3, 4], [-1, -2, 3, 6], [4, -3, 8], [7, 8]])
+                        # ABHBA
+                        N = ncon([l(m-1)]+[Am, pr(m+1)]+[h]+[pr(m), r(m)@c(Am_1)],
+                                 [[5, 6], [1, 6, 7], [2, 7, -4, -5], [1, 2, 3, 4], [-1, -2, 3, 5], [4, -3, -6]])
+                        # AAHBA
+                        O = ncon([l(m-1)@Am, Am_1]+[h]+[pr(m), inv(r(m))@c(Am_1)], 
+                                 [[3, 6, 5], [4, 5, -4], [1, 2, 3, 4], [-1, -2, 1, 6], [2, -3, -5]]) #(A)ud
+                        # ABHAB
+                        P = ncon([l(m-1)@Am, pr(m+1)]+[h]+[c(Am), pr(m+1)]+[r(m+1)],
+                                 [[3, 5, 6], [4, 6, -4, -5], [1, 2, 3, 4], [1, 5, 7], [-1, -2, 2, 7], [-3, -6]]) #AA
+                        # AAHAB
+                        Q = ncon([l(m-1)@Am, Am_1]+[h]+[c(Am), pr(m+1)], 
+                                 [[3, 6, 5], [4, 5, -3], [1, 2, 3, 4], [1, 6, 7], [-1, -2, 2, 7]]) #(A)
+                        assert allclose(norm(td(M, l(m-1)@c(Am), [[0, 1, 2], [0, 1, 2]])), 0)
+                        assert allclose(norm(td(M, l(m-1)@Am, [[3, 4, 5], [0, 1, 2]])), 0)
+                        assert allclose(norm(td(N, l(m-1)@c(Am), [[0, 1, 2], [0, 1, 2]])), 0)
+                        assert allclose(norm(td(N, l(m)@Am_1, [[3, 4, 5], [0, 1, 2]])), 0)
+                        assert allclose(norm(td(O, l(m-1)@c(Am), [[0, 1, 2], [0, 1, 2]])), 0)
+                        assert allclose(norm(td(P, l(m)@c(Am_1), [[0, 1, 2], [0, 1, 2]])), 0)
+                        assert allclose(norm(td(P, l(m)@Am_1, [[3, 4, 5], [0, 1, 2]])), 0)
+                        assert allclose(norm(td(Q, l(m)@c(Am_1), [[0, 1, 2], [0, 1, 2]])), 0)
+        elif fullH:
+            i, j = (i_, j_)
+            H = H.reshape([self.d, self.d]*self.L)
+            links = self.links(True)
+            bottom = [pr(m) if m==i else c(inv(r(m-1)))@a.conj() if m==i+1 else a.conj() for m, a in enumerate(A)]
+            top = [c(pr(m)) if m==j else c(inv(r(m-1)))@a.conj() if m==j+1 else a.conj() for m, a in enumerate(A)]
+            if i!=L-1 and j!=L-1:
+                links[i] = links[i][:2] + [-1, -2]
+                links[i+1][1] = -3
+                links[L+1+j] = links[L+1+j][:2] + [-4, -5]
+                links[L+1+j+1][1] = -6
+            elif i!=L-1:
+                links[i] = links[i][:2] + [-1, -2]
+                links[i+1][1] = -3
+                links[L+1+j] = links[L+1+j][:2] + [-4, -5]
+                links[L-1][-1] = -6
+            elif j!=L-1:
+                links[i] = links[i][:2] + [-1, -2]
+                links[2*L][-1] = -3
+                links[L+1+j] = links[L+1+j][:2] + [-4, -5]
+                links[L+1+j+1][1] = -6
+            else:
+                links[i] = links[i][:2] + [-1, -2]
+                links[L+1+j] = links[L+1+j][:2] + [-4, -5]
+            G = ncon(bottom+[H]+top, links)
+            if i==L-1 and j==L-1:
+                G = ed(ed(G, -1), 2)
+            return G
+
+        if j_<i_:
+            return c(tra(G, [3, 4, 5, 0, 1, 2]))
+        else:
+            return G
 
     def christoffel(self, i, j, k, envs=None, closed=(None, None, None)):
         """christoffel: return the christoffel symbol in basis c(A_i), c(A_j), A_k. 
@@ -1318,44 +1435,85 @@ class TestfMPS(unittest.TestCase):
             self.assertTrue(not allclose(mps.christoffel(i, j, k), 0))
 
     def test_F1_F2(self):
-        '''<d_id_j ψ|H|ψ>'''
-        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 5)
-        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 5)
-        Sx3, Sy3, Sz3 = N_body_spins(0.5, 3, 5)
-        Sx4, Sy4, Sz4 = N_body_spins(0.5, 4, 5)
-        Sx5, Sy5, Sz5 = N_body_spins(0.5, 5, 5)
+        '''<d_id_j ψ|H|ψ>, <d_iψ|H|d_jψ>'''
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 6)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 6)
+        Sx3, Sy3, Sz3 = N_body_spins(0.5, 3, 6)
+        Sx4, Sy4, Sz4 = N_body_spins(0.5, 4, 6)
+        Sx5, Sy5, Sz5 = N_body_spins(0.5, 5, 6)
+        Sx6, Sy6, Sz6 = N_body_spins(0.5, 6, 6)
 
         Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
         Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
-        mps = self.mps_0_5.left_canonicalise()
-        listH = [Sz12@Sz22+Sx12, Sz12@Sz22+Sx12+Sx22, Sz12@Sz22+Sx22+Sx12+Sx22, Sz12@Sz22+Sx22]
-        eyeH = [eye(4) for _ in range(4)]
-        fullH = Sz1@Sz2+Sz2@Sz3+Sz3@Sz4+Sz4@Sz5+Sx1+Sx2+Sx3+Sx4+Sx5
+        mps = self.mps_0_6.left_canonicalise()
+        listH = [Sz12@Sz22+Sx12, Sz12@Sz22+Sx12+Sx22, Sz12@Sz22+Sx22+Sx12+Sx22, Sz12@Sz22+Sz12+Sx22, Sz12@Sz22+Sx22]
+        eyeH = [(1/(mps.L-1))*eye(4) for _ in range(5)]
+        fullH = Sz1@Sz2+Sz2@Sz3+Sz3@Sz4+Sz4@Sz5+Sz5@Sz6+Sx1+Sx2+Sx3+Sx4+Sx5+Sx6
 
         for i, j in product(range(mps.L), range(mps.L)):
-            # <d_id_j ψ|H|ψ>
+            ## F1 = <d_id_j ψ|H|ψ>
             # zero for H = I
             self.assertTrue(allclose(mps.F1(i, j, eyeH, fullH=False), 0))
 
             # Test gauge projectors are in the right place
             mps.right_canonicalise()
             l, r = mps.get_envs()
-            z1 = ncon([mps.F1(i, j, listH, fullH=False), l(i-1)@c(mps[i])], [[1, 2, 3, -1, -2, -3], [1, 2, 3]])
-            z2 = ncon([mps.F1(i, j, listH, fullH=False), l(j-1)@c(mps[j])], [[-1, -2, -3, 1, 2, 3], [1, 2, 3]])
+            z1 = ncon([mps.F1(i, j, listH), l(i-1)@c(mps[i])], [[1, 2, 3, -1, -2, -3], [1, 2, 3]])
+            z2 = ncon([mps.F1(i, j, listH), l(j-1)@c(mps[j])], [[-1, -2, -3, 1, 2, 3], [1, 2, 3]])
             self.assertTrue(allclose(z1, 0))
             self.assertTrue(allclose(z2, 0))
 
             mps.left_canonicalise()
             l, r = mps.get_envs()
-            z1 = ncon([mps.F1(i, j, listH, fullH=False), l(i-1)@c(mps[i])], [[1, 2, 3, -1, -2, -3], [1, 2, 3]])
-            z2 = ncon([mps.F1(i, j, listH, fullH=False), l(j-1)@c(mps[j])], [[-1, -2, -3, 1, 2, 3], [1, 2, 3]])
+            z1 = ncon([mps.F1(i, j, listH), l(i-1)@c(mps[i])], [[1, 2, 3, -1, -2, -3], [1, 2, 3]])
+            z2 = ncon([mps.F1(i, j, listH), l(j-1)@c(mps[j])], [[-1, -2, -3, 1, 2, 3], [1, 2, 3]])
             self.assertTrue(allclose(z1, 0))
             self.assertTrue(allclose(z2, 0))
 
-            # TODO: testing for F2
+            ## F2 = <d_iψ|H|d_jψ>
+            # For H = I: should be equal to δ_{ij} pr(i)
+            if i!=j:
+                self.assertTrue(allclose(mps.F2(i, j, eyeH), 0))
+            if i==j:
+                b = mps.F2(i, j, eyeH)
+                a = ncon([mps.left_null_projector(i), inv(r(i))], [[-1, -2, -4, -5], [-3, -6]])
+                self.assertTrue(allclose(a, b)) 
+                # should just be L-1
+
+            # Test gauge projectors are in the right place
+            mps.left_canonicalise()
+            l, r = mps.get_envs()
+            z1 = td(mps.F2(i, j, listH), l(i-1)@c(mps[i]), [[0, 1, 2], [0, 1, 2]])
+            z1 = td(mps.F2(i, j, listH), l(j-1)@mps[j], [[3, 4, 5], [0, 1, 2]])
+            self.assertTrue(allclose(z1, 0))
+            self.assertTrue(allclose(z2, 0))
+
+            mps.right_canonicalise()
+            l, r = mps.get_envs()
+            z1 = td(mps.F2(i, j, listH), l(i-1)@c(mps[i]), [[0, 1, 2], [0, 1, 2]])
+            z1 = td(mps.F2(i, j, listH), l(j-1)@mps[j], [[3, 4, 5], [0, 1, 2]])
+            self.assertTrue(allclose(z1, 0))
+            self.assertTrue(allclose(z2, 0))
+
             # TODO: fullH fails gauge projectors test (listH doesn't): 
             # TODO: fullH different from listH:
 
+    def test_left_transfer(self):
+        mps = self.mps_0_4.left_canonicalise()
+        l, r = mps.get_envs()
+        L = mps.L
+        rs = mps.left_transfer(r(L-1), 1, L)
+        for i in range(L):
+            self.assertTrue(allclose(rs(i+1), r(i)))
+            self.assertTrue(allclose(mps.left_transfer(r(L-1), i+1, L, False), r(i)))
+
+    def test_right_transfer(self):
+        mps = self.mps_0_4.right_canonicalise()
+        l, r = mps.get_envs()
+        L = mps.L
+        ls = mps.right_transfer(l(0), 0, L-1)
+        for i in range(L):
+            self.assertTrue(allclose(ls(i+1), l(i)))
 
     def test_ddA_dt(self):
         Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
@@ -1365,7 +1523,7 @@ class TestfMPS(unittest.TestCase):
         listH = [Sz12@Sz22+Sx12+Sx22]
         fullH = listH[0]
         dt = 0.1
-        d2A_d2t1 = mps.ddA_dt(mps.dA_dt(fullH, fullH=True), fullH)
+        d2A_d2t1 = mps.ddA_dt(mps.dA_dt(fullH, fullH=True), fullH, fullH=True)
         Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 3)
         Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 3)
         Sx3, Sy3, Sz3 = N_body_spins(0.5, 3, 3)
@@ -1376,7 +1534,7 @@ class TestfMPS(unittest.TestCase):
         mps = self.mps_0_3
         listH = [Sz12@Sz22+Sx12, Sz12@Sz22+Sx12+Sx22]
         fullH = sum([n_body(a, i, len(listH), d=2) for i, a in enumerate(listH)], axis=0)
-        mps.ddA_dt(mps.dA_dt(fullH, fullH=True), fullH)
+        mps.ddA_dt(mps.dA_dt(fullH, fullH=True), fullH, fullH=True)
 
     def test_local_recombine(self):
         Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 4)
