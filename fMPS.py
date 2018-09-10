@@ -526,12 +526,16 @@ class fMPS(object):
         else:
             return self.E_L(H)
 
-    def dA_dt(self, H, fullH=False, par=False, store_envs=False):
+    def dA_dt(self, H, store_energy=False, fullH=False, par=False, store_envs=False):
         """dA_dt: Finds A_dot (from TDVP) [B(n) for n in range(n)], energy. Uses inverses. 
         Indexing is A[0], A[1]...A[L-1]
 
         :param self: matrix product states @ current time
         :param H: Hamiltonian
+        :param energy: store list of 2 site energies as self.e: sum(self.e) = E
+        :param par: whether to calculate the update in parallel. 
+                    almost never faster
+        :param store envs: whether to store the environments as self.l, self.r
         """
         L, d, A = self.L, self.d, self.data
         l, r = self.get_envs(store_envs)
@@ -567,6 +571,7 @@ class fMPS(object):
                         B += -1j*ncon([c(l(m-1))@c(Am), pr(m+1)]+[C], [[1, 3, 4], [-1, -2, 2, 4], [1, 2, 3, -3]])
                     if m < n-1:
                         B += -1j*ncon([K, Rs(m+2)], [[1, 2], [1, 2, -1, -2, -3]])
+                self.e = e
                 return B
         else:
             def B(n, H=H):
@@ -586,36 +591,43 @@ class fMPS(object):
         else:
             return fMPS([B(n) for n in range(L)])
     
-    def ddA_dt(self, dA, H, fullH=False):
-        """d(dA)_dt: find - in 2nd tangent space: time evolution  of dA
+    def ddA_dt(self, v, H, fullH=False):
+        """d(dA)_dt: find ddA_dt - in 2nd tangent space: 
+           for time evolution of v in tangent space
 
         :param H: hamiltonian
         :param fullH: is the hamiltonian full
+        """
+        L, d, A = self.L, self.d, self.data
+        dA = self.import_tangent_vector(v)
+        dA_dt = self.dA_dt(H, store_energy=True, fullH=fullH, store_envs=True)
+        l, r, e = self.l, self.r, self.e
+        ddA = []
+        #H = [H[i]-e[i] for i in range(len(H))]
+        down, up = self.jac(H, fullH)
+
+        ddA = [sum([td(down(i, j), c(dA[j]), [[3, 4, 5], [0, 1, 2]])+td(up(i, j), dA[j], [[3, 4, 5], [0, 1, 2]]) for j in range(L)], axis=0)
+               for i in range(L)]
+
+        return self.extract_tangent_vector(ddA)
+
+    def jac(self, H, fullH=False):
+        """jac: calculate the jacobian of the current mps
         """
         L, d, A = self.L, self.d, self.data
         dA_dt = self.dA_dt(H, fullH=fullH, store_envs=True)
         l, r = self.l, self.r
 
         # Get tensors
-        Γ = lambda i, j, k: self.christoffel(i, j, k, envs=(l, r))
-        F1_ = lambda i, j: self.F1(i, j, H, envs=(l, r), fullH=fullH)
-        F2_ = lambda i, j: self.F2(i, j, H, envs=(l, r), fullH=fullH)
-
+        #-<d_id_jψ|d_kψ> dA_k/dt
+        Γ1 = lambda i, j: td(self.christoffel(i, j, min(i, j), envs=(l, r)), dA_dt[min(i, j)], [[-3, -2, -1], [0, 1, 2]])
+        #-<d_iψ|d_jd_kψ> dA_k/dt
+        Γ2 = lambda i, j: td(c(self.christoffel(i, j, min(i, j), envs=(l, r))), dA_dt[min(i, j)], [[-3, -2, -1], [0, 1, 2]])
         #-i<d_id_j ψ|H|ψ>dA*_j
-        F1 = lambda i: -1j*sum([td(F1_(i, j), c(dA[j]), [[3, 4, 5], [0, 1, 2]]) for j in range(L)], axis=0)
+        F1 = lambda i, j: -1j*self.F1(i, j, H, envs=(l, r), fullH=fullH)
         #-i<d_iψ|H|d_jψ>dA_j
-        F2 = lambda i: -1j*sum([td(F2_(i, j), dA[j], [[3, 4, 5], [0, 1, 2]]) for j in range(L)], axis=0)
-        #-<d_id_jψ|d_kψ> dA_k/dt dA_j*
-        Γ1 = lambda i: sum([ncon([Γ(i, j, i), c(dA[j]), dA_dt[i]], [[-1, -2, -3, 1, 2, 3, 4, 5, 6], [1, 2, 3], [4, 5, 6]])
-                           for j in range(L)], axis=0)
-        #-<d_iψ|d_jd_kψ> dA_k/dt dA_j
-        Γ2 = lambda i: sum([ncon([c(Γ(i, j, i)), dA[j], dA_dt[i]], [[-1, -2, -3, 1, 2, 3, 4, 5, 6], [1, 2, 3], [4, 5, 6]])
-                           for j in range(L)], axis=0)
-
-        def ddA(i):
-            return F1(i)+ F2(i)+ Γ1(i)+ Γ2(i)
-
-        return fMPS([ddA(i) for i in range(L)])
+        F2 = lambda i, j: -1j*self.F2(i, j, H, envs=(l, r), fullH=fullH)
+        return F1, lambda i, j: F2(i, j) + Γ1(i, j) + Γ2(i, j) #F1 acts on dA*j
 
     def F1(self, i_, j_, H, envs=None, fullH=False):
         '''<d_id_j ψ|H|ψ>'''

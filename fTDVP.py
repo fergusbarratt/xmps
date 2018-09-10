@@ -7,6 +7,7 @@ from numpy import array, linspace, real as re, reshape, sum, swapaxes as sw
 from numpy import tensordot as td, squeeze, trace as tr, expand_dims as ed
 from numpy import load, isclose, allclose, zeros_like as zl, prod, imag as im
 from numpy import log, abs, diag, cumsum as cs, arange as ar, eye, kron as kr
+from numpy import cross, dot
 from numpy.random import randn
 from scipy.linalg import sqrtm, expm, norm, null_space as null, cholesky as ch
 from scipy.integrate import odeint, complex_ode as c_ode
@@ -185,7 +186,7 @@ class Trajectory(object):
         self.history.append(mps.serialize())
 
         self.mps = mps+(k1+2*k2+2*k3+k4)/6
-        return self
+        return self.mps
 
     def odeint(self, T, D=None, plot=False, timeit=False, lyapunovs=False):
         """odeint: pass to scipy odeint
@@ -222,23 +223,32 @@ class Trajectory(object):
         self.mps = fMPS().deserialize(traj.T[-1, :], L, d, D, real=True)
         return self
 
-    def lyapunov(self, T, D=None):
-        mps = self.mps
+    def lyapunov(self, T, D=None, ops=[]):
+        mps = self.mps.left_canonicalise(D)
         H = self.H
         Q = mps.tangent_space_basis()
         dt = T[1]-T[0]
         e = []
         lys = []
-        for t in T:
+        evs = []
+        for m in range(len(T)):
             for m, v in enumerate(Q):
-                dA = mps.import_tangent_vector(v)
-                q = mps.extract_tangent_vector(mps.ddA_dt(dA, H))
+                #print('b: ', Q[m])
+                q = v+dt*mps.ddA_dt(v, H)
                 Q[m] = q
+                print(cross(v, q))
+                print(dot(v.conj(), q))
+                #print('a: ', Q[m])
             Q, R = qr(Q)
             lys.append(log(abs(diag(R))))
-            self.rk4(dt)
-        fig, ax = plt.subplots(1, 1)
-        ax.plot(T, (1/(dt))*cs(lys, axis=0)/ed(ar(1, len(lys)+1), 1))
+            evs.append([self.mps.E(*opsite) for opsite in ops])
+            self.rk4(dt).left_canonicalise(D)
+        fig, ax = plt.subplots(3, 1)
+        exps = (1/(dt))*cs(array(lys), axis=0)/ed(ar(1, len(lys)+1), 1)
+        ax[0].plot(T, exps)
+        ax[1].plot(T, lys)
+        ax[2].plot(T, evs)
+        ax[2].set_ylim([-1, 1])
         plt.show()
 
 class TestTrajectory(unittest.TestCase):
@@ -260,12 +270,20 @@ class TestTrajectory(unittest.TestCase):
         self.mps_0_4 = fMPS().left_from_state(self.tens_0_4)
         self.psi_0_4 = self.mps_0_4.recombine().reshape(-1)
 
-    def test_lyapunov(self):
+    def test_lyapunov_2(self):
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
+        #mps = self.mps_0_2
+        mps = fMPS().random(2, 2, 2)
+        H = [eye(4)]
+        Trajectory(mps, H).lyapunov(linspace(0, 0.1, 50), D=2, ops=[(Sy, 0)])
+
+    def test_lyapunov_3(self):
         Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
         Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
         mps = self.mps_0_3
         H = [Sz1@Sz2+Sx1, Sz1@Sz2+Sx2]
-        Trajectory(mps, H).lyapunov(linspace(0, 0.1, 100))
+        Trajectory(mps, H).lyapunov(linspace(0, 0.1, 100), ops=[(Sx, 0)])
 
     def test_fullH_trajectory(self):
         """test_trajectory"""
