@@ -114,7 +114,6 @@ class fMPS(object):
         """
         return self.__mul__(1/other)
 
-
     def left_from_state(self, state):
         """left_from_state: generate left canonical mps from state tensor
 
@@ -602,8 +601,7 @@ class fMPS(object):
         dA = self.import_tangent_vector(v)
         dA_dt = self.dA_dt(H, store_energy=True, fullH=fullH, store_envs=True)
         l, r, e = self.l, self.r, self.e
-        ddA = []
-        #H = [H[i]-e[i] for i in range(len(H))]
+        _, vL = self.left_null_projector(1, get_vL=True)
         down, up = self.jac(H, fullH)
 
         ddA = [sum([td(down(i, j), c(dA[j]), [[3, 4, 5], [0, 1, 2]])+td(up(i, j), dA[j], [[3, 4, 5], [0, 1, 2]]) for j in range(L)], axis=0)
@@ -947,7 +945,7 @@ class fMPS(object):
                 continue
             _, vL = self.left_null_projector(n, get_vL=True, store_envs=True)
             l, r = self.l, self.r
-            x = ncon([vL, ch(l(n-1))@dA[n]@ch(r(n))], [[1, 2, -1], [1, 2, -2]])
+            x = ncon([c(vL), ch(l(n-1))@dA[n]@ch(r(n))], [[1, 2, -1], [1, 2, -2]])
             xs.append(x.reshape(-1))
         return ct(xs)
 
@@ -1510,6 +1508,17 @@ class TestfMPS(unittest.TestCase):
             # TODO: fullH fails gauge projectors test (listH doesn't): 
             # TODO: fullH different from listH:
 
+    def test_ddA_dt(self):
+        Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
+        Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
+
+        mps = self.mps_0_2
+        eyeH = [eye(4)]
+        dt = 0.1
+        z = randn(3)
+
+        self.assertTrue(allclose(mps.ddA_dt(z, eyeH), -1j*z))
+
     def test_left_transfer(self):
         mps = self.mps_0_4.left_canonicalise()
         l, r = mps.get_envs()
@@ -1526,27 +1535,6 @@ class TestfMPS(unittest.TestCase):
         ls = mps.right_transfer(l(0), 0, L-1)
         for i in range(L):
             self.assertTrue(allclose(ls(i+1), l(i)))
-
-    def test_ddA_dt(self):
-        Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
-        Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
-
-        mps = self.mps_0_2
-        listH = [Sz12@Sz22+Sx12+Sx22]
-        fullH = listH[0]
-        dt = 0.1
-        d2A_d2t1 = mps.ddA_dt(mps.dA_dt(fullH, fullH=True), fullH, fullH=True)
-        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 3)
-        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 3)
-        Sx3, Sy3, Sz3 = N_body_spins(0.5, 3, 3)
-
-        Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
-        Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
-
-        mps = self.mps_0_3
-        listH = [Sz12@Sz22+Sx12, Sz12@Sz22+Sx12+Sx22]
-        fullH = sum([n_body(a, i, len(listH), d=2) for i, a in enumerate(listH)], axis=0)
-        mps.ddA_dt(mps.dA_dt(fullH, fullH=True), fullH, fullH=True)
 
     def test_local_recombine(self):
         Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 4)

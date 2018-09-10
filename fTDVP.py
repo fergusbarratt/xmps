@@ -232,13 +232,12 @@ class Trajectory(object):
         lys = []
         evs = []
         for m in range(len(T)):
+            print(Q)
             for m, v in enumerate(Q):
-                #print('b: ', Q[m])
                 q = v+dt*mps.ddA_dt(v, H)
                 Q[m] = q
-                print(cross(v, q))
-                print(dot(v.conj(), q))
-                #print('a: ', Q[m])
+            print(Q)
+            raise Exception
             Q, R = qr(Q)
             lys.append(log(abs(diag(R))))
             evs.append([self.mps.E(*opsite) for opsite in ops])
@@ -273,9 +272,9 @@ class TestTrajectory(unittest.TestCase):
     def test_lyapunov_2(self):
         Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
         Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
-        #mps = self.mps_0_2
-        mps = fMPS().random(2, 2, 2)
-        H = [eye(4)]
+        mps = self.mps_0_2
+        #mps = fMPS().random(2, 2, 2)
+        H = [Sz1@Sz2]
         Trajectory(mps, H).lyapunov(linspace(0, 0.1, 50), D=2, ops=[(Sy, 0)])
 
     def test_lyapunov_3(self):
