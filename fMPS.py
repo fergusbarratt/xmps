@@ -601,10 +601,11 @@ class fMPS(object):
         dA = self.import_tangent_vector(v)
         dA_dt = self.dA_dt(H, store_energy=True, fullH=fullH, store_envs=True)
         l, r, e = self.l, self.r, self.e
-        _, vL = self.left_null_projector(1, get_vL=True)
+        # down are the tensors acting on c(Aj), up act on Aj
         down, up = self.jac(H, fullH)
 
-        ddA = [sum([td(down(i, j), c(dA[j]), [[3, 4, 5], [0, 1, 2]])+td(up(i, j), dA[j], [[3, 4, 5], [0, 1, 2]]) for j in range(L)], axis=0)
+        ddA = [sum([td(down(i, j), c(dA[j]), [[3, 4, 5], [0, 1, 2]]) + 
+                    td(up(i, j),     dA[j],  [[3, 4, 5], [0, 1, 2]]) for j in range(L)], axis=0)
                for i in range(L)]
 
         return self.extract_tangent_vector(ddA)
@@ -617,15 +618,17 @@ class fMPS(object):
         l, r = self.l, self.r
 
         # Get tensors
-        #-<d_id_jψ|d_kψ> dA_k/dt
-        Γ1 = lambda i, j: td(self.christoffel(i, j, min(i, j), envs=(l, r)), dA_dt[min(i, j)], [[-3, -2, -1], [0, 1, 2]])
-        #-<d_iψ|d_jd_kψ> dA_k/dt
-        Γ2 = lambda i, j: td(c(self.christoffel(i, j, min(i, j), envs=(l, r))), dA_dt[min(i, j)], [[-3, -2, -1], [0, 1, 2]])
-        #-i<d_id_j ψ|H|ψ>dA*_j
-        F1 = lambda i, j: -1j*self.F1(i, j, H, envs=(l, r), fullH=fullH)
-        #-i<d_iψ|H|d_jψ>dA_j
-        F2 = lambda i, j: -1j*self.F2(i, j, H, envs=(l, r), fullH=fullH)
-        return F1, lambda i, j: F2(i, j) + Γ1(i, j) + Γ2(i, j) #F1 acts on dA*j
+        #-<d_id_kψ|d_jψ> dA_j/dt (dA_k*)
+        Γ1 = lambda i, k: td(self.christoffel(i, k, min(i, k), envs=(l, r)), dA_dt[min(i, k)], [[6, 7, 8], [0, 1, 2]])
+        #-i<d_id_k ψ|H|ψ> (dA_k*)
+        F1 = lambda i, k: -1j*self.F1(i, k, H, envs=(l, r), fullH=fullH)
+
+        #-<d_iψ|d_kd_jψ> dA_j/dt (dA_k) (range(k+1, L))
+        Γ2 = lambda i, k: sum([td(c(self.christoffel(k, j, i, envs=(l, r))), dA_dt[j], [[3, 4, 5], [0, 1, 2]]) for j in range(L)])
+        #-i<d_iψ|H|d_kψ> (dA_k)
+        F2 = lambda i, k: -1j*self.F2(i, k, H, envs=(l, r), fullH=fullH)
+
+        return (lambda i, j: F1(i, j) + Γ1(i, j)), (lambda i, j: F2(i, j) + Γ2(i, j)) #F1, Γ1 act on dA*j
 
     def F1(self, i_, j_, H, envs=None, fullH=False):
         '''<d_id_j ψ|H|ψ>'''
@@ -837,7 +840,7 @@ class fMPS(object):
     def christoffel(self, i, j, k, envs=None, closed=(None, None, None)):
         """christoffel: return the christoffel symbol in basis c(A_i), c(A_j), A_k. 
            Close indices i, j, k, with elements of closed tuple: i.e. (B_i, B_j, B_k).
-           Will leave any indices marked none open"""
+           Will leave any indices marked none open :-<d_id_jψ|d_kψ>"""
         L, d, A = self.L, self.d, self.data
         l, r = self.get_envs() if envs is None else envs
         pr = lambda n: self.left_null_projector(n, l)
@@ -1515,9 +1518,10 @@ class TestfMPS(unittest.TestCase):
         mps = self.mps_0_2
         eyeH = [eye(4)]
         dt = 0.1
-        z = randn(3)
+        Z = [randn(3)+1j*randn(3) for _ in range(10)]
 
-        self.assertTrue(allclose(mps.ddA_dt(z, eyeH), -1j*z))
+        for z in Z:
+            self.assertTrue(allclose(mps.ddA_dt(z, eyeH), -1j*z))
 
     def test_left_transfer(self):
         mps = self.mps_0_4.left_canonicalise()
@@ -1592,6 +1596,24 @@ class TestfMPS(unittest.TestCase):
             B = mps.dA_dt(fullH, fullH=True, par=True)
             t2 = time()
             print('par, full: ', t2-t1)
+
+    def test_profile_F1_F2(self):
+        Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
+        Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
+        mps = self.mps_0_6.left_canonicalise(1)
+        H = [Sz12@Sz22+Sx12, Sz12@Sz22+Sx12+Sx22, Sz12@Sz22+Sx22+Sx12+Sx22, Sz12@Sz22+Sz12+Sx22, Sz12@Sz22+Sx22]
+        l, r = mps.get_envs()
+        L = mps.L
+        t1 = time()
+        for i, j in product(range(L), range(L)):
+            mps.F1(i, j, H, envs=(l, r))
+        t2 = time()
+        print('\nF1: ', t2-t1)
+        t1 = time()
+        for i, j in product(range(L), range(L)):
+            mps.F2(i, j, H, envs=(l, r))
+        t2 = time()
+        print('F2: ', t2-t1)
 
 class TestvfMPS(unittest.TestCase):
     """TestvfMPS"""
