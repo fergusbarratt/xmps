@@ -1,5 +1,5 @@
 import unittest
-from spin import n_body, N_body_spins
+from spin import n_body, N_body_spins, spins
 from ncon import ncon
 from numpy.random import rand, randint, randn
 from numpy.linalg import svd, inv, norm#, cholesky as ch,
@@ -10,7 +10,7 @@ from numpy import real as re, stack as st, concatenate as ct
 from numpy import split as chop, zeros, ones, ones_like, empty
 from numpy import save, load, zeros_like as zl, eye, cumsum as cs
 from numpy import sqrt, expand_dims as ed, transpose as tra
-from numpy import trace as tr, tensordot as td
+from numpy import trace as tr, tensordot as td, kron, imag as im
 from tests import is_right_canonical, is_right_env_canonical, is_full_rank
 from tests import is_left_canonical, is_left_env_canonical, has_trace_1
 from tensor import H as cT, truncate_A, truncate_B, diagonalise, rank, mps_pad
@@ -19,6 +19,8 @@ from tensor import rdot, ldot, structure
 from qmb import sigmaz, sigmax, sigmay
 from functools import reduce
 from itertools import product
+Sx, Sy, Sz = spins(0.5)
+Sx, Sy, Sz = 2*Sx, 2*Sy, 2*Sz
 
 from time import time
 from pathos.multiprocessing import ProcessingPool as Pool
@@ -610,7 +612,7 @@ class fMPS(object):
 
         return self.extract_tangent_vector(ddA)
 
-    def jac(self, H, fullH=False):
+    def jac(self, H, matrix=False, real=False, fullH=False):
         """jac: calculate the jacobian of the current mps
         """
         L, d, A = self.L, self.d, self.data
@@ -628,7 +630,57 @@ class fMPS(object):
         #-i<d_iψ|H|d_kψ> (dA_k)
         F2 = lambda i, k: -1j*self.F2(i, k, H, envs=(l, r), fullH=fullH)
 
-        return (lambda i, j: F1(i, j) + Γ1(i, j)), (lambda i, j: F2(i, j) + Γ2(i, j)) #F1, Γ1 act on dA*j
+        def down(i, j): return F1(i, j) + Γ1(i, j) #F1, Γ1 act on dA*j
+        def up(i, j): return F2(i, j) + Γ2(i, j)
+
+        if matrix == False:
+            return down, up 
+
+        vL, sh = self.tangent_space_dims(l, True)
+        shapes = list(cs([prod([a, b]) for (a, b) in sh if a!=0 and a!=0]))
+        DD = shapes[-1]
+
+        def index(i, j):
+            slices = [slice(a[0], a[1], 1) for a in [([0]+shapes)[i:i+2] for i in range(len(shapes))]]
+            return (slices[i], slices[j])
+
+        nulls = len([1 for (a, b) in sh if a==0 or b==0])
+
+        def ungauge_i(tens, i, conj=False): 
+            vL_ = vL[i] if not conj else c(vL[i])
+            k = len(tens.shape[3:])
+            links = [1, 2, -2]+list(range(-3, -3-k, -1))
+            return ncon([ch(l(i-1))@vL_, 
+                        ncon([tens, ch(r(i))], [[-1, -2, 1, -4, -5, -6], [1, -3]])], 
+                        [[1, 2, -1], links])
+
+        def ungauge_j(tens, i, conj=False): 
+            vL_ = vL[i] if not conj else c(vL[i])
+            k = len(tens.shape[:-3])
+            links = list(range(-1, -k-1, -1))+[1, 2, -k-2]
+            return ncon([ch(l(i-1))@vL_, tens@ch(r(i))], 
+                    [[1, 2, -k-1], links])
+
+        def ungauge(tens, i, j, conj=(True, False)):
+            return ungauge_j(ungauge_i(tens, i, conj[0]), j, conj[1])
+
+        J1 = -1j*zeros((DD, DD))
+        J2 = -1j*zeros((DD, DD))
+
+        for i in range(len(shapes)):
+            for j in range(len(shapes)):
+                i_, j_ = i+nulls, j+nulls
+                J1[index(i, j)] = ungauge(down(i_, j_), i_, j_).reshape(J1[index(i, j)].shape)
+                J2[index(i, j)] = ungauge(up(i_, j_), i_, j_).reshape(J2[index(i, j)].shape)
+
+        if not real:
+            return J1, J2
+        else:
+            J = kron(Sz, im(J2))+kron(eye(2), im(J1)) + kron(Sx, re(J2)) + kron(1j*Sy, re(J1))
+            J[abs(J)<1e-15]=0
+            return J
+
+        
 
     def F1(self, i_, j_, H, envs=None, fullH=False):
         '''<d_id_j ψ|H|ψ>'''
@@ -1614,6 +1666,20 @@ class TestfMPS(unittest.TestCase):
             mps.F2(i, j, H, envs=(l, r))
         t2 = time()
         print('F2: ', t2-t1)
+
+    def test_jac(self):
+        Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
+        Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
+
+        mps = self.mps_0_2
+        H = [eye(4)]
+        J1, J2 = mps.jac(H, True)
+        self.assertTrue(allclose(J2, -1j*eye(3)))
+        self.assertTrue(allclose(J1, 0))
+        J = mps.jac(H, True, True)
+        print('\n', J)
+
+
 
 class TestvfMPS(unittest.TestCase):
     """TestvfMPS"""

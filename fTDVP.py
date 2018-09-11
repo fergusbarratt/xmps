@@ -236,7 +236,7 @@ class Trajectory(object):
         evs = []
         for t in tqdm(range(1, len(T)+1)):
             for m, v in enumerate(Q):
-                q = v+dt*self.mps.ddA_dt(v, H)
+                q = v+dt*self.mps.ddA_dt(v, H) # unitary to order dt^2: inst. lyapunov exponents should be off by O(dt^2)
                 Q[m] = q
             Q, R = qr(Q)
             lys.append(log(abs(diag(R))))
@@ -252,6 +252,7 @@ class TestTrajectory(unittest.TestCase):
         self.tens_0_2 = load('mat2x2.npy')
         self.tens_0_3 = load('mat3x3.npy')
         self.tens_0_4 = load('mat4x4.npy')
+        self.tens_0_5 = load('mat5x5.npy')
 
         self.mps_0_1 = fMPS().left_from_state(self.tens_0_2).right_canonicalise(1)
 
@@ -264,6 +265,9 @@ class TestTrajectory(unittest.TestCase):
         self.mps_0_4 = fMPS().left_from_state(self.tens_0_4)
         self.psi_0_4 = self.mps_0_4.recombine().reshape(-1)
 
+        self.mps_0_5 = fMPS().left_from_state(self.tens_0_5)
+        self.psi_0_5 = self.mps_0_5.recombine().reshape(-1)
+
     def test_lyapunov_2_identity(self):
         """test_lyapunov_2_identity lyapunov exponents are exactly half the timestep? when H=eye(4)"""
         Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
@@ -273,6 +277,16 @@ class TestTrajectory(unittest.TestCase):
         T = linspace(0, 0.1, 100)
         exps, lys, _ = Trajectory(mps, H).lyapunov(T, D=2)
         self.assertTrue(allclose(exps[-1], (T[1]-T[0])/2))
+
+    def test_lyapunov_2_local(self):
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
+        mps = self.mps_0_2
+        H = [Sx1+Sx2]
+        T = linspace(0, 0.1, 100)
+        exps, lys, _ = Trajectory(mps, H).lyapunov(T, D=2)
+        plt.plot(exps)
+        plt.show()
 
     def test_lyapunov_2(self):
         Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
@@ -324,6 +338,23 @@ class TestTrajectory(unittest.TestCase):
         Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
         mps = self.mps_0_4
         H = [Sz1@Sz2+Sx1, Sz1@Sz2+Sx1+Sx2, Sz1@Sz2+Sx2]
+        T = linspace(0, 1, 100)
+        exps, lys, evs = Trajectory(mps, H).lyapunov(T, ops=[(Sx, 0), (Sy, 0), (Sz, 0)])
+        print(exps[-1])
+
+        fig, ax = plt.subplots(3, 1, sharex=True)
+        ax[0].plot(T, exps)
+        ax[1].plot(T, lys)
+        ax[2].plot(T, evs)
+
+        ax[2].set_ylim([-1, 1])
+        plt.show()
+
+    def test_lyapunov_5(self):
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
+        mps = self.mps_0_5
+        H = [Sz1@Sz2+Sx1, Sz1@Sz2+Sx1+Sx2, Sz1@Sz2+Sx1+Sx2, Sz1@Sz2+Sx2]
         T = linspace(0, 1, 100)
         exps, lys, evs = Trajectory(mps, H).lyapunov(T, ops=[(Sx, 0), (Sy, 0), (Sz, 0)])
         print(exps[-1])
