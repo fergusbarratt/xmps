@@ -629,12 +629,12 @@ class fMPS(object):
 
         ## non unitary (from projection): -<d_id_kψ|(d_t |ψ> +iH|ψ>) (dA_k*) (should be zero for no projection)
         #-<d_id_kψ|d_jψ> dA_j/dt (dA_k*)
-        def Γ2(i, k): return td(self.christoffel(i, k, min(i, k), envs=(l, r)), dA_dt[min(i, k)], [[6, 7, 8], [0, 1, 2]])
+        def Γ2(i, k): return td(self.christoffel(i, k, min(i, k), envs=(l, r)), l(min(i, k)-1)@dA_dt[min(i, k)]@r(min(i, k)), [[6, 7, 8], [0, 1, 2]])
         #-i<d_id_k ψ|H|ψ> (dA_k*)
         def F2(i, k): return -1j*self.F2(i, k, H, envs=(l, r), fullH=fullH)
 
-        print('\n', im(F2(1, 2)).reshape(-1), im(Γ2(1, 2)).reshape(-1), sep='\n')
-        raise Exception
+        #print('\n', im(F2(1, 2)).reshape(-1), im(Γ2(1, 2)).reshape(-1), sep='\n')
+        #raise Exception
 
         def F1t(i, j): return F1(i, j) + Γ1(i, j)
         def F2t(i, j): return F2(i, j) + Γ2(i, j) #F2, Γ2 act on dA*j
@@ -861,17 +861,15 @@ class fMPS(object):
                             G += ncon([l(m-1)@C, pr(i), dot(pr(j), inv(r(i)))],   [[1, 2, 3, -6], [-1, -2, 1, 3], [-4, -5, 2, -3]])
                         else:
                             L =  ncon([l(m-1)@C, pr(i), inv(r(i))@c(Am_1)], [[1, 2, 3, -4], [-1, -2, 1, 3], [2, -3, -5]]) # ud
-                            G1 = deepcopy(G)
                             G += ncon([L, Rjs(m+2)], [[-1, -2, -3, 1, 2], [1, 2, -4, -5, -6]])
                     elif m==i-1:
                         L = ncon([l(m-1)@C, c(Am), pr(i)], [[1, 2, 3, -3], [1, 3, 4], [-1, -2, 2, 4]])
-                        G1 = deepcopy(G)
                         G += ncon([L, ncon([Rjs(m+2), inv(r(i))], [[-1, 2, -3, -4, -5], [2, -2]])], [[-1, -2, 1], [1, -3, -4, -5, -6]])
                     else:
                         L = ncon([K, Ris(m+2)], [[1, 2], [1, 2, -1, -2, -3]])
                         G1 = deepcopy(G)
-                        G += ncon([ncon([L@inv(r(i)), Rjs(i+1)], [[-1, -2, 1], [1, -3, -4, -5, -6]]), 
-                                   r(i)], 
+                        G += ncon([ncon([L, Rjs(i+1)], [[-1, -2, 1], [1, -3, -4, -5, -6]]), 
+                                   inv(r(i))], 
                                    [[-1, -2, 1, -4, -5, -6], [1, -3]])
         elif fullH:
             H = H.reshape([self.d, self.d]*self.L)
@@ -936,7 +934,7 @@ class fMPS(object):
         else:
             Γ_c = Γ(i, j, k)
 
-        return -Γ_c
+        return Γ_c
 
     def left_null_projector(self, n, l=None, get_vL=False, store_envs=False, vL=None):
         """left_null_projector:           |    
@@ -1560,23 +1558,35 @@ class TestfMPS(unittest.TestCase):
             # TODO: fullH different from listH:
 
     def test_F2_F1_christoffel(self):
-        '''<d_id_j ψ|H|ψ>, <d_iψ|H|d_jψ>'''
+        '''-1j<d_id_j ψ|H|ψ>=<d_id_j ψ|Ad_j|d_jψ> with no truncation'''
         Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
         Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
         mps = self.mps_0_3
-        H = [eye(4), Sz1+Sz2]
+        H = [Sz1@Sz2+Sz1, Sz1@Sz2+Sz1+Sz2]
         dA_dt = mps.dA_dt(H, store_envs=True)
+        l, r = mps.l, mps.r
         i, j = 1, 2
-
         F2 = -1j*mps.F2(i, j, H)
-        Γ2 = -td(mps.christoffel(i, j, i), dA_dt[i], [[-3, -2, -1], [0, 1, 2]])
-        print(norm(F2-Γ2))
-        #print(F2.shape)
-        #print('\n', F2.reshape(-1), Γ2.reshape(-1), sep='\n', end='\n')
-        #print('\n', F2.reshape(-1)/Γ2.reshape(-1), sep='\n', end='\n')
-        print('\n', ncon([F2, inv(mps.r(i))], [[-1, -2, 1, -4, -5, -6], [1, -3]]).reshape(-1)/Γ2.reshape(-1), sep='\n', end='\n')
+        Γ2 = td(mps.christoffel(i, j, i), l(i-1)@dA_dt[i]@r(i), [[-3, -2, -1], [0, 1, 2]])
+        self.assertTrue(allclose(F2+Γ2, 0))
 
+        mps = self.mps_0_4
+        H = [Sz1@Sz2+Sz1, Sz1@Sz2+Sz1+Sz2, Sz1@Sz2+Sz2]
+        dA_dt = mps.dA_dt(H, store_envs=True)
+        l, r = mps.l, mps.r
+        i, j = 2, 3
+        F2 = -1j*mps.F2(i, j, H)
+        Γ2 = td(mps.christoffel(i, j, i), l(i-1)@dA_dt[i]@r(i), [[-3, -2, -1], [0, 1, 2]])
+        self.assertTrue(allclose(F2+Γ2, 0))
 
+        mps = self.mps_0_5
+        H = [Sz1@Sz2+Sz1, Sz1@Sz2+Sz1+Sz2, Sz1@Sz2+Sz1+Sz2, Sz1@Sz2+Sz2]
+        dA_dt = mps.dA_dt(H, store_envs=True)
+        l, r = mps.l, mps.r
+        for i, j in [(2, 3), (2, 4), (3, 2), (4, 2)]:
+            F2 = -1j*mps.F2(i, j, H)
+            Γ2 = td(mps.christoffel(i, j, min(i, j)), l(min(i, j)-1)@dA_dt[min(i, j)]@r(min(i, j)), [[-3, -2, -1], [0, 1, 2]])
+            self.assertTrue(allclose(F2+Γ2, 0))
 
     def test_ddA_dt(self):
         Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
