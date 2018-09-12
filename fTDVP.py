@@ -421,17 +421,15 @@ class TestTrajectory(unittest.TestCase):
 
     def test_trajectory_4_no_truncate(self):
         """test_trajectory_4: 4 spins, lyapunov trajectory"""
-        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 4)
-        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 4)
-        Sx3, Sy3, Sz3 = N_body_spins(0.5, 3, 4)
-        Sx4, Sy4, Sz4 = N_body_spins(0.5, 4, 4)
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
         mps_0 = self.mps_0_4
-        H = Sz1@Sz2+Sz2@Sz3+Sz3@Sz4 + Sx1+Sx2+Sx3+Sx4
-        dt, N = 1e-1, 100
-        print('\nt1: ', end='')
-        trajectory(mps_0, H, dt, N, plot=False, timeit=True)
-        print('t2: ', end='')
-        Trajectory(mps_0, H).odeint(linspace(0, N*dt, N), plot=False, timeit=True)
+        #H = Sz1@Sz2+Sz2@Sz3+Sz3@Sz4 + Sx1+Sx2+Sx3+Sx4
+        H = [Sz1@Sz2+Sx1, Sz1@Sz2+Sx1+Sx2, Sz1@Sz2+Sx2]
+        dt, N = 1e-1, 300
+        T = linspace(0, N*dt, N)
+        Trajectory(mps_0, H).odeint(T, plot=True)
+        plt.show()
 
 
 

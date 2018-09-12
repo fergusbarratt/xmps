@@ -1,5 +1,5 @@
 import unittest
-from spin import n_body, N_body_spins
+from spin import n_body, N_body_spins, spins
 from ncon import ncon
 from numpy.random import rand, randint, randn
 from numpy.linalg import svd, inv, norm#, cholesky as ch,
@@ -19,6 +19,7 @@ from tensor import rdot, ldot, structure
 from qmb import sigmaz, sigmax, sigmay
 from functools import reduce
 from itertools import product
+Sx, Sy, Sz = spins(0.5)
 
 from time import time
 from pathos.multiprocessing import ProcessingPool as Pool
@@ -113,7 +114,6 @@ class fMPS(object):
         :param other: scalar to multiply
         """
         return self.__mul__(1/other)
-
 
     def left_from_state(self, state):
         """left_from_state: generate left canonical mps from state tensor
