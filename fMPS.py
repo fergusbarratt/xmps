@@ -17,6 +17,7 @@ from tensor import H as cT, truncate_A, truncate_B, diagonalise, rank, mps_pad
 from tensor import C as c
 from tensor import rdot, ldot, structure
 from qmb import sigmaz, sigmax, sigmay
+from copy import deepcopy
 from functools import reduce
 from itertools import product
 Sx, Sy, Sz = spins(0.5)
@@ -834,12 +835,11 @@ class fMPS(object):
 
         i, j = (j_, i_) if j_<i_ else (i_, j_)
         if i==j:
-            G = zeros((*A[i].shape, *A[j].shape))
+            G = 1j*zeros((*A[i].shape, *A[j].shape))
         elif not fullH:
-            G = -1j*zeros((*A[i].shape, *A[j].shape))
+            G = 1j*zeros((*A[i].shape, *A[j].shape))
             _, Din_1, Di = self[i].shape
-            d, Djn_1, Dj = self[j].shape 
-            if not (d*Djn_1==Dj or d*Din_1==Di):
+            if not d*Din_1==Di:
                 Rj = ncon([pr(j), A[j]], [[-3, -4, 1, -2], [1, -1, -5]])
                 Rjs = self.left_transfer(Rj, i, j)
 
@@ -854,17 +854,22 @@ class fMPS(object):
                     Am, Am_1 = self.data[m:m+2]
                     C = ncon([h]+[Am, Am_1], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
                     K = ncon([c(l(m-1))@Am.conj(), Am_1.conj()]+[C], [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]]) #AAHAA
+                    e = tr(K@r(m+1))
+
                     if m==i:
                         if j==i+1:
-                            G += ncon([l(m-1)@C, pr(i), pr(j)@inv(r(i))], [[1, 2, 3, -6], [-1, -2, 1, 3], [-4, -5, 2, -3]])
+                            G += ncon([l(m-1)@C, pr(i), dot(pr(j), inv(r(i)))],   [[1, 2, 3, -6], [-1, -2, 1, 3], [-4, -5, 2, -3]])
                         else:
-                            L = ncon([l(m-1)@C, pr(i), inv(r(i))@c(Am_1)], [[1, 2, 3, -4], [-1, -2, 1, 3], [2, -3, -5]]) # tb
+                            L =  ncon([l(m-1)@C, pr(i), inv(r(i))@c(Am_1)], [[1, 2, 3, -4], [-1, -2, 1, 3], [2, -3, -5]]) # ud
+                            G1 = deepcopy(G)
                             G += ncon([L, Rjs(m+2)], [[-1, -2, -3, 1, 2], [1, 2, -4, -5, -6]])
                     elif m==i-1:
                         L = ncon([l(m-1)@C, c(Am), pr(i)], [[1, 2, 3, -3], [1, 3, 4], [-1, -2, 2, 4]])
+                        G1 = deepcopy(G)
                         G += ncon([L, ncon([Rjs(m+2), inv(r(i))], [[-1, 2, -3, -4, -5], [2, -2]])], [[-1, -2, 1], [1, -3, -4, -5, -6]])
                     else:
                         L = ncon([K, Ris(m+2)], [[1, 2], [1, 2, -1, -2, -3]])
+                        G1 = deepcopy(G)
                         G += ncon([ncon([L@inv(r(i)), Rjs(i+1)], [[-1, -2, 1], [1, -3, -4, -5, -6]]), 
                                    r(i)], 
                                    [[-1, -2, 1, -4, -5, -6], [1, -3]])
@@ -914,7 +919,7 @@ class fMPS(object):
                 else:
                     R = ncon([pr(j), A[j]], [[-3, -4, 1, -2], [1, -1, -5]])
                     Rs = self.left_transfer(R, i, j)
-                    G = ncon([pr(i), Rs(i+1), inv(r(i)), inv(r(i))], [[-1, -2, -7, -8], [1, 2, -4, -5, -6], [1, -3], [2, -9]])
+                    G = ncon([pr(i), Rs(i+1), inv(r(i)), inv(r(i))], [[-1, -2, -7, -8], [1, 2, -4, -5, -6], [1, -9], [2, -3]])
                 if j_<i_:
                     return -tra(G, [3, 4, 5, 0, 1, 2, 6, 7, 8])
                 else:
@@ -1479,6 +1484,8 @@ class TestfMPS(unittest.TestCase):
             # symmetric in i, j
             self.assertTrue(allclose(mps.christoffel(i, j, k, closed=(c(mps[i]), c(mps[j]), mps[k])), 
                                      mps.christoffel(j, i, k, closed=(c(mps[j]), c(mps[i]), mps[k]))  ))
+            
+            self.assertTrue(allclose(tra(mps.christoffel(i, j, k), [3, 4, 5, 0, 1, 2, 6, 7, 8]), mps.christoffel(j, i, k)))
 
 
         ijks = ((1, 2, 1),)
@@ -1551,6 +1558,25 @@ class TestfMPS(unittest.TestCase):
 
             # TODO: fullH fails gauge projectors test (listH doesn't): 
             # TODO: fullH different from listH:
+
+    def test_F2_F1_christoffel(self):
+        '''<d_id_j ψ|H|ψ>, <d_iψ|H|d_jψ>'''
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
+        mps = self.mps_0_3
+        H = [eye(4), Sz1+Sz2]
+        dA_dt = mps.dA_dt(H, store_envs=True)
+        i, j = 1, 2
+
+        F2 = -1j*mps.F2(i, j, H)
+        Γ2 = -td(mps.christoffel(i, j, i), dA_dt[i], [[-3, -2, -1], [0, 1, 2]])
+        print(norm(F2-Γ2))
+        #print(F2.shape)
+        #print('\n', F2.reshape(-1), Γ2.reshape(-1), sep='\n', end='\n')
+        #print('\n', F2.reshape(-1)/Γ2.reshape(-1), sep='\n', end='\n')
+        print('\n', ncon([F2, inv(mps.r(i))], [[-1, -2, 1, -4, -5, -6], [1, -3]]).reshape(-1)/Γ2.reshape(-1), sep='\n', end='\n')
+
+
 
     def test_ddA_dt(self):
         Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
@@ -1628,15 +1654,15 @@ class TestfMPS(unittest.TestCase):
             t1 = time()
             B = mps.dA_dt(listH, fullH=False, par=True)
             t2 = time()
-            print('par, list: ', t2-t1)
+           # print('par, list: ', t2-t1)
             t1 = time()
             B = mps.dA_dt(fullH, fullH=True)
             t2 = time()
-            print('ser, full: ', t2-t1)
+            #print('ser, full: ', t2-t1)
             t1 = time()
             B = mps.dA_dt(fullH, fullH=True, par=True)
             t2 = time()
-            print('par, full: ', t2-t1)
+            #print('par, full: ', t2-t1)
 
     def test_profile_F2_F1(self):
         Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
@@ -1649,12 +1675,12 @@ class TestfMPS(unittest.TestCase):
         for i, j in product(range(L), range(L)):
             mps.F2(i, j, H, envs=(l, r))
         t2 = time()
-        print('\nF2: ', t2-t1)
+        #print('\nF2: ', t2-t1)
         t1 = time()
         for i, j in product(range(L), range(L)):
             mps.F1(i, j, H, envs=(l, r))
         t2 = time()
-        print('F1: ', t2-t1)
+        #print('F1: ', t2-t1)
 
     def test_jac_eye(self):
         mps = self.mps_0_2
