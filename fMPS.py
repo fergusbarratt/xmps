@@ -1723,9 +1723,16 @@ class TestfMPS(unittest.TestCase):
         Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
 
         mps = self.mps_0_3
-        H = [Sz1@Sz2+Sx1+Sx2, Sz1@Sz2+Sx2]
-        J1, J2 = mps.jac(H, False)
-        #print(allclose(J2(1, 2), 0))
+        H = [Sz1@Sz2+Sx1, Sz1@Sz2+Sx1+Sx2]
+        J1, J2 = mps.jac(H, True)
+
+        mps = self.mps_0_5
+        N = 3
+        for _ in range(N):
+            H = [randn(4, 4)+1j*randn(4, 4) for _ in range(4)]
+            H = [h+h.conj().T for h in H]
+            J1, J2 = mps.jac(H, True)
+            self.assertTrue(allclose(J2, 0))
 
 class TestvfMPS(unittest.TestCase):
     """TestvfMPS"""
