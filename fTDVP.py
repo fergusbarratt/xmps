@@ -246,8 +246,8 @@ class Trajectory(object):
         return exps, array(lys), array(evs)
 
     def lyapunov_matrices(self, T, D=None, ops=[], bar=True):
-        self.mps.left_canonicalise(D)
         H = self.H
+        self.mps = self.mps.left_canonicalise(D)
         Q = kron(eye(2), self.mps.tangent_space_basis())
         dt = T[1]-T[0]
         e = []
@@ -255,11 +255,13 @@ class Trajectory(object):
         evs = []
         def tqdm_(x): return tqdm(x) if bar else x
         for t in tqdm_(range(1, len(T)+1)):
-            Q = expm(self.mps.jac(H, True, True)*dt)@Q
+            J = self.mps.jac(H, True, True)
+            Q = expm(J*dt)@Q
             Q, R = qr(Q)
             lys.append(log(abs(diag(R))))
             evs.append([self.mps.E(*opsite) for opsite in ops])
-            self.euler(dt).left_canonicalise()
+            self.rk4(dt)
+            self.mps = self.mps.left_canonicalise(D)
         exps = (1/(dt))*cs(array(lys), axis=0)/ed(ar(1, len(lys)+1), 1)
         return exps, array(lys), array(evs)
 
@@ -286,6 +288,16 @@ class TestTrajectory(unittest.TestCase):
         self.mps_0_5 = fMPS().left_from_state(self.tens_0_5)
         self.psi_0_5 = self.mps_0_5.recombine().reshape(-1)
 
+    def test_lyapunov_2_identity(self):
+        """test_lyapunov_2_identity lyapunov exponents are exactly half the timestep? when H=eye(4)"""
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
+        mps = self.mps_0_2
+        H = [eye(4)]
+        T = linspace(0, 0.1, 100)
+        exps, lys, _ = Trajectory(mps, H).lyapunov(T, D=2)
+        self.assertTrue(allclose(exps[-1], (T[1]-T[0])/2))
+
     def test_lyapunov_matrices_local_hamiltonian_2(self):
         """zero lyapunov exponents with local hamiltonian"""
         Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
@@ -293,9 +305,8 @@ class TestTrajectory(unittest.TestCase):
         mps = self.mps_0_2
         H = [Sx1-Sx2]
         T = linspace(0, 1, 100)
-        exps, lys, _ = Trajectory(mps, H).lyapunov_matrices(T, D=1, bar=False)
+        exps, lys, _ = Trajectory(mps, H).lyapunov_matrices(T, D=1, bar=True)
         self.assertTrue(allclose(exps[-1], 0))
-
 
     def test_lyapunov_matrices_no_truncate_2(self):
         """zero lyapunov exponents with no projection"""
@@ -304,8 +315,33 @@ class TestTrajectory(unittest.TestCase):
         mps = self.mps_0_2
         H = [Sz1@Sz2+Sx1+Sx2]
         T = linspace(0, 1, 100)
-        exps, lys, _ = Trajectory(mps, H).lyapunov_matrices(T, D=None, bar=False)
+        exps, lys, _ = Trajectory(mps, H).lyapunov_matrices(T, D=None, bar=True)
         self.assertTrue(allclose(exps[-1], 0))
+
+    def test_lyapunov_matrices_truncate_2(self):
+        """zero lyapunov exponents with no projection"""
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
+        T = linspace(0, 30, 300)
+
+        mps = self.mps_0_2
+        H = [Sx1@Sx2+Sy1@Sy2+Sz1@Sz2]
+        exps1, lys1, _ = Trajectory(mps, H).lyapunov_matrices(T, D=1, bar=True)
+
+        mps = self.mps_0_2
+        H = [Sx1@Sx2+Sy1@Sy2+Sz1@Sz2+Sx1-Sz2]
+        exps2, lys2, _ = Trajectory(mps, H).lyapunov_matrices(T, D=1, bar=True)
+
+        fig, ax = plt.subplots(2, 2, sharex=True, sharey=True)
+        ax[0][0].plot(exps1)
+        ax[0][0].set_title('no chaos')
+        ax[0][1].plot(lys1)
+
+        ax[1][0].plot(exps2)
+        ax[1][0].set_title('chaos')
+        ax[1][1].plot(lys2)
+        fig.tight_layout()
+        plt.show()
 
     def test_lyapunov_matrices_local_hamiltonian_3(self):
         """zero lyapunov exponents with local hamiltonian"""
@@ -323,23 +359,9 @@ class TestTrajectory(unittest.TestCase):
         Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
         mps = self.mps_0_3
         H = [Sz1@Sz2+Sx1+Sx2, Sz1@Sz2+Sx2]
-        T = linspace(0, 2, 400)
-        exps, lys, _ = Trajectory(mps, H).lyapunov_matrices(T, D=None, bar=True)
-        fig, ax = plt.subplots(2, 1)
-        ax[0].plot(exps)
-        ax[1].plot(lys)
-        plt.show()
-        #self.assertTrue(allclose(exps[-1], 0))
-
-    def test_lyapunov_2_identity(self):
-        """test_lyapunov_2_identity lyapunov exponents are exactly half the timestep? when H=eye(4)"""
-        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
-        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
-        mps = self.mps_0_2
-        H = [eye(4)]
         T = linspace(0, 0.1, 100)
-        exps, lys, _ = Trajectory(mps, H).lyapunov(T, D=2)
-        self.assertTrue(allclose(exps[-1], (T[1]-T[0])/2))
+        exps, lys, _ = Trajectory(mps, H).lyapunov_matrices(T, D=None, bar=True)
+        self.assertTrue(allclose(exps[-1], 0))
 
     def test_lyapunov_2(self):
         Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)

@@ -605,7 +605,7 @@ class fMPS(object):
         dA_dt = self.dA_dt(H, store_energy=True, fullH=fullH, store_envs=True)
         l, r, e = self.l, self.r, self.e
         # down are the tensors acting on c(Aj), up act on Aj
-        down, up = self.jac(H, fullH)
+        up, down = self.jac(H, fullH)
 
         ddA = [sum([td(down(i, j), c(dA[j]), [[3, 4, 5], [0, 1, 2]]) + 
                     td(up(i, j),     dA[j],  [[3, 4, 5], [0, 1, 2]]) for j in range(L)], axis=0)
@@ -623,7 +623,7 @@ class fMPS(object):
         # Get tensors
         ## unitary rotations: -<d_iψ|(d_t |d_kψ> +iH|d_kψ>) (dA_k)
         #-<d_iψ|d_kd_jψ> dA_j/dt (dA_k) (range(k+1, L))
-        def Γ1(i, k): return sum([td(c(self.christoffel(k, j, i, envs=(l, r))), dA_dt[j], [[3, 4, 5], [0, 1, 2]]) for j in range(max(k, i), L)])
+        #def Γ1(i, k): return sum([td(c(self.christoffel(k, j, i, envs=(l, r))), l(j-1)@dA_dt[j]@r(j), [[3, 4, 5], [0, 1, 2]]) for j in range(L)], axis=0)
         #-i<d_iψ|H|d_kψ> (dA_k)
         def F1(i, k): return  -1j*self.F1(i, k, H, envs=(l, r), fullH=fullH)
 
@@ -633,10 +633,7 @@ class fMPS(object):
         #-i<d_id_k ψ|H|ψ> (dA_k*)
         def F2(i, k): return -1j*self.F2(i, k, H, envs=(l, r), fullH=fullH)
 
-        #print('\n', im(F2(1, 2)).reshape(-1), im(Γ2(1, 2)).reshape(-1), sep='\n')
-        #raise Exception
-
-        def F1t(i, j): return F1(i, j) + Γ1(i, j)
+        def F1t(i, j): return F1(i, j)# + Γ1(i, j)
         def F2t(i, j): return F2(i, j) + Γ2(i, j) #F2, Γ2 act on dA*j
 
         if matrix == False:
@@ -653,18 +650,19 @@ class fMPS(object):
         nulls = len([1 for (a, b) in sh if a==0 or b==0])
 
         def ungauge_i(tens, i, conj=False): 
-            vL_ = vL[i] if not conj else c(vL[i])
+            def co(x): return x if not conj else c(x)
             k = len(tens.shape[3:])
             links = [1, 2, -2]+list(range(-3, -3-k, -1))
-            return ncon([ch(l(i-1))@vL_, 
+            return ncon([ch(l(i-1))@co(vL[i]), 
                         ncon([tens, ch(r(i))], [[-1, -2, 1, -4, -5, -6], [1, -3]])], 
                         [[1, 2, -1], links])
 
         def ungauge_j(tens, i, conj=False): 
-            vL_ = vL[i] if not conj else c(vL[i])
+            # apply -ch(l)-vL=tens-ch(r) to last 3 indices
+            def co(x): return x if not conj else c(x)
             k = len(tens.shape[:-3])
             links = list(range(-1, -k-1, -1))+[1, 2, -k-2]
-            return ncon([ch(l(i-1))@vL_, tens@ch(r(i))], 
+            return ncon([ch(l(i-1))@co(vL[i]), tens@ch(r(i))], 
                     [[1, 2, -k-1], links])
 
         def ungauge(tens, i, j, conj=(True, False)):
@@ -677,7 +675,7 @@ class fMPS(object):
             for j_ in range(len(shapes)):
                 i, j = i_+nulls, j_+nulls
                 J1_ij = ungauge(F1t(i, j), i, j, (True, False))
-                J2_ij = ungauge(F2t(i, j), i, j, (True, True ))
+                J2_ij = ungauge(F2t(i, j), i, j, (True, True))
                 J1[index(i_, j_)] = J1_ij.reshape(prod(J1_ij.shape[:2]), -1)
                 J2[index(i_, j_)] = J2_ij.reshape(prod(J2_ij.shape[:2]), -1)
 
@@ -1442,164 +1440,6 @@ class TestfMPS(unittest.TestCase):
         fullH = sum([n_body(a, i, len(listH), d=2) for i, a in enumerate(listH)], axis=0)
         self.assertTrue(mps.dA_dt(listH, fullH=False)==mps.dA_dt(fullH, fullH=True))
 
-    def test_christoffel(self):
-        mps = self.mps_0_6.left_canonicalise()
-        ijks = ((4, 5, 4), (3, 5, 3), (3, 4, 3)) # all non zero indexes (for full rank)
-        for i, j, k in ijks:
-            # Gauge projectors are in the right place
-            mps.left_canonicalise()
-            l, r = mps.get_envs()
-            self.assertTrue(not allclose(mps.christoffel(i, j, k), 0))
-            i_true=allclose(mps.christoffel(i, j, k, closed=(l(i-1)@c(mps[i]), None, None)), 0)
-            i_false=allclose(mps.christoffel(i, j, k, closed=(l(i-1)@mps[i], None, None)), 0)
-            j_true=allclose(mps.christoffel(i, j, k, closed=(None, l(j-1)@c(mps[j]), None)), 0)
-            j_false=allclose(mps.christoffel(i, j, k, closed=(None, l(j-1)@mps[j], None)), 0)
-            k_true=allclose(mps.christoffel(i, j, k, closed=(None, None, l(k-1)@mps[k])), 0)
-            k_false=allclose(mps.christoffel(i, j, k, closed=(None, None, l(k-1)@c(mps[k]))), 0)
-            self.assertTrue(i_true)
-            self.assertTrue(j_true)
-            self.assertTrue(k_true)
-            self.assertTrue(not i_false)
-            self.assertTrue(not j_false)
-            self.assertTrue(not k_false)
-
-            mps.right_canonicalise()
-            l, r = mps.get_envs()
-            self.assertTrue(not allclose(mps.christoffel(i, j, k), 0))
-            i_true=allclose(mps.christoffel(i, j, k, closed=(l(i-1)@c(mps[i]), None, None)), 0)
-            i_false=allclose(mps.christoffel(i, j, k, closed=(l(i-1)@mps[i], None, None)), 0)
-            j_true=allclose(mps.christoffel(i, j, k, closed=(None, l(j-1)@c(mps[j]), None)), 0)
-            j_false=allclose(mps.christoffel(i, j, k, closed=(None, l(j-1)@mps[j], None)), 0)
-            k_true=allclose(mps.christoffel(i, j, k, closed=(None, None, l(k-1)@mps[k])), 0)
-            k_false=allclose(mps.christoffel(i, j, k, closed=(None, None, l(k-1)@c(mps[k]))), 0)
-            self.assertTrue(i_true)
-            self.assertTrue(j_true)
-            self.assertTrue(k_true)
-            self.assertTrue(not i_false)
-            self.assertTrue(not j_false)
-            self.assertTrue(not k_false)
-
-            # symmetric in i, j
-            self.assertTrue(allclose(mps.christoffel(i, j, k, closed=(c(mps[i]), c(mps[j]), mps[k])), 
-                                     mps.christoffel(j, i, k, closed=(c(mps[j]), c(mps[i]), mps[k]))  ))
-            
-            self.assertTrue(allclose(tra(mps.christoffel(i, j, k), [3, 4, 5, 0, 1, 2, 6, 7, 8]), mps.christoffel(j, i, k)))
-
-
-        ijks = ((1, 2, 1),)
-        for i, j, k in ijks:
-            # Christoffel symbols that are zero for untruncated become not zero after truncation
-            self.assertTrue(allclose(mps.christoffel(i, j, k), 0))
-            mps.left_canonicalise(2)
-            self.assertTrue(not allclose(mps.christoffel(i, j, k), 0))
-
-    def test_F2_F1(self):
-        '''<d_id_j ψ|H|ψ>, <d_iψ|H|d_jψ>'''
-        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 6)
-        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 6)
-        Sx3, Sy3, Sz3 = N_body_spins(0.5, 3, 6)
-        Sx4, Sy4, Sz4 = N_body_spins(0.5, 4, 6)
-        Sx5, Sy5, Sz5 = N_body_spins(0.5, 5, 6)
-        Sx6, Sy6, Sz6 = N_body_spins(0.5, 6, 6)
-
-        Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
-        Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
-        mps = self.mps_0_6.left_canonicalise()
-        listH = [Sz12@Sz22+Sx12, Sz12@Sz22+Sx12+Sx22, Sz12@Sz22+Sx22+Sx12+Sx22, Sz12@Sz22+Sz12+Sx22, Sz12@Sz22+Sx22]
-        eyeH = [(1/(mps.L-1))*eye(4) for _ in range(5)]
-        fullH = Sz1@Sz2+Sz2@Sz3+Sz3@Sz4+Sz4@Sz5+Sz5@Sz6+Sx1+Sx2+Sx3+Sx4+Sx5+Sx6
-
-        for i, j in product(range(mps.L), range(mps.L)):
-            ## F2 = <d_id_j ψ|H|ψ>
-            # zero for H = I
-            self.assertTrue(allclose(mps.F2(i, j, eyeH, fullH=False), 0))
-
-            # Test gauge projectors are in the right place
-            mps.right_canonicalise()
-            l, r = mps.get_envs()
-            z1 = ncon([mps.F2(i, j, listH), l(i-1)@c(mps[i])], [[1, 2, 3, -1, -2, -3], [1, 2, 3]])
-            z2 = ncon([mps.F2(i, j, listH), l(j-1)@c(mps[j])], [[-1, -2, -3, 1, 2, 3], [1, 2, 3]])
-            self.assertTrue(allclose(z1, 0))
-            self.assertTrue(allclose(z2, 0))
-
-            mps.left_canonicalise()
-            l, r = mps.get_envs()
-            z1 = ncon([mps.F2(i, j, listH), l(i-1)@c(mps[i])], [[1, 2, 3, -1, -2, -3], [1, 2, 3]])
-            z2 = ncon([mps.F2(i, j, listH), l(j-1)@c(mps[j])], [[-1, -2, -3, 1, 2, 3], [1, 2, 3]])
-            self.assertTrue(allclose(z1, 0))
-            self.assertTrue(allclose(z2, 0))
-
-            ## F1 = <d_iψ|H|d_jψ>
-            # For H = I: should be equal to δ_{ij} pr(i)
-            if i!=j:
-                self.assertTrue(allclose(mps.F1(i, j, eyeH), 0))
-            if i==j:
-                b = mps.F1(i, j, eyeH)
-                a = ncon([mps.left_null_projector(i), inv(r(i))], [[-1, -2, -4, -5], [-3, -6]])
-                self.assertTrue(allclose(a, b)) 
-                # should just be L-1
-
-            # Test gauge projectors are in the right place
-            mps.left_canonicalise()
-            l, r = mps.get_envs()
-            z1 = td(mps.F1(i, j, listH), l(i-1)@c(mps[i]), [[0, 1, 2], [0, 1, 2]])
-            z1 = td(mps.F1(i, j, listH), l(j-1)@mps[j], [[3, 4, 5], [0, 1, 2]])
-            self.assertTrue(allclose(z1, 0))
-            self.assertTrue(allclose(z2, 0))
-
-            mps.right_canonicalise()
-            l, r = mps.get_envs()
-            z1 = td(mps.F1(i, j, listH), l(i-1)@c(mps[i]), [[0, 1, 2], [0, 1, 2]])
-            z1 = td(mps.F1(i, j, listH), l(j-1)@mps[j], [[3, 4, 5], [0, 1, 2]])
-            self.assertTrue(allclose(z1, 0))
-            self.assertTrue(allclose(z2, 0))
-
-            # TODO: fullH fails gauge projectors test (listH doesn't): 
-            # TODO: fullH different from listH:
-
-    def test_F2_F1_christoffel(self):
-        '''-1j<d_id_j ψ|H|ψ>=<d_id_j ψ|Ad_j|d_jψ> with no truncation'''
-        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
-        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
-        mps = self.mps_0_3
-        H = [Sz1@Sz2+Sz1, Sz1@Sz2+Sz1+Sz2]
-        dA_dt = mps.dA_dt(H, store_envs=True)
-        l, r = mps.l, mps.r
-        i, j = 1, 2
-        F2 = -1j*mps.F2(i, j, H)
-        Γ2 = td(mps.christoffel(i, j, i), l(i-1)@dA_dt[i]@r(i), [[-3, -2, -1], [0, 1, 2]])
-        self.assertTrue(allclose(F2+Γ2, 0))
-
-        mps = self.mps_0_4
-        H = [Sz1@Sz2+Sz1, Sz1@Sz2+Sz1+Sz2, Sz1@Sz2+Sz2]
-        dA_dt = mps.dA_dt(H, store_envs=True)
-        l, r = mps.l, mps.r
-        i, j = 2, 3
-        F2 = -1j*mps.F2(i, j, H)
-        Γ2 = td(mps.christoffel(i, j, i), l(i-1)@dA_dt[i]@r(i), [[-3, -2, -1], [0, 1, 2]])
-        self.assertTrue(allclose(F2+Γ2, 0))
-
-        mps = self.mps_0_5
-        H = [Sz1@Sz2+Sz1, Sz1@Sz2+Sz1+Sz2, Sz1@Sz2+Sz1+Sz2, Sz1@Sz2+Sz2]
-        dA_dt = mps.dA_dt(H, store_envs=True)
-        l, r = mps.l, mps.r
-        for i, j in [(2, 3), (2, 4), (3, 2), (4, 2)]:
-            F2 = -1j*mps.F2(i, j, H)
-            Γ2 = td(mps.christoffel(i, j, min(i, j)), l(min(i, j)-1)@dA_dt[min(i, j)]@r(min(i, j)), [[-3, -2, -1], [0, 1, 2]])
-            self.assertTrue(allclose(F2+Γ2, 0))
-
-    def test_ddA_dt(self):
-        Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
-        Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
-
-        mps = self.mps_0_2
-        eyeH = [eye(4)]
-        dt = 0.1
-        Z = [randn(3)+1j*randn(3) for _ in range(10)]
-
-        for z in Z:
-            self.assertTrue(allclose(mps.ddA_dt(z, eyeH), -1j*z))
-
     def test_left_transfer(self):
         mps = self.mps_0_4.left_canonicalise()
         l, r = mps.get_envs()
@@ -1692,6 +1532,163 @@ class TestfMPS(unittest.TestCase):
         t2 = time()
         #print('F1: ', t2-t1)
 
+    def test_F2_F1(self):
+        '''<d_id_j ψ|H|ψ>, <d_iψ|H|d_jψ>'''
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 6)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 6)
+        Sx3, Sy3, Sz3 = N_body_spins(0.5, 3, 6)
+        Sx4, Sy4, Sz4 = N_body_spins(0.5, 4, 6)
+        Sx5, Sy5, Sz5 = N_body_spins(0.5, 5, 6)
+        Sx6, Sy6, Sz6 = N_body_spins(0.5, 6, 6)
+
+        Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
+        Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
+        mps = self.mps_0_6.left_canonicalise()
+        listH = [Sz12@Sz22+Sx12, Sz12@Sz22+Sx12+Sx22, Sz12@Sz22+Sx22+Sx12+Sx22, Sz12@Sz22+Sz12+Sx22, Sz12@Sz22+Sx22]
+        eyeH = [(1/(mps.L-1))*eye(4) for _ in range(5)]
+        fullH = Sz1@Sz2+Sz2@Sz3+Sz3@Sz4+Sz4@Sz5+Sz5@Sz6+Sx1+Sx2+Sx3+Sx4+Sx5+Sx6
+
+        for i, j in product(range(mps.L), range(mps.L)):
+            ## F2 = <d_id_j ψ|H|ψ>
+            # zero for H = I
+            self.assertTrue(allclose(mps.F2(i, j, eyeH, fullH=False), 0))
+
+            # Test gauge projectors are in the right place
+            mps.right_canonicalise()
+            l, r = mps.get_envs()
+            z1 = ncon([mps.F2(i, j, listH), l(i-1)@c(mps[i])], [[1, 2, 3, -1, -2, -3], [1, 2, 3]])
+            z2 = ncon([mps.F2(i, j, listH), l(j-1)@c(mps[j])], [[-1, -2, -3, 1, 2, 3], [1, 2, 3]])
+            self.assertTrue(allclose(z1, 0))
+            self.assertTrue(allclose(z2, 0))
+
+            mps.left_canonicalise()
+            l, r = mps.get_envs()
+            z1 = ncon([mps.F2(i, j, listH), l(i-1)@c(mps[i])], [[1, 2, 3, -1, -2, -3], [1, 2, 3]])
+            z2 = ncon([mps.F2(i, j, listH), l(j-1)@c(mps[j])], [[-1, -2, -3, 1, 2, 3], [1, 2, 3]])
+            self.assertTrue(allclose(z1, 0))
+            self.assertTrue(allclose(z2, 0))
+
+            ## F1 = <d_iψ|H|d_jψ>
+            # For H = I: should be equal to δ_{ij} pr(i)
+            if i!=j:
+                self.assertTrue(allclose(mps.F1(i, j, eyeH), 0))
+            if i==j:
+                b = mps.F1(i, j, eyeH)
+                a = ncon([mps.left_null_projector(i), inv(r(i))], [[-1, -2, -4, -5], [-3, -6]])
+                self.assertTrue(allclose(a, b)) 
+
+            # Test gauge projectors are in the right place
+            mps.left_canonicalise()
+            l, r = mps.get_envs()
+            z1 = td(mps.F1(i, j, listH), l(i-1)@c(mps[i]), [[0, 1, 2], [0, 1, 2]])
+            z1 = td(mps.F1(i, j, listH), l(j-1)@mps[j], [[3, 4, 5], [0, 1, 2]])
+            self.assertTrue(allclose(z1, 0))
+            self.assertTrue(allclose(z2, 0))
+
+            mps.right_canonicalise()
+            l, r = mps.get_envs()
+            z1 = td(mps.F1(i, j, listH), l(i-1)@c(mps[i]), [[0, 1, 2], [0, 1, 2]])
+            z1 = td(mps.F1(i, j, listH), l(j-1)@mps[j], [[3, 4, 5], [0, 1, 2]])
+            self.assertTrue(allclose(z1, 0))
+            self.assertTrue(allclose(z2, 0))
+
+            # TODO: fullH fails gauge projectors test (listH doesn't): 
+            # TODO: fullH different from listH:
+
+    def test_F2_F1_christoffel(self):
+        '''-1j<d_id_j ψ|H|ψ>=<d_id_j ψ|Ad_j|d_jψ> with no truncation'''
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
+        mps = self.mps_0_3
+        H = [Sz1@Sz2+Sz1, Sz1@Sz2+Sz1+Sz2]
+        dA_dt = mps.dA_dt(H, store_envs=True)
+        l, r = mps.l, mps.r
+        i, j = 1, 2
+        F2 = -1j*mps.F2(i, j, H)
+        Γ2 = td(mps.christoffel(i, j, i), l(i-1)@dA_dt[i]@r(i), [[-3, -2, -1], [0, 1, 2]])
+        self.assertTrue(allclose(F2+Γ2, 0))
+
+        mps = self.mps_0_4
+        H = [Sz1@Sz2+Sz1, Sz1@Sz2+Sz1+Sz2, Sz1@Sz2+Sz2]
+        dA_dt = mps.dA_dt(H, store_envs=True)
+        l, r = mps.l, mps.r
+        i, j = 2, 3
+        F2 = -1j*mps.F2(i, j, H)
+        Γ2 = td(mps.christoffel(i, j, i), l(i-1)@dA_dt[i]@r(i), [[-3, -2, -1], [0, 1, 2]])
+        self.assertTrue(allclose(F2+Γ2, 0))
+
+        mps = self.mps_0_5
+        H = [Sz1@Sz2+Sz1, Sz1@Sz2+Sz1+Sz2, Sz1@Sz2+Sz1+Sz2, Sz1@Sz2+Sz2]
+        dA_dt = mps.dA_dt(H, store_envs=True)
+        l, r = mps.l, mps.r
+        for i, j in [(2, 3), (2, 4), (3, 2), (4, 2)]:
+            F2 = -1j*mps.F2(i, j, H)
+            Γ2 = td(mps.christoffel(i, j, min(i, j)), l(min(i, j)-1)@dA_dt[min(i, j)]@r(min(i, j)), [[-3, -2, -1], [0, 1, 2]])
+            self.assertTrue(allclose(F2+Γ2, 0))
+
+    def test_christoffel(self):
+        mps = self.mps_0_6.left_canonicalise()
+        ijks = ((4, 5, 4), (3, 5, 3), (3, 4, 3)) # all non zero indexes (for full rank)
+        for i, j, k in ijks:
+            # Gauge projectors are in the right place
+            mps.left_canonicalise()
+            l, r = mps.get_envs()
+            self.assertTrue(not allclose(mps.christoffel(i, j, k), 0))
+            i_true=allclose(mps.christoffel(i, j, k, closed=(l(i-1)@c(mps[i]), None, None)), 0)
+            i_false=allclose(mps.christoffel(i, j, k, closed=(l(i-1)@mps[i], None, None)), 0)
+            j_true=allclose(mps.christoffel(i, j, k, closed=(None, l(j-1)@c(mps[j]), None)), 0)
+            j_false=allclose(mps.christoffel(i, j, k, closed=(None, l(j-1)@mps[j], None)), 0)
+            k_true=allclose(mps.christoffel(i, j, k, closed=(None, None, l(k-1)@mps[k])), 0)
+            k_false=allclose(mps.christoffel(i, j, k, closed=(None, None, l(k-1)@c(mps[k]))), 0)
+            self.assertTrue(i_true)
+            self.assertTrue(j_true)
+            self.assertTrue(k_true)
+            self.assertTrue(not i_false)
+            self.assertTrue(not j_false)
+            self.assertTrue(not k_false)
+
+            mps.right_canonicalise()
+            l, r = mps.get_envs()
+            self.assertTrue(not allclose(mps.christoffel(i, j, k), 0))
+            i_true=allclose(mps.christoffel(i, j, k, closed=(l(i-1)@c(mps[i]), None, None)), 0)
+            i_false=allclose(mps.christoffel(i, j, k, closed=(l(i-1)@mps[i], None, None)), 0)
+            j_true=allclose(mps.christoffel(i, j, k, closed=(None, l(j-1)@c(mps[j]), None)), 0)
+            j_false=allclose(mps.christoffel(i, j, k, closed=(None, l(j-1)@mps[j], None)), 0)
+            k_true=allclose(mps.christoffel(i, j, k, closed=(None, None, l(k-1)@mps[k])), 0)
+            k_false=allclose(mps.christoffel(i, j, k, closed=(None, None, l(k-1)@c(mps[k]))), 0)
+            self.assertTrue(i_true)
+            self.assertTrue(j_true)
+            self.assertTrue(k_true)
+            self.assertTrue(not i_false)
+            self.assertTrue(not j_false)
+            self.assertTrue(not k_false)
+
+            # symmetric in i, j
+            self.assertTrue(allclose(mps.christoffel(i, j, k, closed=(c(mps[i]), c(mps[j]), mps[k])), 
+                                     mps.christoffel(j, i, k, closed=(c(mps[j]), c(mps[i]), mps[k]))  ))
+            
+            self.assertTrue(allclose(tra(mps.christoffel(i, j, k), [3, 4, 5, 0, 1, 2, 6, 7, 8]), mps.christoffel(j, i, k)))
+
+
+        ijks = ((1, 2, 1),)
+        for i, j, k in ijks:
+            # Christoffel symbols that are zero for untruncated become not zero after truncation
+            self.assertTrue(allclose(mps.christoffel(i, j, k), 0))
+            mps.left_canonicalise(2)
+            self.assertTrue(not allclose(mps.christoffel(i, j, k), 0))
+
+    def test_ddA_dt(self):
+        Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
+        Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
+
+        mps = self.mps_0_2
+        eyeH = [eye(4)]
+        dt = 0.1
+        Z = [randn(3)+1j*randn(3) for _ in range(10)]
+
+        for z in Z:
+            self.assertTrue(allclose(mps.ddA_dt(z, eyeH), -1j*z))
+
     def test_jac_eye(self):
         mps = self.mps_0_2
         H = [eye(4)]
@@ -1718,21 +1715,25 @@ class TestfMPS(unittest.TestCase):
         self.assertTrue(allclose(J, kron(1j*Sy, eye(15))))
 
     def test_jac_no_projection(self):
-        """No projection: J2=0"""
         Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
         Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
 
-        mps = self.mps_0_3
+        mps = self.mps_0_3.left_canonicalise()
         H = [Sz1@Sz2+Sx1, Sz1@Sz2+Sx1+Sx2]
         J1, J2 = mps.jac(H, True)
+        self.assertTrue(allclose(J1+J1.conj().T, 0))
 
-        mps = self.mps_0_5
-        N = 3
+        mps = fMPS().random(5, 2, 10).left_canonicalise()
+        N = 5 
         for _ in range(N):
             H = [randn(4, 4)+1j*randn(4, 4) for _ in range(4)]
             H = [h+h.conj().T for h in H]
             J1, J2 = mps.jac(H, True)
+            self.assertTrue(allclose(J1,-J1.conj().T))
             self.assertTrue(allclose(J2, 0))
+            J = mps.jac(H, True, True)
+            self.assertTrue(allclose(J+J.T, 0))
+            mps = (mps+mps.dA_dt(H)*0.1).left_canonicalise()
 
 class TestvfMPS(unittest.TestCase):
     """TestvfMPS"""
