@@ -7,7 +7,7 @@ from numpy import array, linspace, real as re, reshape, sum, swapaxes as sw
 from numpy import tensordot as td, squeeze, trace as tr, expand_dims as ed
 from numpy import load, isclose, allclose, zeros_like as zl, prod, imag as im
 from numpy import log, abs, diag, cumsum as cs, arange as ar, eye, kron as kr
-from numpy import cross, dot
+from numpy import cross, dot, kron
 from numpy.random import randn
 from scipy.linalg import sqrtm, expm, norm, null_space as null, cholesky as ch
 from scipy.integrate import odeint, complex_ode as c_ode
@@ -17,7 +17,8 @@ import numpy as np
 from tensor import get_null_space, H as cT, C as c
 from matplotlib import pyplot as plt
 from functools import reduce
-from copy import copy
+from copy import copy, deepcopy
+from tqdm import tqdm
 Sx, Sy, Sz = spins(0.5)
 Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
 Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
@@ -167,15 +168,16 @@ class Trajectory(object):
         :param T: time steps
         """
         self.H = H
-        self.mps = mps_0
+        self.mps = deepcopy(mps_0)
         self.fullH=fullH
         self.history = []
 
-    def euler(self, dt):
+    def euler(self, dt, store=False):
         mps, H = self.mps, self.H
         self.mps =  self.mps + self.mps.dA_dt(H)*dt
-        self.history.append(mps.serialize())
-        return self
+        if store:
+            self.history.append(mps.serialize())
+        return self.mps
 
     def rk4(self, dt):
         mps, H = self.mps, self.H
@@ -224,32 +226,44 @@ class Trajectory(object):
         return self
 
     def lyapunov(self, T, D=None, ops=[]):
-        mps = self.mps.left_canonicalise(D)
+        self.mps.left_canonicalise(D)
+        print(self.mps.structure())
         H = self.H
-        Q = mps.tangent_space_basis()
+        Q = self.mps.tangent_space_basis()
         dt = T[1]-T[0]
         e = []
         lys = []
         evs = []
-        for m in range(len(T)):
+        for t in tqdm(range(1, len(T)+1)):
             for m, v in enumerate(Q):
-                #print('b: ', Q[m])
-                q = v+dt*mps.ddA_dt(v, H)
+                q = v+dt*self.mps.ddA_dt(v, H) # unitary to order dt^2: inst. lyapunov exponents should be off by O(dt^2)
                 Q[m] = q
-                print(cross(v, q))
-                print(dot(v.conj(), q))
-                #print('a: ', Q[m])
             Q, R = qr(Q)
             lys.append(log(abs(diag(R))))
             evs.append([self.mps.E(*opsite) for opsite in ops])
-            self.rk4(dt).left_canonicalise(D)
-        fig, ax = plt.subplots(3, 1)
+            self.euler(dt).left_canonicalise()
         exps = (1/(dt))*cs(array(lys), axis=0)/ed(ar(1, len(lys)+1), 1)
-        ax[0].plot(T, exps)
-        ax[1].plot(T, lys)
-        ax[2].plot(T, evs)
-        ax[2].set_ylim([-1, 1])
-        plt.show()
+        return exps, array(lys), array(evs)
+
+    def lyapunov_matrices(self, T, D=None, ops=[], bar=True):
+        H = self.H
+        self.mps = self.mps.left_canonicalise(D)
+        Q = kron(eye(2), self.mps.tangent_space_basis())
+        dt = T[1]-T[0]
+        e = []
+        lys = []
+        evs = []
+        def tqdm_(x): return tqdm(x) if bar else x
+        for t in tqdm_(range(1, len(T)+1)):
+            J = self.mps.jac(H, True, True)
+            Q = expm(J*dt)@Q
+            Q, R = qr(Q)
+            lys.append(log(abs(diag(R))))
+            evs.append([self.mps.E(*opsite) for opsite in ops])
+            self.rk4(dt)
+            self.mps = self.mps.left_canonicalise(D)
+        exps = (1/(dt))*cs(array(lys), axis=0)/ed(ar(1, len(lys)+1), 1)
+        return exps, array(lys), array(evs)
 
 class TestTrajectory(unittest.TestCase):
     """TestF"""
@@ -258,6 +272,7 @@ class TestTrajectory(unittest.TestCase):
         self.tens_0_2 = load('mat2x2.npy')
         self.tens_0_3 = load('mat3x3.npy')
         self.tens_0_4 = load('mat4x4.npy')
+        self.tens_0_5 = load('mat5x5.npy')
 
         self.mps_0_1 = fMPS().left_from_state(self.tens_0_2).right_canonicalise(1)
 
@@ -270,42 +285,162 @@ class TestTrajectory(unittest.TestCase):
         self.mps_0_4 = fMPS().left_from_state(self.tens_0_4)
         self.psi_0_4 = self.mps_0_4.recombine().reshape(-1)
 
+        self.mps_0_5 = fMPS().left_from_state(self.tens_0_5)
+        self.psi_0_5 = self.mps_0_5.recombine().reshape(-1)
+
+    def test_lyapunov_2_identity(self):
+        """test_lyapunov_2_identity lyapunov exponents are exactly half the timestep? when H=eye(4)"""
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
+        mps = self.mps_0_2
+        H = [eye(4)]
+        T = linspace(0, 0.1, 100)
+        exps, lys, _ = Trajectory(mps, H).lyapunov(T, D=2)
+        self.assertTrue(allclose(exps[-1], (T[1]-T[0])/2))
+
+    def test_lyapunov_matrices_local_hamiltonian_2(self):
+        """zero lyapunov exponents with local hamiltonian"""
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
+        mps = self.mps_0_2
+        H = [Sx1-Sx2]
+        T = linspace(0, 1, 100)
+        exps, lys, _ = Trajectory(mps, H).lyapunov_matrices(T, D=1, bar=True)
+        self.assertTrue(allclose(exps[-1], 0))
+
+    def test_lyapunov_matrices_no_truncate_2(self):
+        """zero lyapunov exponents with no projection"""
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
+        mps = self.mps_0_2
+        H = [Sz1@Sz2+Sx1+Sx2]
+        T = linspace(0, 1, 100)
+        exps, lys, _ = Trajectory(mps, H).lyapunov_matrices(T, D=None, bar=True)
+        self.assertTrue(allclose(exps[-1], 0))
+
+    def test_lyapunov_matrices_truncate_2(self):
+        """zero lyapunov exponents with no projection"""
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
+        T = linspace(0, 30, 300)
+
+        mps = self.mps_0_2
+        H = [Sx1@Sx2+Sy1@Sy2+Sz1@Sz2]
+        exps1, lys1, _ = Trajectory(mps, H).lyapunov_matrices(T, D=1, bar=True)
+
+        mps = self.mps_0_2
+        H = [Sx1@Sx2+Sy1@Sy2+Sz1@Sz2+Sx1-Sz2]
+        exps2, lys2, _ = Trajectory(mps, H).lyapunov_matrices(T, D=1, bar=True)
+
+        fig, ax = plt.subplots(2, 2, sharex=True, sharey=True)
+        ax[0][0].plot(exps1)
+        ax[0][0].set_title('no chaos')
+        ax[0][1].plot(lys1)
+
+        ax[1][0].plot(exps2)
+        ax[1][0].set_title('chaos')
+        ax[1][1].plot(lys2)
+        fig.tight_layout()
+        plt.show()
+
+    def test_lyapunov_matrices_local_hamiltonian_3(self):
+        """zero lyapunov exponents with local hamiltonian"""
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
+        mps = self.mps_0_3
+        H = [Sx1+Sx2, Sx2]
+        T = linspace(0, 1, 100)
+        exps, lys, _ = Trajectory(mps, H).lyapunov_matrices(T, D=1, bar=True)
+        self.assertTrue(allclose(exps[-1], 0))
+
+    def test_lyapunov_matrices_no_truncate_3(self):
+        """zero lyapunov exponents with no truncation"""
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
+        mps = self.mps_0_3
+        H = [Sz1@Sz2+Sx1+Sx2, Sz1@Sz2+Sx2]
+        T = linspace(0, 0.1, 100)
+        exps, lys, _ = Trajectory(mps, H).lyapunov_matrices(T, D=None, bar=True)
+        self.assertTrue(allclose(exps[-1], 0))
+
     def test_lyapunov_2(self):
         Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
         Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
-        #mps = self.mps_0_2
-        mps = fMPS().random(2, 2, 2)
-        H = [eye(4)]
-        Trajectory(mps, H).lyapunov(linspace(0, 0.1, 50), D=2, ops=[(Sy, 0)])
+        mps = self.mps_0_2
+        H = [Sx1@Sx2+Sy1@Sy2+Sz1@Sz2+Sx1-Sz2]
+        T = linspace(0, 20, 2000)
+        exps1, lys1, evs1 = Trajectory(mps, H).lyapunov(T, D=1, ops=[(Sx, 0), (Sy, 0), (Sz, 0)])
+        exps2, lys2, evs2 = Trajectory(mps, H).lyapunov(T, D=2, ops=[(Sx, 0), (Sy, 0), (Sz, 0)])
+        print(exps1[-1], exps2[-2])
+
+        fig, ax = plt.subplots(3, 2, sharex=True)
+        ax[0][0].plot(T, exps1)
+        ax[1][0].plot(T, lys1)
+        ax[2][0].plot(T, evs1)
+        ax[0][1].plot(T, exps2)
+        ax[1][1].plot(T, lys2)
+        ax[2][1].plot(T, evs2)
+
+        ax[0][0].set_ylim([-1, 1])
+        ax[1][0].set_ylim([-1, 1])
+        ax[2][0].set_ylim([-1, 1])
+        ax[0][1].set_ylim([-1, 1])
+        ax[1][1].set_ylim([-1, 1])
+        ax[2][1].set_ylim([-1, 1])
+        plt.show()
 
     def test_lyapunov_3(self):
         Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
         Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
         mps = self.mps_0_3
         H = [Sz1@Sz2+Sx1, Sz1@Sz2+Sx2]
-        Trajectory(mps, H).lyapunov(linspace(0, 0.1, 100), ops=[(Sx, 0)])
+        T = linspace(0, 3, 300)
+        exps, lys, evs = Trajectory(mps, H).lyapunov(T, ops=[(Sx, 0), (Sy, 0), (Sz, 0)])
+        print(exps[-1])
 
-    def test_fullH_trajectory(self):
-        """test_trajectory"""
+        fig, ax = plt.subplots(3, 1, sharex=True)
+        ax[0].plot(T, exps)
+        ax[1].plot(T, lys)
+        ax[2].plot(T, evs)
+
+        #ax[0].set_ylim([-1, 1])
+        #ax[1].set_ylim([-1, 1])
+        ax[2].set_ylim([-1, 1])
+        plt.show()
+
+    def test_lyapunov_4(self):
         Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
         Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
-        H = Sz1@Sz2 + Sx1+Sx2
-        mps_0 = self.mps_0_2.left_canonicalise()
-        L, d, D = mps_0.L, mps_0.d, mps_0.D
-        psi_0 = self.psi_0_2
-        tol = 1e-2
-        dt = 1e-2
-        N = 500 
-        T = linspace(0, N*dt, N)
-        mps_n = mps_0
-        psi_n = psi_0
+        mps = self.mps_0_4
+        H = [Sz1@Sz2+Sx1, Sz1@Sz2+Sx1+Sx2, Sz1@Sz2+Sx2]
+        T = linspace(0, 1, 100)
+        exps, lys, evs = Trajectory(mps, H).lyapunov(T, ops=[(Sx, 0), (Sy, 0), (Sz, 0)])
+        print(exps[-1])
 
-        psis = [expm(-1j*H*t)@psi_0 for t in T]
-        mpss = [fMPS().deserialize(x, L, d, D, real=True) for x in Trajectory(mps_0, H, fullH=True).odeint(T).history]
+        fig, ax = plt.subplots(3, 1, sharex=True)
+        ax[0].plot(T, exps)
+        ax[1].plot(T, lys)
+        ax[2].plot(T, evs)
 
-        Sxs_ed = array([psi.conj().T@Sx1@psi for psi in psis])
-        Sxs_mps= array([mps.E(Sx, 0) for mps in mpss])
-        self.assertTrue(norm(Sxs_ed-Sxs_mps)<1e-6)
+        ax[2].set_ylim([-1, 1])
+        plt.show()
+
+    def test_lyapunov_5(self):
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
+        mps = self.mps_0_5
+        H = [Sz1@Sz2+Sx1, Sz1@Sz2+Sx1+Sx2, Sz1@Sz2+Sx1+Sx2, Sz1@Sz2+Sx2]
+        T = linspace(0, 1, 100)
+        exps, lys, evs = Trajectory(mps, H).lyapunov(T, ops=[(Sx, 0), (Sy, 0), (Sz, 0)])
+        print(exps[-1])
+
+        fig, ax = plt.subplots(3, 1, sharex=True)
+        ax[0].plot(T, exps)
+        ax[1].plot(T, lys)
+        ax[2].plot(T, evs)
+
+        ax[2].set_ylim([-1, 1])
+        plt.show()
 
     def test_exps_2(self):
         """test_exps_2: 2 spins: 100 timesteps, expectation values within tol=1e-2 of ed results"""
