@@ -1,8 +1,8 @@
 import unittest
 from spin import n_body, N_body_spins, spins
 from numpy.random import rand, randint, randn
-from numpy.linalg import svd, inv, norm#, cholesky as ch,
-from scipy.linalg import null_space as null, sqrtm as ch
+from numpy.linalg import svd, inv, norm, cholesky as ch
+from scipy.linalg import null_space as null#, sqrtm as ch
 from numpy import array, concatenate, diag, dot, allclose, isclose, swapaxes as sw
 from numpy import identity, swapaxes, trace, tensordot, sum, prod
 from numpy import real as re, stack as st, concatenate as ct
@@ -20,6 +20,7 @@ from qmb import sigmaz, sigmax, sigmay
 from copy import deepcopy
 from functools import reduce
 from itertools import product
+import cProfile
 Sx, Sy, Sz = spins(0.5)
 Sx, Sy, Sz = 2*Sx, 2*Sy, 2*Sz
 
@@ -1541,12 +1542,16 @@ class TestfMPS(unittest.TestCase):
     def test_profile_F2_F1_christoffel(self):
         Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
         Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
-        mps = self.mps_0_6.left_canonicalise(3)
-        H = [Sz12@Sz22+Sx12, Sz12@Sz22+Sx12+Sx22, Sz12@Sz22+Sx22+Sx12+Sx22, Sz12@Sz22+Sz12+Sx22, Sz12@Sz22+Sx22]
+        L = 12
+        mps = fMPS().random(L, 2, 40).left_canonicalise()
+        H = [Sz12@Sz22+Sx12] +[Sz12@Sz22+Sx12+Sx22 for _ in range(L-3)]+[Sz12@Sz22+Sx22]
         dA_dt = mps.dA_dt(H, store_envs=True)
-        l, r, L = mps.l, mps.r, mps.L
+        l, r = mps.l, mps.r
 
         T = []
+        k = L-2
+        cProfile.runctx('mps.F1(k, k, H, envs=(l, r))', {'mps':mps, 'H':H, 'l':l, 'r':r, 'k':k}, {}, sort='cumtime')
+        raise Exception
         t1 = time()
         for i, j in product(range(L), range(L)):
             mps.F1(i, j, H, envs=(l, r))
