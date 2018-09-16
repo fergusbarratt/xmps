@@ -179,16 +179,16 @@ class Trajectory(object):
             self.history.append(mps.serialize())
         return self.mps
 
-    def rk4(self, dt):
-        mps, H = self.mps, self.H
+    def rk4(self, mps, dt):
+        H = self.H
         k1 = mps.dA_dt(H, fullH=self.fullH)*dt
         k2 = (mps+k1/2).dA_dt(H, fullH=self.fullH)*dt
         k3 = (mps+k2/2).dA_dt(H, fullH=self.fullH)*dt
         k4 = (mps+k3).dA_dt(H, fullH=self.fullH)*dt
         self.history.append(mps.serialize())
 
-        self.mps = mps+(k1+2*k2+2*k3+k4)/6
-        return self.mps
+        mps = mps+(k1+2*k2+2*k3+k4)/6
+        return mps
 
     def odeint(self, T, D=None, plot=False, timeit=False, lyapunovs=False):
         """odeint: pass to scipy odeint
@@ -221,11 +221,11 @@ class Trajectory(object):
         if plot:
             plt.plot(T, [mps.E(Sy, 0) for mps in map(lambda x: fMPS().deserialize(x, L, d, D, real=True), traj)])
 
-        self.history = traj
+#        self.history = traj
         self.mps = fMPS().deserialize(traj.T[-1, :], L, d, D, real=True)
         return self
 
-    def lyapunov(self, T, D=None, ops=[]):
+    def lyapunov_old(self, T, D=None, ops=[]):
         self.mps.left_canonicalise(D)
         print(self.mps.structure())
         H = self.H
@@ -245,7 +245,7 @@ class Trajectory(object):
         exps = (1/(dt))*cs(array(lys), axis=0)/ed(ar(1, len(lys)+1), 1)
         return exps, array(lys), array(evs)
 
-    def lyapunov_matrices(self, T, D=None, ops=[], bar=True):
+    def lyapunov(self, T, D=None, ops=[], bar=True):
         H = self.H
         self.mps = self.mps.left_canonicalise(D)
         Q = kron(eye(2), self.mps.tangent_space_basis())
@@ -264,6 +264,34 @@ class Trajectory(object):
             self.mps = self.mps.left_canonicalise(D)
         exps = (1/(dt))*cs(array(lys), axis=0)/ed(ar(1, len(lys)+1), 1)
         return exps, array(lys), array(evs)
+
+    def OTOC(self, T, opsite):
+        """W, site = opsite"""
+        ## <W(0)W(t)W(t)W(0)>+
+        ## <W(t)W(0)W(0)W(t)>
+
+        ## -<W(t)W(0)W(t)W(0)>
+        ## -<W(0)W(t)W(0)W(t)>
+
+        # ɸ1 = W(t)W(0)|Ψ>
+        # ɸ2 = W(0)W(t)|Ψ>
+        H = self.H
+        Ψ1 = self.mps.copy().left_canonicalise()  #     |Ψ>
+        Ψ2 = Ψ1.apply(opsite).left_canonicalise() # W(0)|Ψ>
+        dt = T[2]-T[0]
+        Ws = []
+        for t in tqdm(range(len(T))):
+            Ψ1 = self.rk4(Ψ1, dt).left_canonicalise()
+            Ψ2 = self.rk4(Ψ2, dt).left_canonicalise()
+            ɸ1 = Ψ1.apply(opsite).left_canonicalise() #WU|Ψ>
+            ɸ2 = Ψ2.apply(opsite).left_canonicalise() #WUW|Ψ>
+            for t_ in reversed(range(t)):
+                ɸ1 = self.rk4(ɸ1, -dt).left_canonicalise()
+                ɸ2 = self.rk4(ɸ2, -dt).left_canonicalise()
+            ɸ1 = ɸ1.apply(opsite).left_canonicalise() # W(0)W(t)|Ψ>
+            ɸ2 = ɸ2                                   # W(t)W(0)|Ψ>
+            Ws.append(1-re(ɸ1.overlap(ɸ2))) # for pauli matrices
+        return re(array(Ws))
 
 class TestTrajectory(unittest.TestCase):
     """TestF"""
@@ -295,7 +323,7 @@ class TestTrajectory(unittest.TestCase):
         mps = self.mps_0_2
         H = [eye(4)]
         T = linspace(0, 0.1, 100)
-        exps, lys, _ = Trajectory(mps, H).lyapunov(T, D=2)
+        exps, lys, _ = Trajectory(mps, H).lyapunov_old(T, D=2)
         self.assertTrue(allclose(exps[-1], (T[1]-T[0])/2))
 
     def test_lyapunov_matrices_local_hamiltonian_2(self):
@@ -305,7 +333,7 @@ class TestTrajectory(unittest.TestCase):
         mps = self.mps_0_2
         H = [Sx1-Sx2]
         T = linspace(0, 1, 100)
-        exps, lys, _ = Trajectory(mps, H).lyapunov_matrices(T, D=1, bar=True)
+        exps, lys, _ = Trajectory(mps, H).lyapunov(T, D=1, bar=True)
         self.assertTrue(allclose(exps[-1], 0))
 
     def test_lyapunov_matrices_no_truncate_2(self):
@@ -315,31 +343,56 @@ class TestTrajectory(unittest.TestCase):
         mps = self.mps_0_2
         H = [Sz1@Sz2+Sx1+Sx2]
         T = linspace(0, 1, 100)
-        exps, lys, _ = Trajectory(mps, H).lyapunov_matrices(T, D=None, bar=True)
+        exps, lys, _ = Trajectory(mps, H).lyapunov(T, D=None, bar=True)
         self.assertTrue(allclose(exps[-1], 0))
 
     def test_lyapunov_matrices_truncate_2(self):
-        """zero lyapunov exponents with no projection"""
+        """Chaotic and non chaotic systems"""
         Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
         Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
-        T = linspace(0, 30, 300)
+        T = linspace(0, 100, 3000)
 
         mps = self.mps_0_2
         H = [Sx1@Sx2+Sy1@Sy2+Sz1@Sz2]
-        exps1, lys1, _ = Trajectory(mps, H).lyapunov_matrices(T, D=1, bar=True)
+        exps1, lys1, _ = Trajectory(mps, H).lyapunov(T, D=1, bar=True)
 
         mps = self.mps_0_2
         H = [Sx1@Sx2+Sy1@Sy2+Sz1@Sz2+Sx1-Sz2]
-        exps2, lys2, _ = Trajectory(mps, H).lyapunov_matrices(T, D=1, bar=True)
+        exps2, lys2, _ = Trajectory(mps, H).lyapunov(T, D=1, bar=True)
 
-        fig, ax = plt.subplots(2, 2, sharex=True, sharey=True)
-        ax[0][0].plot(exps1)
-        ax[0][0].set_title('no chaos')
-        ax[0][1].plot(lys1)
+        fig, ax = plt.subplots(2, 1, sharex=True, sharey=True)
+        ax[0].plot(exps1)
+        ax[0].set_title('no chaos: $H=Sx^1Sx^2+Sy^1Sy^2+Sz1^Sz^2$')
+        #ax[0][1].plot(lys1)
 
-        ax[1][0].plot(exps2)
-        ax[1][0].set_title('chaos')
-        ax[1][1].plot(lys2)
+        ax[1].plot(exps2)
+        ax[1].set_title('chaos: $H=Sx^1Sx^2+Sy^1Sy^2+Sz1^Sz^2 +Sx1-Sz2$')
+        #ax[1][1].plot(lys2)
+        fig.tight_layout()
+        plt.show()
+
+    def test_lyapunov_matrices_truncate_3(self):
+        """Chaotic and non chaotic systems"""
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
+        T = linspace(0, 20, 100)
+
+        mps = self.mps_0_4
+        H = [Sx1@Sx2+Sy1@Sy2+Sz1@Sz2, Sx1@Sx2+Sy1@Sy2+Sz1@Sz2, Sx1@Sx2+Sy1@Sy2+Sz1@Sz2]
+        exps1, lys1, _ = Trajectory(mps, H).lyapunov(T, D=2, bar=True)
+
+        #mps = self.mps_0_3
+        #H = [Sx1@Sx2+Sy1@Sy2+Sz1@Sz2, Sx1@Sx2+Sy1@Sy2+Sz1@Sz2]
+        #exps2, lys2, _ = Trajectory(mps, H).lyapunov(T, D=2, bar=True)
+
+        fig, ax = plt.subplots(2, 1, sharex=True, sharey=True)
+        #ax[0][0].plot(exps1)
+        #ax[0][0].set_title('no chaos')
+        #ax[0][1].plot(lys1)
+
+        ax[0].plot(exps1)
+        ax[0].set_title('chaos')
+        ax[1].plot(lys1)
         fig.tight_layout()
         plt.show()
 
@@ -350,7 +403,7 @@ class TestTrajectory(unittest.TestCase):
         mps = self.mps_0_3
         H = [Sx1+Sx2, Sx2]
         T = linspace(0, 1, 100)
-        exps, lys, _ = Trajectory(mps, H).lyapunov_matrices(T, D=1, bar=True)
+        exps, lys, _ = Trajectory(mps, H).lyapunov(T, D=1, bar=True)
         self.assertTrue(allclose(exps[-1], 0))
 
     def test_lyapunov_matrices_no_truncate_3(self):
@@ -360,7 +413,7 @@ class TestTrajectory(unittest.TestCase):
         mps = self.mps_0_3
         H = [Sz1@Sz2+Sx1+Sx2, Sz1@Sz2+Sx2]
         T = linspace(0, 0.1, 100)
-        exps, lys, _ = Trajectory(mps, H).lyapunov_matrices(T, D=None, bar=True)
+        exps, lys, _ = Trajectory(mps, H).lyapunov(T, D=None, bar=True)
         self.assertTrue(allclose(exps[-1], 0))
 
     def test_lyapunov_2(self):
@@ -566,6 +619,15 @@ class TestTrajectory(unittest.TestCase):
         Trajectory(mps_0, H).odeint(T, plot=True)
         plt.show()
 
+    def test_OTOC(self):
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
+        mps = self.mps_0_5
+        H = [Sz1@Sz2+Sx1]+[Sz1@Sz2+Sx1+Sx2 for _ in range(2)]+[Sz1@Sz2+Sx2]
+        T = linspace(0, 0.5, 5)
+        Ws = Trajectory(mps, H).OTOC(T, (eye(2), 2))
+        plt.plot(Ws)
+        plt.show()
 
 
 if __name__ == '__main__':

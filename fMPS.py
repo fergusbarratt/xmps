@@ -1,6 +1,5 @@
 import unittest
 from spin import n_body, N_body_spins, spins
-from ncon import ncon
 from numpy.random import rand, randint, randn
 from numpy.linalg import svd, inv, norm#, cholesky as ch,
 from scipy.linalg import null_space as null, sqrtm as ch
@@ -11,6 +10,7 @@ from numpy import split as chop, zeros, ones, ones_like, empty
 from numpy import save, load, zeros_like as zl, eye, cumsum as cs
 from numpy import sqrt, expand_dims as ed, transpose as tra
 from numpy import trace as tr, tensordot as td, kron, imag as im
+from numpy import mean
 from tests import is_right_canonical, is_right_env_canonical, is_full_rank
 from tests import is_left_canonical, is_left_env_canonical, has_trace_1
 from tensor import H as cT, truncate_A, truncate_B, diagonalise, rank, mps_pad
@@ -22,6 +22,9 @@ from functools import reduce
 from itertools import product
 Sx, Sy, Sz = spins(0.5)
 Sx, Sy, Sz = 2*Sx, 2*Sy, 2*Sz
+
+from ncon import ncon as nc
+def ncon(*args): return nc(*args, check_indices=False)
 
 from time import time
 from pathos.multiprocessing import ProcessingPool as Pool
@@ -65,6 +68,11 @@ class fMPS(object):
         """
         return self.data[k]
 
+    def __setitem__(self, key, value):
+        """__setitem__
+        """
+        self.data[key] = value
+
     def __eq__(self, other):
         """__eq__
 
@@ -91,6 +99,14 @@ class fMPS(object):
         :param other: MPS with arrays to add
         """
         return fMPS([a+b for a, b in zip(self.data, other.data)]) 
+
+    def __sub__(self, other):
+        """__sub: This is not how to subtract two MPS: it's itemwise addition.
+                    A hack for time evolution.
+
+        :param other: MPS with arrays to subtract
+        """
+        return fMPS([a-b for a, b in zip(self.data, other.data)]) 
 
     def __mul__(self, other):
         """__mul__: This is not multiplying an MPS by a scalar: it's itemwise:
@@ -495,6 +511,15 @@ class fMPS(object):
             links = [[n, L+n, L+n+1] for n in range(1, L+1)]+[[n, (1+int(n!=1))*L+n, (1+int(n!=L))*L+n+1] for n in range(1, L+1)]
             return links
 
+    def apply(self, opsite):
+        ret = self.copy()
+        op, site = opsite
+        ret.data[site] = td(op, ret[site], [1, 0])
+        return ret
+
+    def copy(self):
+        return fMPS(self.data.copy())
+
     def E(self, op, site):
         """E: one site expectation value
 
@@ -527,6 +552,48 @@ class fMPS(object):
             return re(sum(e))
         else:
             return self.E_L(H)
+    
+    def serialize(self, real=False):
+        """serialize: return a vector with mps data in it"""
+        vec = concatenate([a.reshape(-1) for a in self])
+        if real:
+            return ct([vec.real, vec.imag])
+        else:
+            return vec
+
+    def deserialize(self, vec, L, d, D, real=False):
+        """deserialize: take a vector with mps data (from serialize), 
+                        make MPS
+
+        :param vec: vector to deserialize
+        :param L: length of mps to make
+        :param d: local hilbert space dimension
+        :param D: bond dimension
+        """
+        if real:
+            vec = reduce(lambda x, y: x+1j*y, chop(vec, 2))
+        self.L, self.d, self.D = L, d, D
+        structure = [(d, *x) for x in self.create_structure(L, d, D)]
+        self.data = []
+        for shape in structure:
+            self.data.append(vec[:prod(shape)].reshape(shape))
+            _, vec = chop(vec, [prod(shape)])
+        return self
+
+    def store(self, filename):
+        """store in file 
+        :param filename: filename to store in 
+        """
+        save(filename, ct([array([self.L, self.d, self.D]), self.serialize()]))
+
+    def load(self, filename):
+        """load from file
+
+        :param filename: filename to load from
+        """
+        params, arr = chop(load(filename), [3])
+        self.L, self.d, self.D = map(lambda x: int(re(x)), params)
+        return self.deserialize(arr, self.L, self.d, self.D)
 
     def dA_dt(self, H, store_energy=False, fullH=False, par=False, store_envs=False):
         """dA_dt: Finds A_dot (from TDVP) [B(n) for n in range(n)], energy. Uses inverses. 
@@ -690,14 +757,13 @@ class fMPS(object):
             '''<d_iψ|H|d_jψ>'''
             L, d, A = self.L, self.d, self.data
             l, r = self.get_envs() if envs is None else envs
-            pr = lambda n: self.left_null_projector(n, l)
+            def pr(n): return self.left_null_projector(n, l)
             if not fullH:
                 i, j = (j_, i_) if j_<i_ else (i_, j_)
                 G = 1j*zeros((*A[i].shape, *A[j].shape))
-                _, Din_1, Di = self[i].shape
-                d, Djn_1, Dj = self[j].shape 
+                d, Din_1, Di = self[i].shape
 
-                if not (d*Djn_1==Dj or d*Din_1==Di):
+                if not d*Din_1==Di:
                     Ru = ncon([pr(j), c(A[j])], [[1, -2, -3, -4], [1, -1, -5]])
                     Rus = self.left_transfer(Ru, 0, j)
 
@@ -722,7 +788,7 @@ class fMPS(object):
                                 C = ncon([h]+[Am, Am_1], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
                                 Kr = ncon([c(Am), c(Am_1)@r(m+1)]+[C], 
                                          [[1, -2, 4], [2, 4, 3], [1, 2, -1, 3]])
-                                G+=tr(Lbs(m)@Kr, 0, -1, -2)
+                                G += tr(Lbs(m)@Kr, 0, -1, -2)
 
                         h = h.reshape(2,2,2,2)
                         Am, Am_1 = self.data[m:m+2]
@@ -745,9 +811,8 @@ class fMPS(object):
                         elif m==i-1:
                             if j==i:
                                 # ABHAB
-                                x = ncon([l(m-1)@Am, pr(m+1)]+[h]+[c(Am), pr(m+1)]+[inv(r(m+1))],
-                                           [[3, 5, 6], [4, 6, -4, -5], [1, 2, 3, 4], [1, 5, 7], [-1, -2, 2, 7], [-3, -6]]) #AA
-                                G += x
+                                G += ncon([l(m-1)@Am, pr(m+1)]+[h]+[c(Am), pr(m+1)]+[inv(r(m+1))],
+                                          [[3, 5, 6], [4, 6, -4, -5], [1, 2, 3, 4], [1, 5, 7], [-1, -2, 2, 7], [-3, -6]]) #AA
                             else:
                                 # AAHAB
                                 Q = ncon([l(m-1)@Am, Am_1]+[h]+[c(Am), pr(m+1)], 
@@ -791,6 +856,7 @@ class fMPS(object):
                             assert allclose(norm(td(P, l(m)@c(Am_1), [[0, 1, 2], [0, 1, 2]])), 0)
                             assert allclose(norm(td(P, l(m)@Am_1, [[3, 4, 5], [0, 1, 2]])), 0)
                             assert allclose(norm(td(Q, l(m)@c(Am_1), [[0, 1, 2], [0, 1, 2]])), 0)
+
             elif fullH:
                 i, j = (i_, j_)
                 H = H.reshape([self.d, self.d]*self.L)
@@ -1006,48 +1072,6 @@ class fMPS(object):
         Bs = [zl(A) for A in self.data[:nulls]] + \
              [inv(ch(l_(n-1)))@vL@x@inv(ch(r_(n))) for n, (vL, x) in enumerate(zip(vLs, xs))]
         return fMPS(Bs)
-    
-    def serialize(self, real=False):
-        """serialize: return a vector with mps data in it"""
-        vec = concatenate([a.reshape(-1) for a in self])
-        if real:
-            return ct([vec.real, vec.imag])
-        else:
-            return vec
-
-    def deserialize(self, vec, L, d, D, real=False):
-        """deserialize: take a vector with mps data (from serialize), 
-                        make MPS
-
-        :param vec: vector to deserialize
-        :param L: length of mps to make
-        :param d: local hilbert space dimension
-        :param D: bond dimension
-        """
-        if real:
-            vec = reduce(lambda x, y: x+1j*y, chop(vec, 2))
-        self.L, self.d, self.D = L, d, D
-        structure = [(d, *x) for x in self.create_structure(L, d, D)]
-        self.data = []
-        for shape in structure:
-            self.data.append(vec[:prod(shape)].reshape(shape))
-            _, vec = chop(vec, [prod(shape)])
-        return self
-
-    def store(self, filename):
-        """store in file 
-        :param filename: filename to store in 
-        """
-        save(filename, ct([array([self.L, self.d, self.D]), self.serialize()]))
-
-    def load(self, filename):
-        """load from file
-
-        :param filename: filename to load from
-        """
-        params, arr = chop(load(filename), [3])
-        self.L, self.d, self.D = map(lambda x: int(re(x)), params)
-        return self.deserialize(arr, self.L, self.d, self.D)
          
 class vfMPS(object):
     """vidal finite MPS
@@ -1514,23 +1538,30 @@ class TestfMPS(unittest.TestCase):
             t2 = time()
             #print('par, full: ', t2-t1)
 
-    def test_profile_F2_F1(self):
+    def test_profile_F2_F1_christoffel(self):
         Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
         Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
-        mps = self.mps_0_6.left_canonicalise(1)
+        mps = self.mps_0_6.left_canonicalise(3)
         H = [Sz12@Sz22+Sx12, Sz12@Sz22+Sx12+Sx22, Sz12@Sz22+Sx22+Sx12+Sx22, Sz12@Sz22+Sz12+Sx22, Sz12@Sz22+Sx22]
-        l, r = mps.get_envs()
-        L = mps.L
-        t1 = time()
-        for i, j in product(range(L), range(L)):
-            mps.F2(i, j, H, envs=(l, r))
-        t2 = time()
-        #print('\nF2: ', t2-t1)
+        dA_dt = mps.dA_dt(H, store_envs=True)
+        l, r, L = mps.l, mps.r, mps.L
+
+        T = []
         t1 = time()
         for i, j in product(range(L), range(L)):
             mps.F1(i, j, H, envs=(l, r))
         t2 = time()
-        #print('F1: ', t2-t1)
+        print('\nF1: ', t2-t1)
+        t1 = time()
+        for i, j in product(range(L), range(L)):
+            mps.F2(i, j, H, envs=(l, r))
+        t2 = time()
+        print('F2: ', t2-t1)
+        t1 = time()
+        for i, k in product(range(L), range(L)):
+            td(mps.christoffel(i, k, min(i, k), envs=(l, r)), l(min(i, k)-1)@dA_dt[min(i, k)]@r(min(i, k)), [[6, 7, 8], [0, 1, 2]])
+        t2 = time()
+        print('Γ2: ', t2-t1)
 
     def test_F2_F1(self):
         '''<d_id_j ψ|H|ψ>, <d_iψ|H|d_jψ>'''
