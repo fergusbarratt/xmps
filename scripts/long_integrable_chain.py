@@ -20,7 +20,7 @@ bulkH =Sz12@Sz22+Sx12+Sx22
 H_i = [Sz12@Sz22+Sx12] + [bulkH for _ in range(L-3)] + [Sz12@Sz22+Sx22]
 H_c = [H_i[0]+Sz12]+[H_i[i]+Sz12+Sz22 for i in range(1, L-2)]+[H_i[-1]+Sz22]
 
-T = linspace(0, 10, 1000)
+T = linspace(0, 20, 2000)
 mps_1 = fMPS().random(L, 2, D).left_canonicalise()
 mps_2 = mps_1.copy()
 
