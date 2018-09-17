@@ -23,140 +23,6 @@ Sx, Sy, Sz = spins(0.5)
 Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
 Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
 
-def _get_epsilon(x, s, epsilon, n):
-    '''from https://github.com/statsmodels/statsmodels/blob/master/statsmodels/tools/numdiff.py'''
-    if epsilon is None:
-        h = EPS**(1. / s) * np.maximum(np.abs(x), 0.1)
-    else:
-        if np.isscalar(epsilon):
-            h = np.empty(n)
-            h.fill(epsilon)
-        else:  # pragma : no cover
-            h = np.asarray(epsilon)
-            if h.shape != x.shape:
-                raise ValueError("If h is not a scalar it must have the same"
-                                 " shape as x.")
-    return h
-
-def jac(x, f, epsilon=None, args=(), kwargs={}, centered=False):
-    '''from https://github.com/statsmodels/statsmodels/blob/master/statsmodels/tools/numdiff.py
-    Gradient of function, or Jacobian if function f returns 1d array
-    Parameters
-    ----------
-    x : array
-        parameters at which the derivative is evaluated
-    f : function
-        `f(*((x,)+args), **kwargs)` returning either one value or 1d array
-    epsilon : float, optional
-        Stepsize, if None, optimal stepsize is used. This is EPS**(1/2)*x for
-        `centered` == False and EPS**(1/3)*x for `centered` == True.
-    args : tuple
-        Tuple of additional arguments for function `f`.
-    kwargs : dict
-        Dictionary of additional keyword arguments for function `f`.
-    centered : bool
-        Whether central difference should be returned. If not, does forward
-        differencing.
-    Returns
-    -------
-    grad : array
-        gradient or Jacobian
-    Notes
-    -----
-    If f returns a 1d array, it returns a Jacobian. If a 2d array is returned
-    by f (e.g., with a value for each observation), it returns a 3d array
-    with the Jacobian of each observation with shape xk x nobs x xk. I.e.,
-    the Jacobian of the first observation would be [:, 0, :]
-    '''
-    n = len(x)
-    # TODO:  add scaled stepsize
-    f0 = f(*((x,)+args), **kwargs)
-    dim = np.atleast_1d(f0).shape  # it could be a scalar
-    grad = np.zeros((n,) + dim, np.promote_types(float, x.dtype))
-    ei = np.zeros((n,), float)
-    if not centered:
-        epsilon = _get_epsilon(x, 2, epsilon, n)
-        for k in range(n):
-            ei[k] = epsilon[k]
-            grad[k, :] = (f(*((x+ei,) + args), **kwargs) - f0)/epsilon[k]
-            ei[k] = 0.0
-    else:
-        epsilon = _get_epsilon(x, 3, epsilon, n) / 2.
-        for k in range(len(x)):
-            ei[k] = epsilon[k]
-            grad[k, :] = (f(*((x+ei,)+args), **kwargs) -
-                          f(*((x-ei,)+args), **kwargs))/(2 * epsilon[k])
-            ei[k] = 0.0
-
-    return grad.squeeze().T
-
-def trajectory(mps_0, H, dt, N, D=None, m=None, plot=True, timeit=False):
-    """trajectory: calculate trajectory and optionally lyapunov exponents.
-                   Now with rk4!
-
-    :param mps_0: initial mps
-    :param H: hamiltonian
-    :param dt: timestep
-    :param N: no. of time steps
-    :param m: calculate exponents every m steps - don't calculate them if m is None
-    """
-    def rk4(mps, H, dt):
-        k1 = mps.dA_dt(H, fullH=True)*dt
-        k2 = (mps+k1/2).dA_dt(H, fullH=True)*dt
-        k3 = (mps+k2/2).dA_dt(H, fullH=True)*dt
-        k4 = (mps+k3).dA_dt(H, fullH=True)*dt
-
-        return mps+(k1+2*k2+2*k3+k4)/6
-
-    d, L, D = mps_0.d, mps_0.L, mps_0.D
-
-    mps_n = mps_0
-    psi_n = mps_0.recombine().reshape(-1)
-
-    Ly = []
-    Q = eye(D*4)
-
-    W_ed = [psi_n]
-    W_mps = [mps_n]
-    t1 = time()
-    for n in range(N):
-        if d == 2 and m is not None and not n%m:
-            A = mps_n.left_canonicalise().data
-            pr = mps_n.left_null_projector
-
-            # for full size, D=d=L=2, left canonical mps this is the only diagram
-            J = -1j*ncon([A[0].conj(), pr(1), H.reshape([d, d]*L)]+[A[0]], 
-                         [[1, 5, 6], [-1, -2, 2, 6], [1, 2, 3, -3], [3, 5, -4]])
-            J = J.reshape(J.shape[0]*J.shape[1], -1)
-            J = kr(eye(2), re(J))+kr(-2j*Sy, im(J))
-            Q = expm(dt*J)@Q
-            Q, R = qr(Q)
-
-            Ly.append(log(abs(diag(R))))
-
-        mps_n = rk4(mps_n, H, dt)
-        psi_n = expm(-1j*H*dt)@psi_n
-
-        W_ed.append(psi_n)
-        W_mps.append(mps_n)
-
-    t2 = time()
-    if timeit:
-        print(t2-t1)
-    if plot:
-        T1 = linspace(0, N*dt, len(Ly))
-        T2 = linspace(0, N*dt, len(W_mps))
-        if m is not None:
-            fig, ax = plt.subplots(2, 1)
-            ax[0].plot(T1, (1/(m*dt))*cs(Ly, axis=0)/ed(ar(1, len(Ly)+1), 1))
-            _, Sy1, _ = N_body_spins(0.5, 1, L)
-            ax[1].plot(T2, [m.E(Sy, 0) for m in W_mps])
-            ax[1].plot(T2, [c(p)@Sy1@p for p in W_ed])
-        else:
-            _, Sy1, _ = N_body_spins(0.5, 1, L)
-            plt.plot(T2, [m.E(Sy, 0) for m in W_mps])
-            plt.plot(T2, [re(c(p)@Sy1@p) for p in W_ed])
-
 class Trajectory(object):
     """Trajectory"""
 
@@ -549,10 +415,6 @@ class TestTrajectory(unittest.TestCase):
         mps_0 = self.mps_0_1
         H = 4*(Sz1@Sz2 +Sy1@Sy2+Sx1@Sx2) + (Sx1-Sz2)
         N, dt = 50, 1e-2
-        print('\nt1: ', end='')
-        trajectory(mps_0, H, dt, N, plot=False, timeit=True)
-        plt.show()
-        print('t2: ', end='')
         Trajectory(mps_0, H).odeint(linspace(0, N*dt, N), plot=False, timeit=True)
 
     def test_trajectory_2_no_truncate(self):
@@ -563,9 +425,6 @@ class TestTrajectory(unittest.TestCase):
         H = Sz1@Sz2 + Sx1+Sx2
         N = 100
         dt = 1e-1
-        print('\nt1: ', end='')
-        trajectory(mps_0, H, dt, N, plot=True, timeit=True)
-        print('t2: ', end='')
         Trajectory(mps_0, H).odeint(linspace(0, N*dt, N), plot=False, timeit=True)
         # odeint up to 3x faster!
 
@@ -577,9 +436,6 @@ class TestTrajectory(unittest.TestCase):
         mps_0 = self.mps_0_3
         H = Sz1@Sz2+Sz2@Sz3 + Sx1+Sx2+Sx3
         dt, N = 1e-1, 100
-        print('\nt1: ', end='')
-        trajectory(mps_0, H, dt, N, plot=False, timeit=True)
-        print('t2: ', end='')
         Trajectory(mps_0, H).odeint(linspace(0, N*dt, N), plot=False, timeit=True)
 
     def test_trajectory_4_no_truncate(self):
