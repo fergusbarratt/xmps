@@ -681,7 +681,7 @@ class fMPS(object):
 
         return self.extract_tangent_vector(ddA)
 
-    def jac(self, H, matrix=True, real=True, fullH=False, testing=False):
+    def jac(self, H, as_matrix=True, real_matrix=True, fullH=False, testing=False):
         """jac: calculate the jacobian of the current mps
         """
         L, d, A = self.L, self.d, self.data
@@ -697,62 +697,62 @@ class fMPS(object):
 
         ## non unitary (from projection): -<d_id_kψ|(d_t |ψ> +iH|ψ>) (dA_k*) (should be zero for no projection)
         #-<d_id_kψ|d_jψ> dA_j/dt (dA_k*)
-        def Γ2(i, k): return td(self.christoffel(i, k, min(i, k), envs=(l, r)), l(min(i, k)-1)@dA_dt[min(i, k)]@r(min(i, k)), [[6, 7, 8], [0, 1, 2]])
+        def Γ2(i, k): return td(self.christoffel(i, k, min(i, k), envs=(l, r)), l(min(i, k)-1)@dA_dt[min(i, k)]@r(min(i, k)), [[7, 8, 6], [1, 2, 0]])
         #-i<d_id_k ψ|H|ψ> (dA_k*)
         def F2(i, k): return -1j*self.F2(i, k, H, envs=(l, r), fullH=fullH)
 
         def F1t(i, j): return F1(i, j)# + Γ1(i, j)
         def F2t(i, j): return F2(i, j) + Γ2(i, j) #F2, Γ2 act on dA*j
 
-        if matrix == False:
+        if not as_matrix:
             return F1t, F2t 
+        elif as_matrix:
+            vL, sh = self.tangent_space_dims(l, True)
+            shapes = list(cs([prod([a, b]) for (a, b) in sh if a!=0 and a!=0]))
+            DD = shapes[-1]
 
-        vL, sh = self.tangent_space_dims(l, True)
-        shapes = list(cs([prod([a, b]) for (a, b) in sh if a!=0 and a!=0]))
-        DD = shapes[-1]
+            def index(i, j):
+                slices = [slice(a[0], a[1], 1) for a in [([0]+shapes)[i:i+2] for i in range(len(shapes))]]
+                return (slices[i], slices[j])
 
-        def index(i, j):
-            slices = [slice(a[0], a[1], 1) for a in [([0]+shapes)[i:i+2] for i in range(len(shapes))]]
-            return (slices[i], slices[j])
+            nulls = len([1 for (a, b) in sh if a==0 or b==0])
 
-        nulls = len([1 for (a, b) in sh if a==0 or b==0])
+            def ungauge_i(tens, i, conj=False): 
+                def co(x): return x if not conj else c(x)
+                k = len(tens.shape[3:])
+                links = [1, 2, -2]+list(range(-3, -3-k, -1))
+                return ncon([ch(l(i-1))@co(vL[i]), 
+                            ncon([tens, ch(r(i))], [[-1, -2, 1, -4, -5, -6], [1, -3]])], 
+                            [[1, 2, -1], links])
 
-        def ungauge_i(tens, i, conj=False): 
-            def co(x): return x if not conj else c(x)
-            k = len(tens.shape[3:])
-            links = [1, 2, -2]+list(range(-3, -3-k, -1))
-            return ncon([ch(l(i-1))@co(vL[i]), 
-                        ncon([tens, ch(r(i))], [[-1, -2, 1, -4, -5, -6], [1, -3]])], 
-                        [[1, 2, -1], links])
+            def ungauge_j(tens, i, conj=False): 
+                # apply -ch(l)-vL=tens-ch(r) to last 3 indices
+                def co(x): return x if not conj else c(x)
+                k = len(tens.shape[:-3])
+                links = list(range(-1, -k-1, -1))+[1, 2, -k-2]
+                return ncon([ch(l(i-1))@co(vL[i]), tens@ch(r(i))], 
+                        [[1, 2, -k-1], links])
 
-        def ungauge_j(tens, i, conj=False): 
-            # apply -ch(l)-vL=tens-ch(r) to last 3 indices
-            def co(x): return x if not conj else c(x)
-            k = len(tens.shape[:-3])
-            links = list(range(-1, -k-1, -1))+[1, 2, -k-2]
-            return ncon([ch(l(i-1))@co(vL[i]), tens@ch(r(i))], 
-                    [[1, 2, -k-1], links])
+            def ungauge(tens, i, j, conj=(True, False)):
+                return ungauge_j(ungauge_i(tens, i, conj[0]), j, conj[1])
 
-        def ungauge(tens, i, j, conj=(True, False)):
-            return ungauge_j(ungauge_i(tens, i, conj[0]), j, conj[1])
+            J1 = -1j*zeros((DD, DD))
+            J2 = -1j*zeros((DD, DD))
 
-        J1 = -1j*zeros((DD, DD))
-        J2 = -1j*zeros((DD, DD))
+            for i_ in range(len(shapes)):
+                for j_ in range(len(shapes)):
+                    i, j = i_+nulls, j_+nulls
+                    J1_ij = ungauge(F1t(i, j), i, j, (True, False))
+                    J2_ij = ungauge(F2t(i, j), i, j, (True, True))
+                    J1[index(i_, j_)] = J1_ij.reshape(prod(J1_ij.shape[:2]), -1)
+                    J2[index(i_, j_)] = J2_ij.reshape(prod(J2_ij.shape[:2]), -1)
 
-        for i_ in range(len(shapes)):
-            for j_ in range(len(shapes)):
-                i, j = i_+nulls, j_+nulls
-                J1_ij = ungauge(F1t(i, j), i, j, (True, False))
-                J2_ij = ungauge(F2t(i, j), i, j, (True, True))
-                J1[index(i_, j_)] = J1_ij.reshape(prod(J1_ij.shape[:2]), -1)
-                J2[index(i_, j_)] = J2_ij.reshape(prod(J2_ij.shape[:2]), -1)
-
-        if not real:
-            return J1, J2
-        else:
-            J = kron(Sz, re(J2))+kron(eye(2), re(J1)) + kron(Sx, im(J2)) + kron(-1j*Sy, im(J1))
-            J[abs(J)<1e-15]=0
-            return J
+            if not real_matrix:
+                return J1, J2
+            else:
+                J = kron(Sz, re(J2))+kron(eye(2), re(J1)) + kron(Sx, im(J2)) + kron(-1j*Sy, im(J1))
+                J[abs(J)<1e-15]=0
+                return J
 
     def F1(self, i_, j_, H, envs=None, fullH=False, testing=False):
             '''<d_iψ|H|d_jψ>'''
@@ -766,7 +766,6 @@ class fMPS(object):
                 d, Din_1, Di = self[i].shape
 
                 if not d*Din_1==Di:
-                    t1 = time()
                     H = [h.reshape(2, 2, 2, 2) for h in H]
 
                     Ru = ncon([pr(j), c(A[j])], [[1, -2, -3, -4], [1, -1, -5]])
@@ -780,7 +779,6 @@ class fMPS(object):
 
                     Lb = ncon([l(i-1)]+[pr(i), pr(i), inv(r(i)), inv(r(i))], [[2, 3], [-1, -2, 1, 2], [1, 3, -4, -5], [-3, -7], [-6, -8]])
                     Lbs = self.right_transfer(Lb, i, L-1)
-                    t2 = time()
 
                     for m, h in reversed(list(enumerate(H))):
                         if m > i:
@@ -1592,7 +1590,6 @@ class TestfMPS(unittest.TestCase):
         H = [Sz12@Sz22+Sx12] +[Sz12@Sz22+Sx12+Sx22 for _ in range(L-3)]+[Sz12@Sz22+Sx22]
         J = mps.jac(H)
         print(J.shape)
-        print(sum(isclose(J, 0)), prod(J.shape))
         cProfile.runctx('mps.jac(H)', {'mps':mps, 'H':H}, {}, sort='cumtime')
 
     def test_F2_F1(self):
