@@ -2,7 +2,7 @@
 import unittest
 from numpy.random import randn
 from scipy.sparse.linalg import eigs as arnoldi
-from scipy.linalg import qr
+from scipy.linalg import qr, expm, norm
 from numpy.linalg import eig as neig, eigvals, svd, inv
 from numpy import swapaxes, count_nonzero, diag, insert, pad, dot, argmax, sqrt
 from numpy import allclose, array, tensordot, transpose, all, identity, squeeze
@@ -10,7 +10,22 @@ from numpy import isclose, mean, sign, kron, zeros, conj, max
 from itertools import product
 from numba import jit
 from qmb import sigmaz
+from expokitpy import zgexpv, zhexpv
+import scipy as sp
+from scipy.sparse.linalg import LinearOperator
+from time import time
 
+def lanczos_expm(A, v, t):
+    iflag = array([1])
+    tol = 0.0
+    n = A.shape[0]
+    m = min(n//2, 80)
+    anorm = 1
+    wsp = zeros(7+n*(m+2)+5*(m+2)*(m+2),dtype=complex)
+    iwsp = zeros(m+2,dtype=int)
+
+    output_vec,tol0,iflag0 = zgexpv(m,t,v,tol,anorm,wsp,iwsp,A.matvec,0)
+    return output_vec
 
 def direct_sum(basis1, basis2):
     return [ct([b1, b2]) for b1, b2 in product(basis1, basis2)]
@@ -22,7 +37,6 @@ def T(tensor):
     """
     return swapaxes(tensor, -1, -2)
 
-
 def H(tensor):
     """H: Hermitian conjugate of last two indices of a tensor
 
@@ -30,14 +44,12 @@ def H(tensor):
     """
     return swapaxes(tensor.conj(), -1, -2)
 
-
 def C(tensor):
     """C: complex conjugate of tensor
 
     :param tensor: tensor to conjugate
     """
     return tensor.conj()
-
 
 def truncate_A(A, S, V, D):
     """truncate: truncate A, S, V to D. Ditch all zero diagonals
@@ -55,7 +67,6 @@ def truncate_A(A, S, V, D):
     V = V[:D, :]
     return (A, S, V)
 
-
 def truncate_B(U, S, B, D):
     """truncate: truncate U, S, B to D. Ditch all zero diagonals
 
@@ -72,13 +83,11 @@ def truncate_B(U, S, B, D):
     B = B[:, :D, :]
     return (U, S, B)
 
-
 def diagonalise(M):
     """diagonalise: wrap eig better
        :param M: matrix to diagonalise """
     S, V = neig(M)
     return (V, diag(S))
-
 
 def rotate_to_hermitian(r, testing=False):
     """rotate_to_hermitian: arnoldi returns matrices that are hermitian up
@@ -133,14 +142,12 @@ def l_eigenmatrix(M):
 
     return e_max, v_max.conj()
 
-
 def rank(M_diag):
     """rank: return number of non zero elements on diagonal of diagonal matrix
 
     :param M_diag: diagonal matrix
     """
     return count_nonzero(diag(M_diag))
-
 
 def mps_pad(mps1, mps2):
     """pad: pad the dimensions of both mps1 and mps2 with zeros such that
@@ -170,11 +177,9 @@ def mps_pad(mps1, mps2):
     assert structure(padded_mps1) == structure(padded_mps2)
     return (padded_mps1, padded_mps2)
 
-
 def structure(self):
     """MPS structure"""
     return [x[0].shape for x in self.data]
-
 
 def ldot(mat, mats):
     """ldot: dot together two tensors on bond indices,
@@ -185,7 +190,6 @@ def ldot(mat, mats):
     """
     return swapaxes(dot(mat, mats), 0, 1)
 
-
 def rdot(mats, mat):
     """rdot: dot together two tensors on bond indices,
     keeping physical indices first
@@ -194,7 +198,6 @@ def rdot(mats, mat):
     :param mats: second set
     """
     return dot(mats, mat)
-
 
 def get_null_space(A):
     """get_null_space: returns matrix of normalised null vectors of A i.e.
@@ -205,7 +208,6 @@ def get_null_space(A):
     """
     Q, R = qr(H(A))
     return Q[:, A.shape[0]:]
-
 
 def loc(st, uv, d=None, p=None, q=None):
     """p: return location in tensor product
@@ -279,7 +281,6 @@ def split_up(H, d=None, p=None, q=None):
                 for l in range(q):
                     h[i, j, k, l] = H[loc((i, j), (k, l), None, p, q)]
     return transpose(h, [2, 0, 3, 1])
-
 
 def basis_iterator(d):
     return product(product(range(d), range(d)), product(range(d), range(d)))
@@ -423,6 +424,23 @@ class TestTensorTools(unittest.TestCase):
                         for m in range(d):
                             for n in range(d):
                                 self.assertTrue(isclose(H[i, j, k, l, m, n], M[i, j]*M[k, l]*M[m, n]))
+
+    def test_expm(self):
+        N = 1000
+        A = randn(N, N)*1j
+        B = LinearOperator(A.shape, matvec=lambda w: A.dot(w))
+        v = randn(N)*1j
+        t = 0.1
+        t1 = time()
+        v__ = expm(A*t)@v
+        t2 = time()
+        print('\nfull: ', t2-t1)
+
+        t1 = time()
+        v_  = lanczos_expm(B, v, t)
+        t2 = time()
+        print('op: ', t2-t1)
+        print(norm(v__-v_))
 
 if __name__ == '__main__':
     unittest.main(verbosity=1)
