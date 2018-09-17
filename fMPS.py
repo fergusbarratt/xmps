@@ -763,6 +763,7 @@ class fMPS(object):
                 i, j = (j_, i_) if j_<i_ else (i_, j_)
                 G = 1j*zeros((*A[i].shape, *A[j].shape))
                 d, Din_1, Di = self[i].shape
+                H = [h.reshape(2, 2, 2, 2) for h in H]
 
                 if not d*Din_1==Di:
                     Ru = ncon([pr(j), c(A[j])], [[1, -2, -3, -4], [1, -1, -5]])
@@ -784,14 +785,12 @@ class fMPS(object):
                                 continue
                             else:
                                 #AAHAA
-                                h = h.reshape(2,2,2,2)
                                 Am, Am_1 = self.data[m:m+2]
                                 C = ncon([h]+[Am, Am_1], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
                                 Kr = ncon([c(Am), c(Am_1)@r(m+1)]+[C], 
                                          [[1, -2, 4], [2, 4, 3], [1, 2, -1, 3]])
                                 G += tr(Lbs(m)@Kr, 0, -1, -2)
 
-                        h = h.reshape(2,2,2,2)
                         Am, Am_1 = self.data[m:m+2]
 
                         if m==i:
@@ -904,6 +903,7 @@ class fMPS(object):
         elif not fullH:
             G = 1j*zeros((*A[i].shape, *A[j].shape))
             _, Din_1, Di = self[i].shape
+            H = [h.reshape(2, 2, 2, 2) for h in H]
             if not d*Din_1==Di:
                 Rj = ncon([pr(j), A[j]], [[-3, -4, 1, -2], [1, -1, -5]])
                 Rjs = self.left_transfer(Rj, i, j)
@@ -915,7 +915,6 @@ class fMPS(object):
                     if m > i:
                         # from gauge symmetry
                         continue
-                    h = h.reshape(2,2,2,2)
                     Am, Am_1 = self.data[m:m+2]
                     C = ncon([h]+[Am, Am_1], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
                     K = ncon([c(l(m-1))@Am.conj(), Am_1.conj()]+[C], [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]]) #AAHAA
@@ -1563,7 +1562,7 @@ class TestfMPS(unittest.TestCase):
 
         T = []
         k = L-2
-        cProfile.runctx('mps.F1(k, k, H, envs=(l, r))', {'mps':mps, 'H':H, 'l':l, 'r':r, 'k':k}, {}, sort='cumtime')
+        cProfile.runctx('mps.F1(k, k, H, envs=(l, r))', {'mps':mps, 'H':H, 'l':l, 'r':r, 'k':k}, {}, sort='tottime')
         raise Exception
         t1 = time()
         for i, j in product(range(L), range(L)):

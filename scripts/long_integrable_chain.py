@@ -16,10 +16,17 @@ Sx, Sy, Sz = spins(0.5)
 
 L, D = 5, 2
 bulkH =Sz12@Sz22+Sx12+Sx22
-H = [Sz12@Sz22+Sx12] + [bulkH for _ in range(L-3)] + [Sz12@Sz22+Sx22]
+H_i = [Sz12@Sz22+Sx12] + [bulkH for _ in range(L-3)] + [Sz12@Sz22+Sx22]
+H_c = [H_i[0]+Sz12]+[H_i[i]+Sz12+Sz22 for i in range(1, L-2)]+[H_i[-1]+Sz22]
 
-T = linspace(0, 10, 1000)
-mps = fMPS().random(L, 2, D).left_canonicalise()
-exps, lys, _ = Trajectory(mps, H).lyapunov(T)
-plt.plot(exps)
+T = linspace(0, 1, 100)
+mps_1 = fMPS().random(L, 2, D).left_canonicalise()
+mps_2 = mps_1.copy()
+
+exps_i, _, _ = Trajectory(mps, H_i).lyapunov(T)
+exps_c, _, _ = Trajectory(mps, H_c).lyapunov(T)
+
+fig, ax = plt.subplots(2, 1, sharex=True, sharey=True)
+ax[0].plot(exps_i)
+ax[1].plot(exps_c)
 plt.show()
