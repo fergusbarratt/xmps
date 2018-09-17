@@ -24,8 +24,8 @@ import cProfile
 Sx, Sy, Sz = spins(0.5)
 Sx, Sy, Sz = 2*Sx, 2*Sy, 2*Sz
 
-from ncon import ncon
-#def ncon(*args): return nc(*args, check_indices=False)
+from ncon import ncon as nc
+def ncon(*args): return nc(*args, check_indices=False)
 
 from time import time
 from pathos.multiprocessing import ProcessingPool as Pool
@@ -616,6 +616,7 @@ class fMPS(object):
                 e = []
                 B = -1j*zl(A[n])
                 _, Dn, Dn_1 = A[n].shape
+                H = [h.reshape(2, 2, 2, 2) for h in H]
 
                 if d*Dn==Dn_1:
                     # Projector is full of zeros
@@ -629,7 +630,6 @@ class fMPS(object):
                         # from gauge symmetry
                         continue
 
-                    h = h.reshape(2,2,2,2)
                     Am, Am_1 = self.data[m:m+2]
                     C = ncon([h]+[Am, Am_1], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
                     K = ncon([c(l(m-1))@Am.conj(), Am_1.conj()]+[C], [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]]) #AAHAA
@@ -763,9 +763,10 @@ class fMPS(object):
                 i, j = (j_, i_) if j_<i_ else (i_, j_)
                 G = 1j*zeros((*A[i].shape, *A[j].shape))
                 d, Din_1, Di = self[i].shape
-                H = [h.reshape(2, 2, 2, 2) for h in H]
 
                 if not d*Din_1==Di:
+                    H = [h.reshape(2, 2, 2, 2) for h in H]
+
                     Ru = ncon([pr(j), c(A[j])], [[1, -2, -3, -4], [1, -1, -5]])
                     Rus = self.left_transfer(Ru, 0, j)
 
@@ -786,7 +787,7 @@ class fMPS(object):
                             else:
                                 #AAHAA
                                 Am, Am_1 = self.data[m:m+2]
-                                C = ncon([h]+[Am, Am_1], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
+                                C = ncon([h]+[Am, Am_1], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]], [3, 2, 1]) # HAA
                                 Kr = ncon([c(Am), c(Am_1)@r(m+1)]+[C], 
                                          [[1, -2, 4], [2, 4, 3], [1, 2, -1, 3]])
                                 G += tr(Lbs(m)@Kr, 0, -1, -2)
@@ -824,8 +825,7 @@ class fMPS(object):
                             K = ncon([l(m-1)@c(Am), c(Am_1)]+[C], 
                                      [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]])
                             if i==j:
-                                x = tensordot(K, Rbs(m+2), [[0, 1], [0, 1]])
-                                G += x
+                                G += tensordot(K, Rbs(m+2), [[0, 1], [0, 1]])
                             else:
                                 G += tensordot(K, tensordot(Rds(m+2)@inv(r(i)), Rus(i+1), [-1, 0]), 
                                                [[0, 1], [0, 1]])
@@ -895,7 +895,7 @@ class fMPS(object):
         '''<d_id_j ψ|H|ψ>'''
         L, d, A = self.L, self.d, self.data
         l, r = self.get_envs() if envs is None else envs
-        pr = lambda n: self.left_null_projector(n, l)
+        def pr(n): return self.left_null_projector(n, l)
 
         i, j = (j_, i_) if j_<i_ else (i_, j_)
         if i==j:
@@ -1562,7 +1562,7 @@ class TestfMPS(unittest.TestCase):
 
         T = []
         k = L-2
-        cProfile.runctx('mps.F1(k, k, H, envs=(l, r))', {'mps':mps, 'H':H, 'l':l, 'r':r, 'k':k}, {}, sort='tottime')
+        cProfile.runctx('mps.F1(k, k, H, envs=(l, r))', {'mps':mps, 'H':H, 'l':l, 'r':r, 'k':k}, {}, sort='cumtime')
         raise Exception
         t1 = time()
         for i, j in product(range(L), range(L)):
@@ -1579,6 +1579,15 @@ class TestfMPS(unittest.TestCase):
             td(mps.christoffel(i, k, min(i, k), envs=(l, r)), l(min(i, k)-1)@dA_dt[min(i, k)]@r(min(i, k)), [[6, 7, 8], [0, 1, 2]])
         t2 = time()
         print('Γ2: ', t2-t1)
+
+    def test_profile_jac(self):
+        Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
+        Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
+        L = 12
+        mps = fMPS().random(L, 2, 40).left_canonicalise()
+        H = [Sz12@Sz22+Sx12] +[Sz12@Sz22+Sx12+Sx22 for _ in range(L-3)]+[Sz12@Sz22+Sx22]
+        cProfile.runctx('mps.jac(H, True, True)', {'mps':mps, 'H':H}, {}, sort='cumtime')
+
 
     def test_F2_F1(self):
         '''<d_id_j ψ|H|ψ>, <d_iψ|H|d_jψ>'''
