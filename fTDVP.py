@@ -185,7 +185,7 @@ class Trajectory(object):
         k2 = (mps+k1/2).dA_dt(H, fullH=self.fullH)*dt
         k3 = (mps+k2/2).dA_dt(H, fullH=self.fullH)*dt
         k4 = (mps+k3).dA_dt(H, fullH=self.fullH)*dt
-        self.history.append(mps.serialize())
+        #self.history.append(mps.serialize())
 
         mps = mps+(k1+2*k2+2*k3+k4)/6
         return mps
@@ -260,38 +260,38 @@ class Trajectory(object):
             Q, R = qr(Q)
             lys.append(log(abs(diag(R))))
             evs.append([self.mps.E(*opsite) for opsite in ops])
-            self.rk4(dt)
+            self.mps = self.rk4(self.mps, dt)
             self.mps = self.mps.left_canonicalise(D)
         exps = (1/(dt))*cs(array(lys), axis=0)/ed(ar(1, len(lys)+1), 1)
         return exps, array(lys), array(evs)
 
-    def OTOC(self, T, opsite):
-        """W, site = opsite"""
-        ## <W(0)W(t)W(t)W(0)>+
-        ## <W(t)W(0)W(0)W(t)>
-
-        ## -<W(t)W(0)W(t)W(0)>
-        ## -<W(0)W(t)W(0)W(t)>
-
-        # ɸ1 = W(t)W(0)|Ψ>
-        # ɸ2 = W(0)W(t)|Ψ>
-        H = self.H
-        Ψ1 = self.mps.copy().left_canonicalise()  #     |Ψ>
-        Ψ2 = Ψ1.apply(opsite).left_canonicalise() # W(0)|Ψ>
-        dt = T[2]-T[0]
-        Ws = []
+    def time_reverse(self, T):
+        es = []
+        Ψ = self.mps.copy()
+        dt = T[1]-T[0]
         for t in tqdm(range(len(T))):
-            Ψ1 = self.rk4(Ψ1, dt).left_canonicalise()
-            Ψ2 = self.rk4(Ψ2, dt).left_canonicalise()
-            ɸ1 = Ψ1.apply(opsite).left_canonicalise() #WU|Ψ>
-            ɸ2 = Ψ2.apply(opsite).left_canonicalise() #WUW|Ψ>
-            for t_ in reversed(range(t)):
-                ɸ1 = self.rk4(ɸ1, -dt).left_canonicalise()
-                ɸ2 = self.rk4(ɸ2, -dt).left_canonicalise()
-            ɸ1 = ɸ1.apply(opsite).left_canonicalise() # W(0)W(t)|Ψ>
-            ɸ2 = ɸ2                                   # W(t)W(0)|Ψ>
-            Ws.append(1-re(ɸ1.overlap(ɸ2))) # for pauli matrices
-        return re(array(Ws))
+            Ψ = self.rk4(Ψ, dt).left_canonicalise()
+            es.append(Ψ.E(Sx, 0))
+        for t in tqdm(range(len(T))):
+            Ψ = self.rk4(Ψ, -dt).left_canonicalise()
+            es.append(Ψ.E(Sx, 0))
+        plt.plot(es)
+        print(norm(es[-1]-es[0]))
+        plt.show()
+
+    def OTOC(self, T, op):
+        psi_0 = self.mps.recombine().reshape(-1)
+        H = self.H
+        dt = T[1]-T[0]
+        Ws = []
+        for t in T:
+            U = expm(-1j*H*t)
+            W_0 = op
+            W_t = cT(U)@op@U
+            x1 = W_0@W_t@psi_0 # W(0)W(t)|Ψ>
+            x2 = W_t@W_0@psi_0 # W(t)W(0)|Ψ>
+            Ws.append(1-re(c(x1)@x2))
+        return Ws
 
 class TestTrajectory(unittest.TestCase):
     """TestF"""
@@ -345,31 +345,6 @@ class TestTrajectory(unittest.TestCase):
         T = linspace(0, 1, 100)
         exps, lys, _ = Trajectory(mps, H).lyapunov(T, D=None, bar=True)
         self.assertTrue(allclose(exps[-1], 0))
-
-    def test_lyapunov_matrices_truncate_2(self):
-        """Chaotic and non chaotic systems"""
-        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
-        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
-        T = linspace(0, 100, 3000)
-
-        mps = self.mps_0_2
-        H = [Sx1@Sx2+Sy1@Sy2+Sz1@Sz2]
-        exps1, lys1, _ = Trajectory(mps, H).lyapunov(T, D=1, bar=True)
-
-        mps = self.mps_0_2
-        H = [Sx1@Sx2+Sy1@Sy2+Sz1@Sz2+Sx1-Sz2]
-        exps2, lys2, _ = Trajectory(mps, H).lyapunov(T, D=1, bar=True)
-
-        fig, ax = plt.subplots(2, 1, sharex=True, sharey=True)
-        ax[0].plot(exps1)
-        ax[0].set_title('no chaos: $H=Sx^1Sx^2+Sy^1Sy^2+Sz1^Sz^2$')
-        #ax[0][1].plot(lys1)
-
-        ax[1].plot(exps2)
-        ax[1].set_title('chaos: $H=Sx^1Sx^2+Sy^1Sy^2+Sz1^Sz^2 +Sx1-Sz2$')
-        #ax[1][1].plot(lys2)
-        fig.tight_layout()
-        plt.show()
 
     def test_lyapunov_matrices_truncate_3(self):
         """Chaotic and non chaotic systems"""
@@ -620,14 +595,20 @@ class TestTrajectory(unittest.TestCase):
         plt.show()
 
     def test_OTOC(self):
-        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
-        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
-        mps = self.mps_0_5
-        H = [Sz1@Sz2+Sx1]+[Sz1@Sz2+Sx1+Sx2 for _ in range(2)]+[Sz1@Sz2+Sx2]
-        T = linspace(0, 0.5, 5)
-        Ws = Trajectory(mps, H).OTOC(T, (eye(2), 2))
-        plt.plot(Ws)
-        plt.show()
+        Sx1,  Sy1,  Sz1 =  N_body_spins(0.5, 1,  5)
+        Sx2,  Sy2,  Sz2 =  N_body_spins(0.5, 2,  5)
+        Sx3,  Sy3,  Sz3 =  N_body_spins(0.5, 3,  5)
+        Sx4,  Sy4,  Sz4 =  N_body_spins(0.5, 4,  5)
+        Sx5,  Sy5,  Sz5 =  N_body_spins(0.5, 5,  5)
+
+        mps = fMPS().random(5, 2, None).left_canonicalise()
+        H = Sz1@Sz2+Sz2@Sz3+Sz3@Sz4+Sz4@Sz5+\
+                Sx1+Sx2+Sx3+Sx4+Sx5+\
+                Sz1+Sz2+Sz3+Sz4+Sz5
+        op = eye(2**5)
+        T = linspace(0, 10, 100)
+        Ws = Trajectory(mps, H).OTOC(T, op)
+        self.assertTrue(allclose(Ws, 0))
 
 
 if __name__ == '__main__':

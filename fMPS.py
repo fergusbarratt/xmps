@@ -1311,6 +1311,19 @@ class TestfMPS(unittest.TestCase):
         for case in self.left_cases + self.right_cases:
             self.assertTrue(case.D >= max([max(x[0].shape) for x in case.data]))
 
+    def test_apply(self):
+        cases = [fMPS().random(5, 2, 3).left_canonicalise() for _ in range(5)]
+        for case in cases:
+            self.assertTrue(case.apply((eye(2), 0))==case)
+            self.assertTrue(case.apply((eye(2), 1))==case)
+            self.assertTrue(case.apply((eye(2), 2))==case)
+            self.assertTrue(case.apply((eye(2), 3))==case)
+            self.assertTrue(case.apply((eye(2), 4))==case)
+            self.assertTrue(case.apply((Sx, 0)).apply((Sx, 0))==case)
+            self.assertTrue(case.apply((Sy, 0)).apply((Sy, 0))==case)
+            self.assertTrue(case.apply((Sz, 0)).apply((Sz, 0))==case)
+            self.assertTrue(case.apply((Sz, 0))!=case)
+
     def test_left_norms(self):
         """test_left_norms"""
         for case in self.left_cases:

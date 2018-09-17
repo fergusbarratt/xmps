@@ -175,7 +175,6 @@ def N_body_ladders(S, i, N):
     """
     return [n_body(s, i, N) for s in ladders(S)]
 
-
 def comm(A, B):
     return A@B - B@A
 
