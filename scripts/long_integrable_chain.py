@@ -15,7 +15,7 @@ Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
 
 Sx, Sy, Sz = spins(0.5)
 
-L, D = 5, 2
+L, D = 6, 1
 bulkH =Sz12@Sz22+Sx12+Sx22
 H_i = [Sz12@Sz22+Sx12] + [bulkH for _ in range(L-3)] + [Sz12@Sz22+Sx22]
 H_c = [H_i[0]+Sz12]+[H_i[i]+Sz12+Sz22 for i in range(1, L-2)]+[H_i[-1]+Sz22]
@@ -28,7 +28,7 @@ exps_i, _, _ = Trajectory(mps_1, H_i).lyapunov(T)
 exps_c, _, _ = Trajectory(mps_2, H_c).lyapunov(T)
 
 fig, ax = plt.subplots(1, 2, sharex=True, sharey=True)
-ax[0].hist(exps_i[-1])
-ax[1].hist(exps_c[-1])
+ax[0].plot(exps_i)
+ax[1].plot(exps_c)
 
 plt.show()

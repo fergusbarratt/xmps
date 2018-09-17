@@ -10,7 +10,7 @@ from numpy import split as chop, zeros, ones, ones_like, empty
 from numpy import save, load, zeros_like as zl, eye, cumsum as cs
 from numpy import sqrt, expand_dims as ed, transpose as tra
 from numpy import trace as tr, tensordot as td, kron, imag as im
-from numpy import mean
+from numpy import mean, count_nonzero
 from tests import is_right_canonical, is_right_env_canonical, is_full_rank
 from tests import is_left_canonical, is_left_env_canonical, has_trace_1
 from tensor import H as cT, truncate_A, truncate_B, diagonalise, rank, mps_pad
@@ -681,7 +681,7 @@ class fMPS(object):
 
         return self.extract_tangent_vector(ddA)
 
-    def jac(self, H, matrix=False, real=False, fullH=False, testing=False):
+    def jac(self, H, matrix=True, real=True, fullH=False, testing=False):
         """jac: calculate the jacobian of the current mps
         """
         L, d, A = self.L, self.d, self.data
@@ -758,13 +758,15 @@ class fMPS(object):
             '''<d_iψ|H|d_jψ>'''
             L, d, A = self.L, self.d, self.data
             l, r = self.get_envs() if envs is None else envs
-            def pr(n): return self.left_null_projector(n, l)
+            prs = [self.left_null_projector(n, l) for n in range(self.L)]
+            def pr(n): return prs[n]
             if not fullH:
                 i, j = (j_, i_) if j_<i_ else (i_, j_)
                 G = 1j*zeros((*A[i].shape, *A[j].shape))
                 d, Din_1, Di = self[i].shape
 
                 if not d*Din_1==Di:
+                    t1 = time()
                     H = [h.reshape(2, 2, 2, 2) for h in H]
 
                     Ru = ncon([pr(j), c(A[j])], [[1, -2, -3, -4], [1, -1, -5]])
@@ -778,6 +780,7 @@ class fMPS(object):
 
                     Lb = ncon([l(i-1)]+[pr(i), pr(i), inv(r(i)), inv(r(i))], [[2, 3], [-1, -2, 1, 2], [1, 3, -4, -5], [-3, -7], [-6, -8]])
                     Lbs = self.right_transfer(Lb, i, L-1)
+                    t2 = time()
 
                     for m, h in reversed(list(enumerate(H))):
                         if m > i:
@@ -1554,16 +1557,17 @@ class TestfMPS(unittest.TestCase):
     def test_profile_F2_F1_christoffel(self):
         Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
         Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
-        L = 12
-        mps = fMPS().random(L, 2, 40).left_canonicalise()
+        L = 20 
+        mps = fMPS().random(L, 2, 30).left_canonicalise()
         H = [Sz12@Sz22+Sx12] +[Sz12@Sz22+Sx12+Sx22 for _ in range(L-3)]+[Sz12@Sz22+Sx22]
         dA_dt = mps.dA_dt(H, store_envs=True)
         l, r = mps.l, mps.r
 
         T = []
         k = L-2
-        cProfile.runctx('mps.F1(k, k, H, envs=(l, r))', {'mps':mps, 'H':H, 'l':l, 'r':r, 'k':k}, {}, sort='cumtime')
+        mps.F1(k, k, H, envs=(l, r))
         raise Exception
+        cProfile.runctx('mps.F1(k, k, H, envs=(l, r))', {'mps':mps, 'H':H, 'l':l, 'r':r, 'k':k}, {}, sort='cumtime')
         t1 = time()
         for i, j in product(range(L), range(L)):
             mps.F1(i, j, H, envs=(l, r))
@@ -1583,11 +1587,13 @@ class TestfMPS(unittest.TestCase):
     def test_profile_jac(self):
         Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
         Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
-        L = 12
+        L = 7 
         mps = fMPS().random(L, 2, 40).left_canonicalise()
         H = [Sz12@Sz22+Sx12] +[Sz12@Sz22+Sx12+Sx22 for _ in range(L-3)]+[Sz12@Sz22+Sx22]
-        cProfile.runctx('mps.jac(H, True, True)', {'mps':mps, 'H':H}, {}, sort='cumtime')
-
+        J = mps.jac(H)
+        print(J.shape)
+        print(sum(isclose(J, 0)), prod(J.shape))
+        cProfile.runctx('mps.jac(H)', {'mps':mps, 'H':H}, {}, sort='cumtime')
 
     def test_F2_F1(self):
         '''<d_id_j ψ|H|ψ>, <d_iψ|H|d_jψ>'''
@@ -1749,7 +1755,7 @@ class TestfMPS(unittest.TestCase):
     def test_jac_eye(self):
         mps = self.mps_0_2
         H = [eye(4)]
-        J1, J2 = mps.jac(H, True)
+        J1, J2 = mps.jac(H, True, False)
         self.assertTrue(allclose(J1, -1j*eye(3)))
         self.assertTrue(allclose(J2, 0))
         J = mps.jac(H, True, True)
@@ -1757,7 +1763,7 @@ class TestfMPS(unittest.TestCase):
 
         mps = self.mps_0_3
         H = [eye(4)/2, eye(4)/2]
-        J1, J2 = mps.jac(H, True)
+        J1, J2 = mps.jac(H, True, False)
         J = mps.jac(H, True, True)
         self.assertTrue(allclose(J1, -1j*eye(7)))
         self.assertTrue(allclose(J2, 0))
@@ -1765,7 +1771,7 @@ class TestfMPS(unittest.TestCase):
 
         mps = self.mps_0_4
         H = [eye(4)/3, eye(4)/3, eye(4)/3]
-        J1, J2 = mps.jac(H, True)
+        J1, J2 = mps.jac(H, True, False)
         J = mps.jac(H, True, True)
         self.assertTrue(allclose(J1, -1j*eye(15)))
         self.assertTrue(allclose(J2, 0))
@@ -1777,7 +1783,7 @@ class TestfMPS(unittest.TestCase):
 
         mps = self.mps_0_3.left_canonicalise()
         H = [Sz1@Sz2+Sx1, Sz1@Sz2+Sx1+Sx2]
-        J1, J2 = mps.jac(H, True)
+        J1, J2 = mps.jac(H, True, False)
         self.assertTrue(allclose(J1+J1.conj().T, 0))
 
         mps = fMPS().random(5, 2, 10).left_canonicalise()
@@ -1785,7 +1791,7 @@ class TestfMPS(unittest.TestCase):
         for _ in range(N):
             H = [randn(4, 4)+1j*randn(4, 4) for _ in range(4)]
             H = [h+h.conj().T for h in H]
-            J1, J2 = mps.jac(H, True)
+            J1, J2 = mps.jac(H, True, False)
             self.assertTrue(allclose(J1,-J1.conj().T))
             self.assertTrue(allclose(J2, 0))
             J = mps.jac(H, True, True)
