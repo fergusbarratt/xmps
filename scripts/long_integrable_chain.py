@@ -27,6 +27,9 @@ mps_2 = mps_1.copy()
 exps_i, _, _ = Trajectory(mps_1, H_i).lyapunov(T)
 exps_c, _, _ = Trajectory(mps_2, H_c).lyapunov(T)
 
+save('../data/i_lyapunovs_L6_D1', exps_i)
+save('../data/c_lyapunovs_L6_D1', exps_c)
+
 fig, ax = plt.subplots(1, 2, sharex=True, sharey=True)
 ax[0].plot(exps_i)
 ax[1].plot(exps_c)
