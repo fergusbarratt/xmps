@@ -1145,12 +1145,12 @@ class TestfMPS(unittest.TestCase):
                             for _ in range(N)]
 
         # finite fixtures
-        self.tens_0_2 = load('mat2x2.npy')
-        self.tens_0_3 = load('mat3x3.npy')
-        self.tens_0_4 = load('mat4x4.npy')
-        self.tens_0_5 = load('mat5x5.npy')
-        self.tens_0_6 = load('mat6x6.npy')
-        self.tens_0_7 = load('mat7x7.npy')
+        self.tens_0_2 = load('fixtures/mat2x2.npy')
+        self.tens_0_3 = load('fixtures/mat3x3.npy')
+        self.tens_0_4 = load('fixtures/mat4x4.npy')
+        self.tens_0_5 = load('fixtures/mat5x5.npy')
+        self.tens_0_6 = load('fixtures/mat6x6.npy')
+        self.tens_0_7 = load('fixtures/mat7x7.npy')
 
         self.mps_0_2 = fMPS().left_from_state(self.tens_0_2)
         self.psi_0_2 = self.mps_0_2.recombine().reshape(-1)
