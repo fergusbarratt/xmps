@@ -105,8 +105,7 @@ class Trajectory(object):
             Q, R = qr(Q)
             lys.append(log(abs(diag(R))))
             evs.append([self.mps.E(*opsite) for opsite in ops])
-            self.mps = self.rk4(self.mps, dt)
-            self.mps = self.mps.left_canonicalise(D)
+            self.mps = self.rk4(self.mps, dt).left_canonicalise()
         exps = (1/(dt))*cs(array(lys), axis=0)/ed(ar(1, len(lys)+1), 1)
         return exps, array(lys), array(evs)
 

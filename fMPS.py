@@ -24,8 +24,8 @@ import cProfile
 Sx, Sy, Sz = spins(0.5)
 Sx, Sy, Sz = 2*Sx, 2*Sy, 2*Sz
 
-from ncon import ncon as nc
-def ncon(*args): return nc(*args, check_indices=False)
+from ncon import ncon
+#def ncon(*args): return nc(*args, check_indices=False)
 
 from time import time
 from pathos.multiprocessing import ProcessingPool as Pool
@@ -484,7 +484,7 @@ class fMPS(object):
         Ls = [op]
         oplinks = [2, 3]+list(range(-3, -len(op.shape)-1, -1))
         for m in reversed(range(j, i)):
-            Ls.insert(0, ncon([self[m].conj(), self[m], Ls[0]], [[1, -2, 3], [1, -1, 2], oplinks]))
+            Ls.insert(0, ncon([self[m].conj(), self[m], Ls[0]], [[1, -2, 3], [1, -1, 2], oplinks], [2, 3, 1]))
         return (lambda n: Ls[n-j]) if ret_all else Ls[0]
 
     def right_transfer(self, op, i, j, ret_all=True):
