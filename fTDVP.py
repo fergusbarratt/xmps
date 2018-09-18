@@ -44,7 +44,8 @@ class Trajectory(object):
             self.history.append(mps.serialize())
         return mps + mps.dA_dt(H)*dt
 
-    def rk4(self, mps, dt, H, store=False):
+    def rk4(self, mps, dt, H=None, store=False):
+        H = self.H if H is None else H
         k1 = mps.dA_dt(H, fullH=self.fullH)*dt
         k2 = (mps+k1/2).dA_dt(H, fullH=self.fullH)*dt
         k3 = (mps+k2/2).dA_dt(H, fullH=self.fullH)*dt
@@ -85,7 +86,7 @@ class Trajectory(object):
         if plot:
             plt.plot(T, [mps.E(Sy, 0) for mps in map(lambda x: fMPS().deserialize(x, L, d, D, real=True), traj)])
 
-#        self.history = traj
+        self.history = traj
         self.mps = fMPS().deserialize(traj.T[-1, :], L, d, D, real=True)
         return self
 
@@ -104,7 +105,7 @@ class Trajectory(object):
             Q, R = qr(Q)
             lys.append(log(abs(diag(R))))
             evs.append([self.mps.E(*opsite) for opsite in ops])
-            self.mps = self.rk4(self.mps, dt).left_canonicalise()
+            self.mps = self.rk4(self.mps, dt, H).left_canonicalise()
         exps = (1/(dt))*cs(array(lys), axis=0)/ed(ar(1, len(lys)+1), 1)
         return exps, array(lys), array(evs)
 

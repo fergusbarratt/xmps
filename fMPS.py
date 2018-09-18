@@ -417,6 +417,12 @@ class fMPS(object):
 
         return self
 
+    def entanglement_entropy(self, site):
+        """von neumann entanglement entropy across bond to left of site
+        """
+        self.left_canonicalise()
+        return -self.Ls[site]@log(self.Ls[site])
+
     def update_properties(self):
         """update_properties: Could be slow"""
         self.is_left_canonical = is_left_canonical(self.data)
