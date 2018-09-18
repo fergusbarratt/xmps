@@ -16,20 +16,23 @@ Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
 
 Sx, Sy, Sz = spins(0.5)
 
-L, D = 6, 5
+L, D = 5, 1
 bulkH =Sz12@Sz22+Sx12+Sx22
-#H_i = [Sz12@Sz22+Sx12] + [bulkH for _ in range(L-3)] + [Sz12@Sz22+Sx22]
-H = [H_i[0]+Sz12]+[H_i[i]+Sz12+Sz22 for i in range(1, L-2)]+[H_i[-1]+Sz22]
+H_i = [Sz12@Sz22+Sx12] + [bulkH for _ in range(L-3)] + [Sz12@Sz22+Sx22]
+H_c = [H_i[0]+Sz12]+[H_i[i]+Sz12+Sz22 for i in range(1, L-2)]+[H_i[-1]+Sz22]
 
-T = linspace(0, 20, 20)
+dt = 5e-3
+N = 2000
+T = linspace(0, N*dt, N)
 mps_1 = fMPS().random(L, 2, D).left_canonicalise()
-mps_2 = mps_1.copy()
 
 #exps_i, _, _ = Trajectory(mps_1, H_i).lyapunov(T)
-exps_c, _, _ = Trajectory(mps_2, H_c).lyapunov(T)
+exps_c, _, _ = Trajectory(mps_1, H_c).lyapunov(T)
+plt.plot(exps_c)
+plt.show()
 
-#save('../data/i_lyapunovs_L6_D5', exps_i)
-#save('../data/c_lyapunovs_L6_D5', exps_c)
+save('../data/i_lyapunovs_L{}_D{}_T{}'.format(L, D, N), exps_i)
+#save('../data/c_lyapunovs_L{}_D{}_T{}'.format(L, D, N), exps_c)
 
 #exps_i = load('../data/i_lyapunovs_L6_D1.npy')
 #exps_c = load('../data/c_lyapunovs_L6_D1.npy')
@@ -41,4 +44,4 @@ exps_c, _, _ = Trajectory(mps_2, H_c).lyapunov(T)
 #distplot(exps_c[-1], ax=ax[1][1], bins=6)
 
 #plt.savefig('../images/lyapunovs_int_reg.pdf', bbox_inches='tight')
-plt.show()
+#plt.show()
