@@ -16,7 +16,7 @@ Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
 
 Sx, Sy, Sz = spins(0.5)
 
-L, D = 6, 3
+L, D = 6, 4
 bulkH =Sz12@Sz22+Sx12+Sx22
 H_i = [Sz12@Sz22+Sx12] + [bulkH for _ in range(L-3)] + [Sz12@Sz22+Sx22]
 H_c = [H_i[0]+Sz12]+[H_i[i]+Sz12+Sz22 for i in range(1, L-2)]+[H_i[-1]+Sz22]
@@ -28,8 +28,8 @@ mps_2 = mps_1.copy()
 exps_i, _, _ = Trajectory(mps_1, H_i).lyapunov(T)
 exps_c, _, _ = Trajectory(mps_2, H_c).lyapunov(T)
 
-save('../data/i_lyapunovs_L6_D3', exps_i)
-save('../data/c_lyapunovs_L6_D3', exps_c)
+save('../data/i_lyapunovs_L6_D4', exps_i)
+save('../data/c_lyapunovs_L6_D4', exps_c)
 
 #exps_i = load('../data/i_lyapunovs_L6_D1.npy')
 #exps_c = load('../data/c_lyapunovs_L6_D1.npy')

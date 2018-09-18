@@ -101,7 +101,7 @@ class fMPS(object):
 
         :param other: MPS with arrays to add
         """
-        return fMPS([a+b for a, b in zip(self.data, other.data)]) 
+        return fMPS([a+b for a, b in zip(self.data, other.data)])
 
     def __sub__(self, other):
         """__sub: This is not how to subtract two MPS: it's itemwise addition.
@@ -532,6 +532,11 @@ class fMPS(object):
         M = self.mixed_canonicalise(site)[site]
         return re(tensordot(op, trace(dot(cT(M),  M), axis1=1, axis2=3), [[0, 1], [0, 1]]))
 
+    def Es(self, ops, site):
+        M = self.mixed_canonicalise(site)[site]
+        return [re(tensordot(op, trace(dot(cT(M),  M), axis1=1, axis2=3), [[0, 1], [0, 1]]))
+                for op in ops]
+
     def E_L(self, op):
         """E_L: expectation of a full size operator
 
@@ -683,7 +688,13 @@ class fMPS(object):
 
         return self.extract_tangent_vector(ddA)
 
-    def jac(self, H, as_matrix=True, real_matrix=True, as_linearoperator=False, fullH=False, testing=False):
+    def jac(self, H, 
+            as_matrix=True, 
+            real_matrix=True, 
+            as_linearoperator=False, 
+            fullH=False, 
+            testing=False,
+            parallel_transport=True):
         """jac: calculate the jacobian of the current mps
         """
         L, d, A = self.L, self.d, self.data
@@ -705,7 +716,10 @@ class fMPS(object):
         def F2(i, k): return -1j*self.F2(i, k, H, envs=(l, r), prs=prs, fullH=fullH)
 
         def F1t(i, j): return F1(i, j)# + Γ1(i, j)
-        def F2t(i, j): return F2(i, j) + Γ2(i, j) #F2, Γ2 act on dA*j
+        if parallel_transport:
+            def F2t(i, j): return F2(i, j) + Γ2(i, j) #F2, Γ2 act on dA*j
+        else: 
+            def F2t(i, j): return F2(i, j)
 
         if not as_matrix and not as_linearoperator:
             return F1t, F2t 
