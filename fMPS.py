@@ -2,7 +2,7 @@ import unittest
 from spin import n_body, N_body_spins, spins
 from numpy.random import rand, randint, randn
 from numpy.linalg import svd, inv, norm, cholesky as ch
-from scipy.linalg import null_space as null#, sqrtm as ch
+from scipy.linalg import null_space as null, expm#, sqrtm as ch
 from numpy import array, concatenate, diag, dot, allclose, isclose, swapaxes as sw
 from numpy import identity, swapaxes, trace, tensordot, sum, prod
 from numpy import real as re, stack as st, concatenate as ct
@@ -14,12 +14,13 @@ from numpy import mean, count_nonzero
 from tests import is_right_canonical, is_right_env_canonical, is_full_rank
 from tests import is_left_canonical, is_left_env_canonical, has_trace_1
 from tensor import H as cT, truncate_A, truncate_B, diagonalise, rank, mps_pad
-from tensor import C as c
+from tensor import C as c, lanczos_expm
 from tensor import rdot, ldot, structure
 from qmb import sigmaz, sigmax, sigmay
 from copy import deepcopy
 from functools import reduce
 from itertools import product
+from scipy.sparse.linalg import LinearOperator, aslinearoperator
 import cProfile
 Sx, Sy, Sz = spins(0.5)
 Sx, Sy, Sz = 2*Sx, 2*Sy, 2*Sz
@@ -29,6 +30,7 @@ def ncon(*args): return nc(*args, check_indices=False)
 
 from time import time
 from pathos.multiprocessing import ProcessingPool as Pool
+from joblib import Parallel, delayed
 
 class fMPS(object):
     """finite MPS:
@@ -530,6 +532,11 @@ class fMPS(object):
         M = self.mixed_canonicalise(site)[site]
         return re(tensordot(op, trace(dot(cT(M),  M), axis1=1, axis2=3), [[0, 1], [0, 1]]))
 
+    def Es(self, ops, site):
+        M = self.mixed_canonicalise(site)[site]
+        return [re(tensordot(op, trace(dot(cT(M),  M), axis1=1, axis2=3), [[0, 1], [0, 1]]))
+                for op in ops]
+
     def E_L(self, op):
         """E_L: expectation of a full size operator
 
@@ -681,35 +688,53 @@ class fMPS(object):
 
         return self.extract_tangent_vector(ddA)
 
-    def jac(self, H, as_matrix=True, real_matrix=True, fullH=False, testing=False):
+    def jac(self, H,
+            as_matrix=True,
+            real_matrix=True,
+            as_linearoperator=False,
+            fullH=False,
+            testing=False,
+            parallel_transport=True):
         """jac: calculate the jacobian of the current mps
         """
         L, d, A = self.L, self.d, self.data
         dA_dt = self.dA_dt(H, fullH=fullH, store_envs=True)
         l, r = self.l, self.r
+        prs = [self.left_null_projector(n, l) for n in range(self.L)]
 
         # Get tensors
         ## unitary rotations: -<d_iψ|(d_t |d_kψ> +iH|d_kψ>) (dA_k)
         #-<d_iψ|d_kd_jψ> dA_j/dt (dA_k) (range(k+1, L))
         #def Γ1(i, k): return sum([td(c(self.christoffel(k, j, i, envs=(l, r))), l(j-1)@dA_dt[j]@r(j), [[3, 4, 5], [0, 1, 2]]) for j in range(L)], axis=0)
         #-i<d_iψ|H|d_kψ> (dA_k)
-        def F1(i, k): return  -1j*self.F1(i, k, H, envs=(l, r), fullH=fullH)
+        def F1(i, k): return  -1j*self.F1(i, k, H, envs=(l, r), prs=prs, fullH=fullH)
 
         ## non unitary (from projection): -<d_id_kψ|(d_t |ψ> +iH|ψ>) (dA_k*) (should be zero for no projection)
         #-<d_id_kψ|d_jψ> dA_j/dt (dA_k*)
-        def Γ2(i, k): return td(self.christoffel(i, k, min(i, k), envs=(l, r)), l(min(i, k)-1)@dA_dt[min(i, k)]@r(min(i, k)), [[7, 8, 6], [1, 2, 0]])
+        def Γ2(i, k): return td(self.christoffel(i, k, min(i, k), envs=(l, r), prs=prs), l(min(i, k)-1)@dA_dt[min(i, k)]@r(min(i, k)), [[7, 8, 6], [1, 2, 0]])
         #-i<d_id_k ψ|H|ψ> (dA_k*)
-        def F2(i, k): return -1j*self.F2(i, k, H, envs=(l, r), fullH=fullH)
+        def F2(i, k): return -1j*self.F2(i, k, H, envs=(l, r), prs=prs, fullH=fullH)
 
         def F1t(i, j): return F1(i, j)# + Γ1(i, j)
-        def F2t(i, j): return F2(i, j) + Γ2(i, j) #F2, Γ2 act on dA*j
+        if parallel_transport:
+            def F2t(i, j): return F2(i, j) + Γ2(i, j) #F2, Γ2 act on dA*j
+        else:
+            def F2t(i, j): return F2(i, j)
 
+<<<<<<< HEAD
         if not as_matrix:
             return F1t, F2t
         elif as_matrix:
+=======
+        if not as_matrix and not as_linearoperator:
+            return F1t, F2t
+        else:
+>>>>>>> 5aee1b03801122af319c63b1211a60e3dd824d55
             vL, sh = self.tangent_space_dims(l, True)
+            nulls = len([1 for (a, b) in sh if a==0 or b==0])
             shapes = list(cs([prod([a, b]) for (a, b) in sh if a!=0 and a!=0]))
             DD = shapes[-1]
+<<<<<<< HEAD
 
             def index(i, j):
                 slices = [slice(a[0], a[1], 1) for a in [([0]+shapes)[i:i+2] for i in range(len(shapes))]]
@@ -718,47 +743,63 @@ class fMPS(object):
             nulls = len([1 for (a, b) in sh if a==0 or b==0])
 
             def ungauge_i(tens, i, conj=False):
+=======
+            def ungauge_i(tens, i, conj=False):
+>>>>>>> 5aee1b03801122af319c63b1211a60e3dd824d55
                 def co(x): return x if not conj else c(x)
                 k = len(tens.shape[3:])
                 links = [1, 2, -2]+list(range(-3, -3-k, -1))
                 return ncon([ch(l(i-1))@co(vL[i]),
                             ncon([tens, ch(r(i))], [[-1, -2, 1, -4, -5, -6], [1, -3]])],
                             [[1, 2, -1], links])
+<<<<<<< HEAD
 
             def ungauge_j(tens, i, conj=False):
                 # apply -ch(l)-vL=tens-ch(r) to last 3 indices
+=======
+            def ungauge_j(tens, i, conj=False):
+>>>>>>> 5aee1b03801122af319c63b1211a60e3dd824d55
                 def co(x): return x if not conj else c(x)
                 k = len(tens.shape[:-3])
                 links = list(range(-1, -k-1, -1))+[1, 2, -k-2]
                 return ncon([ch(l(i-1))@co(vL[i]), tens@ch(r(i))],
                         [[1, 2, -k-1], links])
-
             def ungauge(tens, i, j, conj=(True, False)):
                 return ungauge_j(ungauge_i(tens, i, conj[0]), j, conj[1])
-
-            J1 = -1j*zeros((DD, DD))
-            J2 = -1j*zeros((DD, DD))
-
+            def J1(i, j): return ungauge(F1t(i, j), i, j, (True, False))
+            def J2(i, j): return ungauge(F2t(i, j), i, j, (True, True))
+            def rect(x):
+                shape = x.shape
+                assert len(shape)%2==0
+                return x.reshape(prod(shape[:len(shape)//2]), -1)
+            def ind(i):
+                slices = [slice(a[0], a[1], 1)
+                          for a in [([0]+shapes)[i:i+2] for i in range(len(shapes))]]
+                return slices[i]
+            J1_ = -1j*zeros((DD, DD))
+            J2_ = -1j*zeros((DD, DD))
             for i_ in range(len(shapes)):
                 for j_ in range(len(shapes)):
                     i, j = i_+nulls, j_+nulls
-                    J1_ij = ungauge(F1t(i, j), i, j, (True, False))
-                    J2_ij = ungauge(F2t(i, j), i, j, (True, True))
-                    J1[index(i_, j_)] = J1_ij.reshape(prod(J1_ij.shape[:2]), -1)
-                    J2[index(i_, j_)] = J2_ij.reshape(prod(J2_ij.shape[:2]), -1)
+                    J1_ij = J1(i,j)
+                    J2_ij = J2(i,j)
+                    J1_[ind(i_), ind(j_)] = J1_ij.reshape(prod(J1_ij.shape[:2]), -1)
+                    J2_[ind(i_), ind(j_)] = J2_ij.reshape(prod(J2_ij.shape[:2]), -1)
 
             if not real_matrix:
-                return J1, J2
+                return J1_, J2_
+            J = kron(Sz, re(J2_))+kron(eye(2), re(J1_)) + kron(Sx, im(J2_)) + kron(-1j*Sy, im(J1_))
+            J[abs(J)<1e-15]=0
+            if as_linearoperator:
+                return aslinearoperator(J)
             else:
-                J = kron(Sz, re(J2))+kron(eye(2), re(J1)) + kron(Sx, im(J2)) + kron(-1j*Sy, im(J1))
-                J[abs(J)<1e-15]=0
                 return J
 
-    def F1(self, i_, j_, H, envs=None, fullH=False, testing=False):
+    def F1(self, i_, j_, H, envs=None, prs=None, fullH=False, testing=False):
             '''<d_iψ|H|d_jψ>'''
             L, d, A = self.L, self.d, self.data
             l, r = self.get_envs() if envs is None else envs
-            prs = [self.left_null_projector(n, l) for n in range(self.L)]
+            prs = [self.left_null_projector(n, l) for n in range(self.L)] if prs is None else prs
             def pr(n): return prs[n]
             if not fullH:
                 i, j = (j_, i_) if j_<i_ else (i_, j_)
@@ -767,18 +808,15 @@ class fMPS(object):
 
                 if not d*Din_1==Di:
                     H = [h.reshape(2, 2, 2, 2) for h in H]
-
                     Ru = ncon([pr(j), c(A[j])], [[1, -2, -3, -4], [1, -1, -5]])
-                    Rus = self.left_transfer(Ru, 0, j)
-
                     Rd = ncon([pr(i), A[i]], [[-3, -4, 1, -2], [1, -1, -5]])
-                    Rds = self.left_transfer(Rd, 0, i)
-
                     Rb = ncon([pr(j), pr(j), inv(r(j))], [[-3, -4, 1, -1], [1, -2, -6, -7], [-5, -8]])
-                    Rbs = self.left_transfer(Rb, 0, j)
-
                     Lb = ncon([l(i-1)]+[pr(i), pr(i), inv(r(i)), inv(r(i))], [[2, 3], [-1, -2, 1, 2], [1, 3, -4, -5], [-3, -7], [-6, -8]])
+
                     Lbs = self.right_transfer(Lb, i, L-1)
+                    Rus = self.left_transfer(Ru, 0, j)
+                    Rds = self.left_transfer(Rd, 0, i)
+                    Rbs = self.left_transfer(Rb, 0, j)
 
                     for m, h in reversed(list(enumerate(H))):
                         if m > i:
@@ -892,11 +930,12 @@ class fMPS(object):
             else:
                 return G
 
-    def F2(self, i_, j_, H, envs=None, fullH=False):
+    def F2(self, i_, j_, H, envs=None, prs=None, fullH=False):
         '''<d_id_j ψ|H|ψ>'''
         L, d, A = self.L, self.d, self.data
         l, r = self.get_envs() if envs is None else envs
-        def pr(n): return self.left_null_projector(n, l)
+        prs = [self.left_null_projector(n, l) for n in range(self.L)] if prs is None else prs
+        def pr(n): return prs[n]
 
         i, j = (j_, i_) if j_<i_ else (i_, j_)
         if i==j:
@@ -962,13 +1001,19 @@ class fMPS(object):
         else:
             return G
 
+<<<<<<< HEAD
     def christoffel(self, i, j, k, envs=None, closed=(None, None, None)):
         """christoffel: return the christoffel symbol in basis c(A_i), c(A_j), A_k.
+=======
+    def christoffel(self, i, j, k, envs=None, prs=None, closed=(None, None, None)):
+        """christoffel: return the christoffel symbol in basis c(A_i), c(A_j), A_k.
+>>>>>>> 5aee1b03801122af319c63b1211a60e3dd824d55
            Close indices i, j, k, with elements of closed tuple: i.e. (B_i, B_j, B_k).
            Will leave any indices marked none open :-<d_id_jψ|d_kψ>"""
         L, d, A = self.L, self.d, self.data
         l, r = self.get_envs() if envs is None else envs
-        pr = lambda n: self.left_null_projector(n, l)
+        prs = [self.left_null_projector(n, l) for n in range(self.L)] if prs is None else prs
+        def pr(n): return prs[n]
 
         def Γ(i_, j_, k):
                 """Γ: Christoffel symbol: does take advantage of gauge"""
@@ -1562,25 +1607,24 @@ class TestfMPS(unittest.TestCase):
         l, r = mps.l, mps.r
 
         T = []
-        k = L-2
+        k = L-3
         mps.F1(k, k, H, envs=(l, r))
-        raise Exception
-        cProfile.runctx('mps.F1(k, k, H, envs=(l, r))', {'mps':mps, 'H':H, 'l':l, 'r':r, 'k':k}, {}, sort='cumtime')
-        t1 = time()
-        for i, j in product(range(L), range(L)):
-            mps.F1(i, j, H, envs=(l, r))
-        t2 = time()
-        print('\nF1: ', t2-t1)
-        t1 = time()
-        for i, j in product(range(L), range(L)):
-            mps.F2(i, j, H, envs=(l, r))
-        t2 = time()
-        print('F2: ', t2-t1)
-        t1 = time()
-        for i, k in product(range(L), range(L)):
-            td(mps.christoffel(i, k, min(i, k), envs=(l, r)), l(min(i, k)-1)@dA_dt[min(i, k)]@r(min(i, k)), [[6, 7, 8], [0, 1, 2]])
-        t2 = time()
-        print('Γ2: ', t2-t1)
+        #cProfile.runctx('mps.F1(k, k, H, envs=(l, r))', {'mps':mps, 'H':H, 'l':l, 'r':r, 'k':k}, {}, sort='cumtime')
+        #t1 = time()
+        #for i, j in product(range(L), range(L)):
+        #    mps.F1(i, j, H, envs=(l, r))
+        #t2 = time()
+        #print('\nF1: ', t2-t1)
+        #t1 = time()
+        #for i, j in product(range(L), range(L)):
+        #    mps.F2(i, j, H, envs=(l, r))
+        #t2 = time()
+        #print('F2: ', t2-t1)
+        #t1 = time()
+        #for i, k in product(range(L), range(L)):
+        #    td(mps.christoffel(i, k, min(i, k), envs=(l, r)), l(min(i, k)-1)@dA_dt[min(i, k)]@r(min(i, k)), [[6, 7, 8], [0, 1, 2]])
+        #t2 = time()
+        #print('Γ2: ', t2-t1)
 
     def test_profile_jac(self):
         Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
@@ -1589,7 +1633,6 @@ class TestfMPS(unittest.TestCase):
         mps = fMPS().random(L, 2, 40).left_canonicalise()
         H = [Sz12@Sz22+Sx12] +[Sz12@Sz22+Sx12+Sx22 for _ in range(L-3)]+[Sz12@Sz22+Sx22]
         J = mps.jac(H)
-        print(J.shape)
         cProfile.runctx('mps.jac(H)', {'mps':mps, 'H':H}, {}, sort='cumtime')
 
     def test_F2_F1(self):
@@ -1773,6 +1816,36 @@ class TestfMPS(unittest.TestCase):
         self.assertTrue(allclose(J1, -1j*eye(15)))
         self.assertTrue(allclose(J2, 0))
         self.assertTrue(allclose(J, kron(1j*Sy, eye(15))))
+
+    def test_jac_matrix_aslinearoperator(self):
+        Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
+        Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
+        L = 18
+        mps = fMPS().random(L, 2, 4).left_canonicalise()
+        H = [Sz12@Sz22+Sx12] +[Sz12@Sz22+Sx12+Sx22 for _ in range(L-3)]+[Sz12@Sz22+Sx22]
+        t1 = time()
+        J = mps.jac(H)
+        t2 = time()
+        print('\nsetup: ', t2-t1)
+        print(J.shape)
+
+        v = 1j*randn(J.shape[0])
+        dt = 0.1
+
+        t1 = time()
+        #v_op = aslinearoperator(J)@v
+        v_exp_op = lanczos_expm(aslinearoperator(J), v, dt)
+        t2 = time()
+        print('sparse: ', t2-t1)
+
+        t1 = time()
+        #v_mat = J@v
+        v_exp_mat = expm(J*dt)@v
+        t2 = time()
+        print('full: ', t2-t1)
+
+        #print(norm(v_op-v_mat))
+        print(norm(v_exp_op-v_exp_mat))
 
     def test_jac_no_projection(self):
         Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)

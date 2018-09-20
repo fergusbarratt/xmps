@@ -14,34 +14,22 @@ from functools import reduce
 from scipy.sparse.linalg import aslinearoperator, LinearOperator
 from scipy.linalg import expm, qr, rq
 from numpy.linalg import qr as qr_n, norm
-from expokitpy import zgexpv, zhexpv
 import scipy as sp
 from copy import deepcopy
 Sx, Sy, Sz = spins(0.5)
 Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
 Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
 
-def lanczos_expm(A, v, t, norm_est=1., m=5, tol=0., trace=False, A_is_Herm=False):
-    ideg = 6
-    #Override expokit default precision to match scipy sparse eigs more closely.
-    if tol == 0:
-        tol = sp.finfo(sp.complex128).eps * 2 #cannot take eps, as expokit changes this to sqrt(eps)!
+from expokitpy import zgexpv, zhexpv
+def lanczos_expm(A, v, t, m=5):
+    iflag = np.array([1])
+    tol = 0.0
+    n = A.shape[0]
+    anorm = 1
+    wsp = np.zeros(7+n*(m+2)+5*(m+2)*(m+2),dtype=complex)
+    iwsp = np.zeros(m+2,dtype=int)
 
-    xn = A.shape[0]
-    vf = sp.ones((xn,), dtype=A.dtype)
-
-    m = min(xn - 1, m)
-
-    nwsp = max(10, xn * (m + 2) + 5 * (m + 2)**2 + ideg + 1)
-    wsp = sp.zeros((nwsp,), dtype=A.dtype)
-
-    niwsp = max(7, m + 2)
-    iwsp = sp.zeros((niwsp,), dtype=sp.int32)
-
-    iflag = sp.zeros((1,), dtype=sp.int32)
-    itrace = sp.array([int(trace)])
-
-    output_vec,tol0,iflag0 = zgexpv(m,t,v,tol,norm_est,wsp,iwsp,A.matvec,0)
+    output_vec,tol0,iflag0 = zgexpv(m,t,v,tol,anorm,wsp,iwsp,A.matvec,0)
 
     if iflag0 == 1:
         print("Max steps reached!")

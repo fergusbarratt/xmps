@@ -44,8 +44,7 @@ class Trajectory(object):
             self.history.append(mps.serialize())
         return mps + mps.dA_dt(H)*dt
 
-    def rk4(self, mps, dt, store=False):
-        H = self.H
+    def rk4(self, mps, dt, H, store=False):
         k1 = mps.dA_dt(H, fullH=self.fullH)*dt
         k2 = (mps+k1/2).dA_dt(H, fullH=self.fullH)*dt
         k3 = (mps+k2/2).dA_dt(H, fullH=self.fullH)*dt
@@ -134,6 +133,32 @@ class Trajectory(object):
             W_t = cT(U)@op@U
             Ws.append(-re(c(psi_0)@comm(W_t, W_0)@comm(W_t, W_0)@psi_0))
         return Ws
+
+    def q_trajectory(self, T, q):
+        H = self.H
+        self.mps = self.mps.left_canonicalise()
+        Q = kron(eye(2), self.mps.tangent_space_basis())
+        dt = T[1]-T[0]
+        e = []
+        lys = []
+        for t in tqdm(range(1, len(T)+1)):
+            lx1, ly1, lz1 = self.mps.Es([Sx, Sy, Sz], 0)
+            lx2, ly2, lz2 = self.mps.Es([Sx, Sy, Sz], 1)
+            self.mps.left_canonicalise()
+
+            H =   [q*(Sx1@Sx2+Sy1@Sy2+Sz1@Sz2)+\
+               (1-q)*(lx1*Sx2+ly1*Sy2+lz1*Sz2)+\
+               (1-q)*(Sx1*lx2+Sy1*ly2+Sz1*lz2)]
+
+            J = self.mps.jac(H, parallel_transport=False)
+            Q = expm(J*dt)@Q
+            Q, R = qr(Q)
+            lys.append(log(abs(diag(R))))
+
+            self.mps = self.rk4(self.mps, dt, H)
+
+        exps = (1/(dt))*cs(array(lys), axis=0)/ed(ar(1, len(lys)+1), 1)
+        return exps, array(lys)
 
 class TestTrajectory(unittest.TestCase):
     """TestF"""
@@ -316,7 +341,6 @@ class TestTrajectory(unittest.TestCase):
         dt, N = 1e-1, 300
         T = linspace(0, N*dt, N)
         Trajectory(mps_0, H).odeint(T)
-
 
 
 if __name__ == '__main__':

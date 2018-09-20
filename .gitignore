@@ -2,6 +2,7 @@ old/
 
 # Byte-compiled / optimized / DLL files
 *.swp
+*.swo
 __pycache__/
 *.py[cod]
 *$py.class
