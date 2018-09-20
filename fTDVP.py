@@ -14,6 +14,7 @@ from numpy.random import randn
 from scipy.linalg import sqrtm, expm, norm, null_space as null, cholesky as ch
 from scipy.sparse.linalg import expm_multiply, expm
 from scipy.integrate import odeint, complex_ode as c_ode
+from scipy.integrate import ode, solve_ivp
 from numpy.linalg import inv, qr
 import numpy as np
 from tensor import get_null_space, H as cT, C as c
@@ -36,6 +37,7 @@ class Trajectory(object):
         :param T: time steps
         """
         self.H = H
+        self.mps_0 = deepcopy(mps_0)
         self.mps = deepcopy(mps_0)
         self.fullH=fullH
         self.mps_history = []
@@ -77,7 +79,7 @@ class Trajectory(object):
         self.mps = fMPS().deserialize(self.mps_history[-1], L, d, D, real=True)
         return self
 
-    def odeint(self, T, maxD=None):
+    def odeint(self, T):
         """odeint: integrate TDVP equations with scipy.odeint
            bar is upper bound - might do fewer iterations than it expects.
            Use another method for more predictable results
@@ -85,30 +87,26 @@ class Trajectory(object):
         :param T: timesteps
         :param D: bond dimension to truncate initial state to
         """
-        mps_0, H = self.mps.left_canonicalise(), self.H
-        L, d, D = mps_0.L, mps_0.d, mps_0.D
-        bar = tqdm(total=len(T))
+        mps, H = self.mps.left_canonicalise(), self.H
+        L, d, D = mps.L, mps.d, mps.D
+        bar = tqdm()
 
 
-        def f_odeint_r(v, t, H):
+        def f(t, v):
             """f_odeint: f acting on real vector
 
             :param v: Vector: [reals, imags]
             :param t: Time
-            :param L: Length
-            :param d: Local hilbert space dimension
-            :param D: Bond dimension
-            :param H: Hamiltonian
             """
             bar.update()
-            nonlocal L, d, D
             return fMPS().deserialize(v, L, d, D, real=True)\
                          .left_canonicalise()\
                          .dA_dt(H, fullH=self.fullH)\
                          .serialize(real=True)\
 
-        v = mps_0.serialize(real=True)
-        traj = odeint(f_odeint_r, v, T, args=(H,))
+        v = mps.serialize(real=True)
+        Q = solve_ivp(f, (T[0], T[-1]), v, method='RK45', t_eval=T)
+        traj = Q.y.T
         bar.close()
 
         self.mps_history = traj
@@ -182,6 +180,9 @@ class Trajectory(object):
         assert hasattr(self, "ed_history")
         return array([[re(psi.conj()@op@psi) for op in ops] for psi in self.ed_history])
 
+    def clear(self):
+        self.mps_history = []
+        self.mps = self.mps_0.copy()
 
 class TestTrajectory(unittest.TestCase):
     """TestF"""
@@ -379,7 +380,7 @@ class TestTrajectory(unittest.TestCase):
         plt.plot(Trajectory(mps_0, H).odeint(T).evs([Sx, Sy, Sz], 0))
         plt.show()
 
-    def test_invfree(self):
+    def test_integrators(self):
         #dt, N = 5e-3, 2000
         #T = linspace(0, N*dt, N)
 
@@ -406,17 +407,22 @@ class TestTrajectory(unittest.TestCase):
         Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 3)
         Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 3)
         Sx3, Sy3, Sz3 = N_body_spins(0.5, 3, 3)
-        F = Trajectory(mps_0, H)
-        A = F.edint(T).ed_evs([Sx2, Sy2, Sz2])
-        #B = F.odeint(T).mps_evs([Sx, Sy, Sz], 0)
-        #C = F.eulerint(T).mps_evs([Sx, Sy, Sz], 1)
-        D = F.rk4int(T).mps_evs([Sx, Sy, Sz], 1)
 
-        plt.ylim([-1, 1])
-        plt.plot(T, A)
-        #plt.plot(T, B)
-        #plt.plot(T, C)
-        plt.plot(T, D)
+        F = Trajectory(mps_0, H)
+        A = F.edint(T).ed_evs([Sx1, Sy1, Sz1])
+        F.clear()
+        C = F.eulerint(T).mps_evs([Sx, Sy, Sz], 0)
+        F.clear()
+
+        fig, ax = plt.subplots(2, 1, sharey=True)
+        ax[0].set_ylim([-1, 1])
+        ax[0].plot(T, A)
+        ax[0].plot(T, C)
+
+        B = F.odeint(T).mps_evs([Sx, Sy, Sz], 0)
+        F.clear()
+
+        ax[1].plot(T, B)
         plt.show()
 
 
