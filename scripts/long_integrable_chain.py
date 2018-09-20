@@ -28,8 +28,8 @@ mps_2 = mps_1.copy()
 exps_i, _, _ = Trajectory(mps_1, H_i).lyapunov(T)
 exps_c, _, _ = Trajectory(mps_2, H_c).lyapunov(T)
 
-save('../data/i_lyapunovs_L6_D4', exps_i)
-save('../data/c_lyapunovs_L6_D4', exps_c)
+#save('../data/i_lyapunovs_L6_D4', exps_i)
+#save('../data/c_lyapunovs_L6_D4', exps_c)
 
 #exps_i = load('../data/i_lyapunovs_L6_D1.npy')
 #exps_c = load('../data/c_lyapunovs_L6_D1.npy')
