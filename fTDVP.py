@@ -7,11 +7,11 @@ from numpy import array, linspace, real as re, reshape, sum, swapaxes as sw
 from numpy import tensordot as td, squeeze, trace as tr, expand_dims as ed
 from numpy import load, isclose, allclose, zeros_like as zl, prod, imag as im
 from numpy import log, abs, diag, cumsum as cs, arange as ar, eye, kron as kr
-from numpy import cross, dot, kron
+from numpy import cross, dot, kron, split, concatenate as ct, isnan, isinf
 from numpy.random import randn
 from scipy.linalg import sqrtm, expm, norm, null_space as null, cholesky as ch
+from scipy.sparse.linalg import expm_multiply
 from scipy.integrate import odeint, complex_ode as c_ode
-from numpy import split, concatenate as ct
 from numpy.linalg import inv, qr
 import numpy as np
 from tensor import get_null_space, H as cT, C as c
@@ -38,34 +38,38 @@ class Trajectory(object):
         self.fullH=fullH
         self.history = []
 
-    def euler(self, mps, dt, store=False):
+    def euler(self, mps, dt, store=True):
         H = self.H
         if store:
-            self.history.append(mps.serialize())
+            self.history.append(mps.serialize(real=True))
         return mps + mps.dA_dt(H)*dt
 
-    def rk4(self, mps, dt, H, store=False):
+    def rk4(self, mps, dt, H=None, store=True):
+        H = self.H if H is None else H
         k1 = mps.dA_dt(H, fullH=self.fullH)*dt
-        k2 = (mps+k1/2).dA_dt(H, fullH=self.fullH)*dt
-        k3 = (mps+k2/2).dA_dt(H, fullH=self.fullH)*dt
-        k4 = (mps+k3).dA_dt(H, fullH=self.fullH)*dt
+        k2 = (mps+k1/2).left_canonicalise().dA_dt(H, fullH=self.fullH)*dt
+        k3 = (mps+k2/2).left_canonicalise().dA_dt(H, fullH=self.fullH)*dt
+        k4 = (mps+k3).left_canonicalise().dA_dt(H, fullH=self.fullH)*dt
         if store:
-            self.history.append(mps.serialize())
+            self.history.append(mps.serialize(real=True))
 
         return mps+(k1+2*k2+2*k3+k4)/6
 
-    def odeint(self, T, D=None, plot=False, timeit=False, lyapunovs=False):
-        """odeint: pass to scipy odeint
+    def odeint(self, T, D=None, maxD=None):
+        """odeint: integrate TDVP equations with scipy.odeint
+           bar is upper bound - might do fewer iterations than it expects. 
+           Use another method for more predictable results
 
-        :param mps_0: initial 
-        :param plot: plot the result
-        :param timeit: time odeint
+        :param T: timesteps
+        :param D: bond dimension to truncate initial state to
         """
         mps_0, H = self.mps.right_canonicalise(D), self.H
         L, d, D = mps_0.L, mps_0.d, mps_0.D
-        v = mps_0.serialize(real=True)
+        maxD = d**L if maxD is None else maxD
+        bar = tqdm(total=1.85*len(T))
 
-        def f_odeint_r(v, t, L, d, D, H):
+
+        def f_odeint_r(v, t, H):
             """f_odeint: f acting on real vector
 
             :param v: Vector: [reals, imags]
@@ -75,52 +79,46 @@ class Trajectory(object):
             :param D: Bond dimension
             :param H: Hamiltonian
             """
+            bar.update()
+            nonlocal L, d, D
             return fMPS().deserialize(v, L, d, D, real=True).dA_dt(H, fullH=self.fullH).serialize(real=True)
 
-        t1 = time()
-        traj = odeint(f_odeint_r, v, T, args=(L, d, D, H))
-        t2 = time()
-        if timeit:
-            print(t2-t1)
-        if plot:
-            plt.plot(T, [mps.E(Sy, 0) for mps in map(lambda x: fMPS().deserialize(x, L, d, D, real=True), traj)])
+        v = mps_0.serialize(real=True)
+        traj = odeint(f_odeint_r, v, T, args=(H,))
+        bar.close()
 
-#        self.history = traj
-        self.mps = fMPS().deserialize(traj.T[-1, :], L, d, D, real=True)
+        self.history = traj
         return self
 
-    def lyapunov(self, T, D=None, ops=[], bar=True):
+    def evs(self, ops, site):
+        assert hasattr(self, "history")
+        L, d, D = self.mps.L, self.mps.d, self.mps.D
+        return array([mps.Es(ops, site) for mps in map(lambda x: fMPS().deserialize(x, L, d, D, real=True), self.history)])
+
+    def lyapunov(self, T, D=None):
         H = self.H
-        self.mps = self.mps.left_canonicalise(D)
+        self.mps = self.mps.grow(self.H, 0.2, D).right_canonicalise()
+        l, r = self.mps.get_envs()
         Q = kron(eye(2), self.mps.tangent_space_basis())
         dt = T[1]-T[0]
         e = []
         lys = []
-        evs = []
-        def tqdm_(x): return tqdm(x) if bar else x
-        for t in tqdm_(range(1, len(T)+1)):
-            J = self.mps.jac(H, True, True)
-            Q = expm(J*dt)@Q
-            Q, R = qr(Q)
-            lys.append(log(abs(diag(R))))
-            evs.append([self.mps.E(*opsite) for opsite in ops])
-            self.mps = self.rk4(self.mps, dt).left_canonicalise()
-        exps = (1/(dt))*cs(array(lys), axis=0)/ed(ar(1, len(lys)+1), 1)
-        return exps, array(lys), array(evs)
+        from numpy.linalg import det
+        calc = False
+        for t in tqdm(range(1, len(T)+1)):
+            J = self.mps.jac(H)
+            print(norm(J))
+            if abs(det(J)) < 1e100:
+                #M = expm(J*dt)@Q
+                M = expm_multiply(J*dt, Q)
+                if(sum(isnan(M))>0):
+                    raise Exception
+                Q, R = qr(M)
+                lys.append(log(abs(diag(R))))
 
-    def time_reverse(self, T):
-        es = []
-        Ψ = self.mps.copy()
-        dt = T[1]-T[0]
-        for t in tqdm(range(len(T))):
-            Ψ = self.rk4(Ψ, dt).left_canonicalise()
-            es.append(Ψ.E(Sx, 0))
-        for t in tqdm(range(len(T))):
-            Ψ = self.rk4(Ψ, -dt).left_canonicalise()
-            es.append(Ψ.E(Sx, 0))
-        plt.plot(es)
-        print(norm(es[-1]-es[0]))
-        plt.show()
+            self.mps = self.rk4(self.mps, dt, H).left_canonicalise()
+        exps = (1/(dt))*cs(array(lys), axis=0)/ed(ar(1, len(lys)+1), 1)
+        return exps, array(lys)
 
     def OTOC(self, T, op):
         psi_0 = self.mps.recombine().reshape(-1)
@@ -318,9 +316,10 @@ class TestTrajectory(unittest.TestCase):
         Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
         mps_0 = self.mps_0_2
         H = [Sz1@Sz2 + Sx1+Sx2]
-        dt, N = 1e-1, 100 
+        dt, N = 1e-1, 300 
         T = linspace(0, N*dt, N)
-        Trajectory(mps_0, H).odeint(T)
+        plt.plot(Trajectory(mps_0, H).odeint(T).evs([Sx, Sy, Sz], 0))
+        plt.show()
 
     def test_trajectory_3_no_truncate(self):
         """test_trajectory_3: 3 spins"""
@@ -330,7 +329,8 @@ class TestTrajectory(unittest.TestCase):
         H = [Sz1@Sz2+Sx1, Sz1@Sz2+Sx1+Sx2]
         dt, N = 1e-1, 100
         T = linspace(0, N*dt, N)
-        Trajectory(mps_0, H).odeint(T)
+        plt.plot(Trajectory(mps_0, H).odeint(T).evs([Sx, Sy, Sz], 0))
+        plt.show()
 
     def test_trajectory_4_no_truncate(self):
         """test_trajectory_4: 4 spins"""
@@ -340,7 +340,19 @@ class TestTrajectory(unittest.TestCase):
         H = [Sz1@Sz2+Sx1, Sz1@Sz2+Sx1+Sx2, Sz1@Sz2+Sx2]
         dt, N = 1e-1, 300
         T = linspace(0, N*dt, N)
-        Trajectory(mps_0, H).odeint(T)
+        plt.plot(Trajectory(mps_0, H).odeint(T).evs([Sx, Sy, Sz], 0))
+        plt.show()
+
+    def test_trajectory_4_1(self):
+        """test_trajectory_4: 4 spins"""
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
+        mps_0 = self.mps_0_4.left_canonicalise(1)
+        H = [Sz1@Sz2+Sx1, Sz1@Sz2+Sx1+Sx2, Sz1@Sz2+Sx2]
+        dt, N = 1e-1, 300
+        T = linspace(0, N*dt, N)
+        plt.plot(Trajectory(mps_0, H).odeint(T).evs([Sx, Sy, Sz], 0))
+        plt.show()
 
 
 if __name__ == '__main__':
