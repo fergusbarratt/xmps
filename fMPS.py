@@ -16,21 +16,18 @@ from tests import is_left_canonical, is_left_env_canonical, has_trace_1
 from tensor import H as cT, truncate_A, truncate_B, diagonalise, rank, mps_pad
 from tensor import C as c, lanczos_expm, tr_svd, T
 from tensor import rdot, ldot, structure
-from qmb import sigmaz, sigmax, sigmay
 from copy import deepcopy
 from functools import reduce
 from itertools import product
 from scipy.sparse.linalg import LinearOperator, aslinearoperator
 import cProfile
+from time import time
 Sx, Sy, Sz = spins(0.5)
 Sx, Sy, Sz = 2*Sx, 2*Sy, 2*Sz
 
 from ncon import ncon as nc
 def ncon(*args): return nc(*args, check_indices=False)
 
-from time import time
-from pathos.multiprocessing import ProcessingPool as Pool
-from joblib import Parallel, delayed
 
 class fMPS(object):
     """finite MPS:
@@ -243,7 +240,7 @@ class fMPS(object):
                         transpose(left[::-1])
         return structure
 
-    def right_canonicalise(self, D=None, testing=False):
+    def right_canonicalise(self, D=None, testing=False, sweep_back=True):
         """right_canonicalise: bring internal fMPS to right canonical form,
         potentially with a truncation
 
@@ -270,37 +267,38 @@ class fMPS(object):
             if m-1 >= 0:
                 self.data[m-1] = tensordot(self.data[m-1], dot(U, S), (-1, 0))
 
-        # right sweep
-        Vs = [None]*self.L
-        Ls = [None]*self.L
+        if sweep_back:
+            # right sweep
+            Vs = [None]*self.L
+            Ls = [None]*self.L
 
-        V = S = identity(1)
-        for m in range(len(self.data)):
-            M = trace(dot(dot(dot(dot(cT(self.data[m]),
-                                  V),
-                              S),
-                          cT(V)),
-                      self.data[m]), 0, 0, 2)
+            V = S = identity(1)
+            for m in range(len(self.data)):
+                M = trace(dot(dot(dot(dot(cT(self.data[m]),
+                                      V),
+                                  S),
+                              cT(V)),
+                          self.data[m]), 0, 0, 2)
 
-            Vs[m], Ls[m] = diagonalise(M)
+                Vs[m], Ls[m] = diagonalise(M)
 
-            self.data[m] = swapaxes(dot(dot(cT(V), self.data[m]), Vs[m]),
-                                    0, 1)
+                self.data[m] = swapaxes(dot(dot(cT(V), self.data[m]), Vs[m]),
+                                        0, 1)
 
-            V, S = Vs[m], Ls[m]
+                V, S = Vs[m], Ls[m]
 
-        Ls = [ones_like(Ls[-1])] + Ls  # Ones on each end
+            Ls = [ones_like(Ls[-1])] + Ls  # Ones on each end
 
-        for m in range(len(self.data)):
-            # sort out the rank (tDj is tilde)
-            Dj = Ls[m].shape[0]
-            tDj = rank(Ls[m])
-            P = concatenate([identity(tDj), zeros((tDj, Dj-tDj))], axis=1)
-            self.data[m-1] = self.data[m-1] @ cT(P)
-            self.data[m] = P @ self.data[m]
-            Ls[m] = P @ Ls[m] @ cT(P)
+            for m in range(len(self.data)):
+                # sort out the rank (tDj is tilde)
+                Dj = Ls[m].shape[0]
+                tDj = rank(Ls[m])
+                P = concatenate([identity(tDj), zeros((tDj, Dj-tDj))], axis=1)
+                self.data[m-1] = self.data[m-1] @ cT(P)
+                self.data[m] = P @ self.data[m]
+                Ls[m] = P @ Ls[m] @ cT(P)
 
-        self.Ls = Ls  # store all the singular values
+            self.Ls = Ls  # store all the singular values
 
         if testing:
             self.update_properties()
@@ -312,7 +310,7 @@ class fMPS(object):
 
         return self
 
-    def left_canonicalise(self, D=None, testing=False):
+    def left_canonicalise(self, D=None, testing=False, sweep_back=True):
         """left_canonicalise: bring internal fMPS to left canonical form,
         potentially with a truncation
 
@@ -340,37 +338,38 @@ class fMPS(object):
                 self.data[m+1] = swapaxes(tensordot(dot(S, V),
                                           self.data[m+1], (-1, 1)), 0, 1)
 
-        Ls = [None]*self.L
-        Vs = [None]*self.L
-        V = S = identity(1)
+        if sweep_back:
+            Ls = [None]*self.L
+            Vs = [None]*self.L
+            V = S = identity(1)
 
-        for m in range(len(self.data))[::-1]:
-            # sort out env canonicalisation
-            M = trace(dot(dot(dot(dot(self.data[m],
-                                  V),
-                              S),
-                          cT(V)),
-                      cT(self.data[m])), 0, 0, 2)
+            for m in range(len(self.data))[::-1]:
+                # sort out env canonicalisation
+                M = trace(dot(dot(dot(dot(self.data[m],
+                                      V),
+                                  S),
+                              cT(V)),
+                          cT(self.data[m])), 0, 0, 2)
 
-            Vs[m], Ls[m] = diagonalise(M)
+                Vs[m], Ls[m] = diagonalise(M)
 
-            self.data[m] = swapaxes(dot(dot(cT(Vs[m]), self.data[m]), V),
-                                    0, 1)
+                self.data[m] = swapaxes(dot(dot(cT(Vs[m]), self.data[m]), V),
+                                        0, 1)
 
-            V, S = Vs[m], Ls[m]
+                V, S = Vs[m], Ls[m]
 
-        Ls.append(ones_like(Ls[0]))  # Ones on each end
+            Ls.append(ones_like(Ls[0]))  # Ones on each end
 
-        for m in range(len(self.data)):
-            # sort out the rank (tDj is tilde)
-            Dj = Ls[m].shape[0]
-            tDj = rank(Ls[m])
-            P = concatenate([identity(tDj), zeros((tDj, Dj-tDj))], axis=1)
-            self.data[m-1] = self.data[m-1] @ cT(P)
-            self.data[m] = P @ self.data[m]
-            Ls[m] = P @ Ls[m] @ cT(P)
+            for m in range(len(self.data)):
+                # sort out the rank (tDj is tilde)
+                Dj = Ls[m].shape[0]
+                tDj = rank(Ls[m])
+                P = concatenate([identity(tDj), zeros((tDj, Dj-tDj))], axis=1)
+                self.data[m-1] = self.data[m-1] @ cT(P)
+                self.data[m] = P @ self.data[m]
+                Ls[m] = P @ Ls[m] @ cT(P)
 
-        self.Ls = Ls  # store all the singular values
+            self.Ls = Ls  # store all the singular values
 
         if testing:
             self.update_properties()
@@ -709,6 +708,16 @@ class fMPS(object):
         """
         return self.projection_error(H, dt) > threshold
 
+    def expand(self, D_):
+        """expand - just pad with zeros and right canonicalise()"""
+        from numpy import pad
+        L, d, D = self.L, self.d, self.D
+        for m, (sh, sh_) in enumerate(zip(self.structure(), self.create_structure(L, d, D_))):
+            self[m] = pad(self[m], list(zip([0, 0, 0], (0, *tuple(array(sh_)-array(sh))))), 'constant')
+        self.D = D_
+        return self
+
+
     def dynamical_expand(self, H, dt, D_, threshold=1e-8):
         """dynamical_expand: expand bond dimension to D_ during timestep dt with H
 
@@ -757,7 +766,6 @@ class fMPS(object):
             self.dynamical_expand(H, dt, min(self.d*self.D, D_), None)
         return self
     
->>>>>>> 58ee2e36f9c9373c37fecea13256a68edd0b01cb
     def ddA_dt(self, v, H, fullH=False):
         """d(dA)_dt: find ddA_dt - in 2nd tangent space:
            for time evolution of v in tangent space
@@ -770,7 +778,7 @@ class fMPS(object):
         dA_dt = self.dA_dt(H, store_energy=True, fullH=fullH)
         l, r, e = self.l, self.r, self.e
         # down are the tensors acting on c(Aj), up act on Aj
-        up, down = self.jac(H, fullH)
+        up, down = self.jac(H, False)
 
         ddA = [sum([td(down(i, j), c(dA[j]), [[3, 4, 5], [0, 1, 2]]) +
                     td(up(i, j),     dA[j],  [[3, 4, 5], [0, 1, 2]]) for j in range(L)], axis=0)
@@ -811,53 +819,56 @@ class fMPS(object):
         else:
             def F2t(i, j): return F2(i, j)
 
-            vL, sh = self.tangent_space_dims(l, True)
-            nulls = len([1 for (a, b) in sh if a==0 or b==0])
-            shapes = list(cs([prod([a, b]) for (a, b) in sh if a!=0 and a!=0]))
-            DD = shapes[-1]
-            def ungauge_i(tens, i, conj=False):
-                def co(x): return x if not conj else c(x)
-                k = len(tens.shape[3:])
-                links = [1, 2, -2]+list(range(-3, -3-k, -1))
-                return ncon([ch(l(i-1))@co(vL[i]),
-                            ncon([tens, ch(r(i))], [[-1, -2, 1, -4, -5, -6], [1, -3]])],
-                            [[1, 2, -1], links])
-            def ungauge_j(tens, i, conj=False):
-                def co(x): return x if not conj else c(x)
-                k = len(tens.shape[:-3])
-                links = list(range(-1, -k-1, -1))+[1, 2, -k-2]
-                return ncon([ch(l(i-1))@co(vL[i]), tens@ch(r(i))],
-                        [[1, 2, -k-1], links])
-            def ungauge(tens, i, j, conj=(True, False)):
-                return ungauge_j(ungauge_i(tens, i, conj[0]), j, conj[1])
-            def J1(i, j): return ungauge(F1t(i, j), i, j, (True, False))
-            def J2(i, j): return ungauge(F2t(i, j), i, j, (True, True))
-            def rect(x):
-                shape = x.shape
-                assert len(shape)%2==0
-                return x.reshape(prod(shape[:len(shape)//2]), -1)
-            def ind(i):
-                slices = [slice(a[0], a[1], 1)
-                          for a in [([0]+shapes)[i:i+2] for i in range(len(shapes))]]
-                return slices[i]
-            J1_ = -1j*zeros((DD, DD))
-            J2_ = -1j*zeros((DD, DD))
-            for i_ in range(len(shapes)):
-                for j_ in range(len(shapes)):
-                    i, j = i_+nulls, j_+nulls
-                    J1_ij = J1(i,j)
-                    J2_ij = J2(i,j)
-                    J1_[ind(i_), ind(j_)] = J1_ij.reshape(prod(J1_ij.shape[:2]), -1)
-                    J2_[ind(i_), ind(j_)] = J2_ij.reshape(prod(J2_ij.shape[:2]), -1)
+        if not as_matrix:
+            return F1t, F2t
 
-            if not real_matrix:
-                return J1_, J2_
-            J = kron(Sz, re(J2_))+kron(eye(2), re(J1_)) + kron(Sx, im(J2_)) + kron(-1j*Sy, im(J1_))
-            J[abs(J)<1e-15]=0
-            if as_linearoperator:
-                return aslinearoperator(J)
-            else:
-                return J
+        vL, sh = self.tangent_space_dims(l, True)
+        nulls = len([1 for (a, b) in sh if a==0 or b==0])
+        shapes = list(cs([prod([a, b]) for (a, b) in sh if a!=0 and a!=0]))
+        DD = shapes[-1]
+        def ungauge_i(tens, i, conj=False):
+            def co(x): return x if not conj else c(x)
+            k = len(tens.shape[3:])
+            links = [1, 2, -2]+list(range(-3, -3-k, -1))
+            return ncon([ch(l(i-1))@co(vL[i]),
+                        ncon([tens, ch(r(i))], [[-1, -2, 1, -4, -5, -6], [1, -3]])],
+                        [[1, 2, -1], links])
+        def ungauge_j(tens, i, conj=False):
+            def co(x): return x if not conj else c(x)
+            k = len(tens.shape[:-3])
+            links = list(range(-1, -k-1, -1))+[1, 2, -k-2]
+            return ncon([ch(l(i-1))@co(vL[i]), tens@ch(r(i))],
+                    [[1, 2, -k-1], links])
+        def ungauge(tens, i, j, conj=(True, False)):
+            return ungauge_j(ungauge_i(tens, i, conj[0]), j, conj[1])
+        def J1(i, j): return ungauge(F1t(i, j), i, j, (True, False))
+        def J2(i, j): return ungauge(F2t(i, j), i, j, (True, True))
+        def rect(x):
+            shape = x.shape
+            assert len(shape)%2==0
+            return x.reshape(prod(shape[:len(shape)//2]), -1)
+        def ind(i):
+            slices = [slice(a[0], a[1], 1)
+                      for a in [([0]+shapes)[i:i+2] for i in range(len(shapes))]]
+            return slices[i]
+        J1_ = -1j*zeros((DD, DD))
+        J2_ = -1j*zeros((DD, DD))
+        for i_ in range(len(shapes)):
+            for j_ in range(len(shapes)):
+                i, j = i_+nulls, j_+nulls
+                J1_ij = J1(i,j)
+                J2_ij = J2(i,j)
+                J1_[ind(i_), ind(j_)] = J1_ij.reshape(prod(J1_ij.shape[:2]), -1)
+                J2_[ind(i_), ind(j_)] = J2_ij.reshape(prod(J2_ij.shape[:2]), -1)
+
+        if not real_matrix:
+            return J1_, J2_
+        J = kron(Sz, re(J2_))+kron(eye(2), re(J1_)) + kron(Sx, im(J2_)) + kron(-1j*Sy, im(J1_))
+        J[abs(J)<1e-15]=0
+        if as_linearoperator:
+            return aslinearoperator(J)
+        else:
+            return J
 
     def F1(self, i_, j_, H, envs=None, prs=None, fullH=False, testing=False):
             '''<d_iψ|H|d_jψ>'''
@@ -1374,7 +1385,7 @@ class TestfMPS(unittest.TestCase):
         for case in self.rand_cases:
             if case.d == 2:
                 site1, site2, site3 = randint(0, case.L-1), randint(0, case.L-1), randint(0, case.L-1)
-                S = [(sigmax().full(), site1), (sigmay().full(), site2), (sigmaz().full(), site3)]
+                S = [(Sx, site1), (Sy, site2), (Sz, site3)]
                 I0 = [case.E(*opsite) for opsite in S]
                 I = []
                 for _ in range(10):
@@ -1388,7 +1399,7 @@ class TestfMPS(unittest.TestCase):
         for case in self.rand_cases:
             if case.d == 2:
                 site1, site2, site3 = randint(0, case.L-1), randint(0, case.L-1), randint(0, case.L-1)
-                S = [(sigmax().full(), site1), (sigmay().full(), site2), (sigmaz().full(), site3)]
+                S = [(Sx, site1), (Sy, site2), (Sz, site3)]
                 I0 = [case.E(*opsite) for opsite in S]
                 I = []
                 for _ in range(10):
@@ -1704,7 +1715,7 @@ class TestfMPS(unittest.TestCase):
         mps = fMPS().random(L, 2, 40).left_canonicalise()
         H = [Sz12@Sz22+Sx12] +[Sz12@Sz22+Sx12+Sx22 for _ in range(L-3)]+[Sz12@Sz22+Sx22]
         J = mps.jac(H)
-        cProfile.runctx('mps.jac(H)', {'mps':mps, 'H':H}, {}, sort='cumtime')
+        #cProfile.runctx('mps.jac(H)', {'mps':mps, 'H':H}, {}, sort='cumtime')
 
     def test_F2_F1(self):
         '''<d_id_j ψ|H|ψ>, <d_iψ|H|d_jψ>'''
@@ -1944,36 +1955,6 @@ class TestfMPS(unittest.TestCase):
         self.assertTrue(allclose(J2, 0))
         self.assertTrue(allclose(J, kron(1j*Sy, eye(15))))
 
-    def test_jac_matrix_aslinearoperator(self):
-        Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
-        Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
-        L = 18
-        mps = fMPS().random(L, 2, 4).left_canonicalise()
-        H = [Sz12@Sz22+Sx12] +[Sz12@Sz22+Sx12+Sx22 for _ in range(L-3)]+[Sz12@Sz22+Sx22]
-        t1 = time()
-        J = mps.jac(H)
-        t2 = time()
-        print('\nsetup: ', t2-t1)
-        print(J.shape)
-
-        v = 1j*randn(J.shape[0])
-        dt = 0.1
-
-        t1 = time()
-        #v_op = aslinearoperator(J)@v
-        v_exp_op = lanczos_expm(aslinearoperator(J), v, dt)
-        t2 = time()
-        print('sparse: ', t2-t1)
-
-        t1 = time()
-        #v_mat = J@v
-        v_exp_mat = expm(J*dt)@v
-        t2 = time()
-        print('full: ', t2-t1)
-
-        #print(norm(v_op-v_mat))
-        print(norm(v_exp_op-v_exp_mat))
-
     def test_jac_no_projection(self):
         Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
         Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
@@ -1994,6 +1975,13 @@ class TestfMPS(unittest.TestCase):
             J = mps.jac(H, True, True)
             self.assertTrue(allclose(J+J.T, 0))
             mps = (mps+mps.dA_dt(H)*0.1).left_canonicalise()
+
+    def test_expand(self):
+        mps = fMPS().random(3, 2, 1)
+        self.assertTrue(mps.structure()==[(1, 1), (1, 1), (1, 1)])
+        mps.expand(2)
+        self.assertTrue(mps.structure()==[(1, 2), (2, 2), (2, 1)])
+        
 
 class TestvfMPS(unittest.TestCase):
     """TestvfMPS"""

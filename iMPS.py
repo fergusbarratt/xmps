@@ -8,14 +8,14 @@ from numpy.linalg import cholesky, eigvals, svd, inv, norm
 from copy import copy
 from tensor import H, C, r_eigenmatrix, l_eigenmatrix, get_null_space, p
 from tensor import basis_iterator, T, rotate_to_hermitian
-from qmb import local_anisotropic_heisenberg, sigmaz, sigmax, sigmay
 from itertools import product
 from scipy.optimize import root
 import matplotlib as mp
 import matplotlib.pyplot as plt
 from scipy.sparse.linalg import LinearOperator, eigs as arnoldi
 from scipy.linalg import svd as svd_s, cholesky as cholesky_s
-from numba import jit
+from spin import spins
+Sx, Sy, Sz = spins(0.5)
 
 class TransferMatrix(object):
     """TransferMatrix: Transfer matrix class - implements efficient matrix vector products."""
@@ -354,7 +354,7 @@ class TestiMPS(unittest.TestCase):
 
     def test_canonicalise_EVs(self):
         for case in self.rand_cases:
-            ops = [sigmax().full(), sigmay().full(), sigmaz().full()]
+            ops = [Sx, Sy, Sz]
             case.canonicalise()
             I_ = case.E(identity(2))
             Ss_ = array([case.E(op) for op in ops])
@@ -400,7 +400,7 @@ class TestiMPS(unittest.TestCase):
 
     def test_v_canonicalise_EVs(self):
         for case in self.rand_v_cases:
-            ops = [sigmax().full(), sigmay().full(), sigmaz().full()]
+            ops = [Sx, Sy, Sz]
             case.canonicalise()
             I_ = case.E(identity(2))
             Ss_ = array([case.E(op) for op in ops])

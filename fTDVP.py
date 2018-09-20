@@ -2,12 +2,14 @@ import unittest
 from time import time
 from fMPS import fMPS
 from ncon import ncon
+from numpy.linalg import det
 from spin import N_body_spins, spins, comm
 from numpy import array, linspace, real as re, reshape, sum, swapaxes as sw
 from numpy import tensordot as td, squeeze, trace as tr, expand_dims as ed
 from numpy import load, isclose, allclose, zeros_like as zl, prod, imag as im
 from numpy import log, abs, diag, cumsum as cs, arange as ar, eye, kron as kr
 from numpy import cross, dot, kron, split, concatenate as ct, isnan, isinf
+from numpy import trace as tr
 from numpy.random import randn
 from scipy.linalg import sqrtm, expm, norm, null_space as null, cholesky as ch
 from scipy.sparse.linalg import expm_multiply
@@ -57,7 +59,7 @@ class Trajectory(object):
 
     def odeint(self, T, D=None, maxD=None):
         """odeint: integrate TDVP equations with scipy.odeint
-           bar is upper bound - might do fewer iterations than it expects. 
+           bar is upper bound - might do fewer iterations than it expects.
            Use another method for more predictable results
 
         :param T: timesteps
@@ -84,10 +86,11 @@ class Trajectory(object):
             return fMPS().deserialize(v, L, d, D, real=True).dA_dt(H, fullH=self.fullH).serialize(real=True)
 
         v = mps_0.serialize(real=True)
-        traj = odeint(f_odeint_r, v, T, args=(H,))
+        traj = odeint(f_odeint_r, v, T, args=(H,), mxstep=100)
         bar.close()
 
         self.history = traj
+        self.mps = fMPS().deserialize(traj[-1], L, d, D, real=True)
         return self
 
     def evs(self, ops, site):
@@ -97,24 +100,25 @@ class Trajectory(object):
 
     def lyapunov(self, T, D=None):
         H = self.H
-        self.mps = self.mps.grow(self.H, 0.2, D).right_canonicalise()
+        self.mps = self.mps.grow(self.H, 0.1, D).left_canonicalise()
+        for _ in range(20):
+            J = self.mps.jac(H)
+            self.mps = self.rk4(self.mps, 5e-3)
+            self.mps.left_canonicalise()
+
         l, r = self.mps.get_envs()
         Q = kron(eye(2), self.mps.tangent_space_basis())
         dt = T[1]-T[0]
         e = []
         lys = []
-        from numpy.linalg import det
         calc = False
         for t in tqdm(range(1, len(T)+1)):
             J = self.mps.jac(H)
-            print(norm(J))
-            if abs(det(J)) < 1e100:
-                #M = expm(J*dt)@Q
-                M = expm_multiply(J*dt, Q)
-                if(sum(isnan(M))>0):
-                    raise Exception
-                Q, R = qr(M)
-                lys.append(log(abs(diag(R))))
+            M = expm_multiply(J*dt, Q)
+            if(sum(isnan(M))>0):
+                raise Exception
+            Q, R = qr(M)
+            lys.append(log(abs(diag(R))))
 
             self.mps = self.rk4(self.mps, dt, H).left_canonicalise()
         exps = (1/(dt))*cs(array(lys), axis=0)/ed(ar(1, len(lys)+1), 1)
@@ -132,31 +136,6 @@ class Trajectory(object):
             Ws.append(-re(c(psi_0)@comm(W_t, W_0)@comm(W_t, W_0)@psi_0))
         return Ws
 
-    def q_trajectory(self, T, q):
-        H = self.H
-        self.mps = self.mps.left_canonicalise()
-        Q = kron(eye(2), self.mps.tangent_space_basis())
-        dt = T[1]-T[0]
-        e = []
-        lys = []
-        for t in tqdm(range(1, len(T)+1)):
-            lx1, ly1, lz1 = self.mps.Es([Sx, Sy, Sz], 0)
-            lx2, ly2, lz2 = self.mps.Es([Sx, Sy, Sz], 1)
-            self.mps.left_canonicalise()
-
-            H =   [q*(Sx1@Sx2+Sy1@Sy2+Sz1@Sz2)+\
-               (1-q)*(lx1*Sx2+ly1*Sy2+lz1*Sz2)+\
-               (1-q)*(Sx1*lx2+Sy1*ly2+Sz1*lz2)]
-
-            J = self.mps.jac(H, parallel_transport=False)
-            Q = expm(J*dt)@Q
-            Q, R = qr(Q)
-            lys.append(log(abs(diag(R))))
-
-            self.mps = self.rk4(self.mps, dt, H)
-
-        exps = (1/(dt))*cs(array(lys), axis=0)/ed(ar(1, len(lys)+1), 1)
-        return exps, array(lys)
 
 class TestTrajectory(unittest.TestCase):
     """TestF"""
@@ -246,7 +225,7 @@ class TestTrajectory(unittest.TestCase):
         mps_0 = self.mps_0_2.right_canonicalise()
         psi_0 = self.psi_0_2
         dt = 1e-2
-        N = 100 
+        N = 100
         tol = 1e-2
         mps_n = mps_0
         psi_n = psi_0
@@ -270,7 +249,7 @@ class TestTrajectory(unittest.TestCase):
         mps_0 = self.mps_0_3
         psi_0 = self.psi_0_3
         dt = 1e-2
-        N = 100 
+        N = 100
         tol = 1e-2
         mps_n = mps_0
         psi_n = psi_0
@@ -295,7 +274,7 @@ class TestTrajectory(unittest.TestCase):
         mps_0 = self.mps_0_4
         psi_0 = self.psi_0_4
         dt = 1e-2
-        N = 100 
+        N = 100
         tol = 1e-2
         mps_n = mps_0
         psi_n = psi_0
@@ -316,7 +295,7 @@ class TestTrajectory(unittest.TestCase):
         Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
         mps_0 = self.mps_0_2
         H = [Sz1@Sz2 + Sx1+Sx2]
-        dt, N = 1e-1, 300 
+        dt, N = 1e-1, 300
         T = linspace(0, N*dt, N)
         plt.plot(Trajectory(mps_0, H).odeint(T).evs([Sx, Sy, Sz], 0))
         plt.show()

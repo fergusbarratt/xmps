@@ -8,23 +8,26 @@ from numpy import swapaxes, count_nonzero, diag, insert, pad, dot, argmax, sqrt
 from numpy import allclose, array, tensordot, transpose, all, identity, squeeze
 from numpy import isclose, mean, sign, kron, zeros, conj, max
 from itertools import product
-from qmb import sigmaz
-from expokitpy import zgexpv, zhexpv
 import scipy as sp
-from scipy.sparse.linalg import LinearOperator
+from scipy.sparse.linalg import LinearOperator, expm_multiply
 from time import time
 
-def lanczos_expm(A, v, t):
-    iflag = array([1])
-    tol = 0.0
-    n = A.shape[0]
-    m = min(n//2, 80)
-    anorm = 1
-    wsp = zeros(7+n*(m+2)+5*(m+2)*(m+2),dtype=complex)
-    iwsp = zeros(m+2,dtype=int)
+try:
+    from expokitpy import zgexpv, zhexpv
+    def lanczos_expm(A, v, t):
+        iflag = array([1])
+        tol = 0.0
+        n = A.shape[0]
+        m = min(n//2, 80)
+        anorm = 1
+        wsp = zeros(7+n*(m+2)+5*(m+2)*(m+2),dtype=complex)
+        iwsp = zeros(m+2,dtype=int)
 
-    output_vec,tol0,iflag0 = zgexpv(m,t,v,tol,anorm,wsp,iwsp,A.matvec,0)
-    return output_vec
+        output_vec,tol0,iflag0 = zgexpv(m,t,v,tol,anorm,wsp,iwsp,A.matvec,0)
+        return output_vec
+except:
+    def lanczos_expm(A, v, t):
+        return expm_multiply(A, v, t)
 
 def direct_sum(basis1, basis2):
     return [ct([b1, b2]) for b1, b2 in product(basis1, basis2)]
@@ -400,7 +403,7 @@ class TestTensorTools(unittest.TestCase):
             self.assertTrue(allclose(rotate_to_hermitian(h), h))
 
     def test_split_up(self):
-        sz = sigmaz().full()
+        sz = array([[1, 0], [0, -1]])
         H = kron(sz, sz)
         h = split_up(H, 2)
         for uv, st in basis_iterator(2):

@@ -7,7 +7,6 @@ from fMPS import fMPS
 from fTDVP import Trajectory
 from spin import N_body_spins, spins, n_body
 from numpy import load, linspace, save, sum
-import pandas as pd
 import matplotlib.pyplot as plt
 from seaborn import distplot
 
@@ -21,29 +20,30 @@ bulkH =Sz12@Sz22+Sx12+Sx22
 H_i = [Sz12@Sz22+Sx12] + [bulkH for _ in range(L-3)] + [Sz12@Sz22+Sx22]
 H = [H_i[0]+Sz12]+[H_i[i]+Sz12+Sz22 for i in range(1, L-2)]+[H_i[-1]+Sz22]
 
-dt = 5e-3
-N = 2000
+dt = 1e-2
+N = 500
 T = linspace(0, N*dt, N)
 
-psi_0 = load('../fixtures/mat6x6.npy')
+psi_0 = load('fixtures/mat{}x{}.npy'.format(L,L))
 mps = fMPS().left_from_state(psi_0).right_canonicalise(1)
-#Ds = [6]
-#for D in Ds:
-#    exps, _ = Trajectory(mps, H).lyapunov(T, D)
-#    plt.plot(exps)
-#    plt.show()
+Ds = [2]
+for D in Ds:
+    exps, _ = Trajectory(mps, H).lyapunov(T, D)
+    plt.plot(exps)
+    print(sum(exps[-1]))
+    plt.show()
 #    save('../data/lyapunovs_L{}_D{}_N{}'.format(L, D, N), exps)
 
-Ds = [1, 2, 3, 4]
-exps_D = []
-fig, ax = plt.subplots(4, 1, sharex=True, sharey=True)
-for m, D in enumerate(Ds):
-    exps = load('../data/lyapunovs_L{}_D{}_N{}.npy'.format(L, D, N))
-    ax[m].plot(exps)
-    #exps_D.append(sum(abs(exps[-1])))
+#Ds = [1, 2, 3, 4]
+#exps_D = []
+#fig, ax = plt.subplots(4, 1, sharex=True, sharey=True)
+#for m, D in enumerate(Ds):
+#    exps = load('../data/lyapunovs_L{}_D{}_N{}.npy'.format(L, D, N))
+#    ax[m].plot(exps)
+#    #exps_D.append(sum(abs(exps[-1])))
 
 #plt.plot(exps_D)
-fig.tight_layout()
-plt.show()
+#fig.tight_layout()
+#plt.show()
 
 

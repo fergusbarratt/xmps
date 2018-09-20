@@ -3,8 +3,9 @@ from fMPS import fMPS
 from iMPS import iMPS
 from numpy import zeros, array, isclose, allclose, pad, sqrt, stack, identity
 from tensor import H
-from qmb import sigmax, sigmay, sigmaz
 from spin import spins, ladders
+
+Sx, Sy, Sz = spins(0.5)
 
 def bell(i):
     """bell
@@ -129,17 +130,17 @@ def AKLT():
 class TestExamples(unittest.TestCase):
 
     def test_i_comp_z(self):
-        self.assertTrue(i_comp_z(1).E(sigmaz().full())==1)
-        self.assertTrue(i_comp_z(2).E(sigmaz().full())==-1)
-        self.assertTrue(i_comp_z(1).E(sigmax().full())==0)
-        self.assertTrue(i_comp_z(2).E(sigmax().full())==0)
-        self.assertTrue(i_comp_z(1).E(sigmay().full())==0)
-        self.assertTrue(i_comp_z(2).E(sigmay().full())==0)
+        self.assertTrue(i_comp_z(1).E(Sz)==1)
+        self.assertTrue(i_comp_z(2).E(Sz)==-1)
+        self.assertTrue(i_comp_z(1).E(Sx)==0)
+        self.assertTrue(i_comp_z(2).E(Sx)==0)
+        self.assertTrue(i_comp_z(1).E(Sy)==0)
+        self.assertTrue(i_comp_z(2).E(Sy)==0)
 
     def test_bell_sz(self):
         for n in range(1, 5):
-            self.assertTrue(isclose(0, bell(n).E(sigmaz().full(), 0)))
-            self.assertTrue(isclose(0, bell(n).E(sigmaz().full(), 1)))
+            self.assertTrue(isclose(0, bell(n).E(Sz, 0)))
+            self.assertTrue(isclose(0, bell(n).E(Sz, 1)))
 
     def test_bell_orthogonal(self):
         for n in range(1, 5):
@@ -166,11 +167,11 @@ class TestExamples(unittest.TestCase):
     def test_comp_z_sz(self):
         es = [(1, 1), (1, -1), (-1, 1), (-1, -1)]
         for m in range(1, 5):
-            self.assertTrue(allclose((comp_z(m).E(sigmaz().full(), 0), comp_z(m).E(sigmaz().full(), 1)), es[m-1]))
+            self.assertTrue(allclose((comp_z(m).E(Sz, 0), comp_z(m).E(Sz, 1)), es[m-1]))
 
     def test_comp_z_sx(self):
         for m in range(1, 5):
-            self.assertTrue(allclose(comp_z(m).E(sigmax().full(), 0), comp_z(m).E(sigmax().full(), 1), 0))
+            self.assertTrue(allclose(comp_z(m).E(Sx, 0), comp_z(m).E(Sx, 1), 0))
 
     def test_comp_x_orthogonal(self):
         for n in range(1, 5):
@@ -186,11 +187,11 @@ class TestExamples(unittest.TestCase):
     def test_comp_x_sx(self):
         es = [(1, 1), (1, -1), (-1, 1), (-1, -1)]
         for m in range(1, 5):
-            self.assertTrue(allclose((comp_x(m).E(sigmax().full(), 0), comp_x(m).E(sigmax().full(), 1)), es[m-1]))
+            self.assertTrue(allclose((comp_x(m).E(Sx, 0), comp_x(m).E(Sx, 1)), es[m-1]))
 
     def test_comp_x_sz(self):
         for m in range(1, 5):
-            self.assertTrue(allclose(comp_x(m).E(sigmaz().full(), 0), comp_x(m).E(sigmaz().full(), 1), 0))
+            self.assertTrue(allclose(comp_x(m).E(Sz, 0), comp_x(m).E(Sz, 1), 0))
 
 if __name__ == '__main__':
     unittest.main(verbosity=1)
