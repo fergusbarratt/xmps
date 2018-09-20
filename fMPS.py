@@ -39,7 +39,7 @@ class fMPS(object):
 
         :param data: data for internal fMPS
         :param d: local state space dimension - can be inferred if d is None
-        :param D: Bond dimension: if not none, will truncate with right 
+        :param D: Bond dimension: if not none, will truncate with right
         canonicalisation
         """
 
@@ -99,7 +99,7 @@ class fMPS(object):
 
         :param other: MPS with arrays to add
         """
-        return fMPS([a+b for a, b in zip(self.data, other.data)]) 
+        return fMPS([a+b for a, b in zip(self.data, other.data)])
 
     def __sub__(self, other):
         """__sub: This is not how to subtract two MPS: it's itemwise addition.
@@ -107,7 +107,7 @@ class fMPS(object):
 
         :param other: MPS with arrays to subtract
         """
-        return fMPS([a-b for a, b in zip(self.data, other.data)]) 
+        return fMPS([a-b for a, b in zip(self.data, other.data)])
 
     def __mul__(self, other):
         """__mul__: This is not multiplying an MPS by a scalar: it's itemwise:
@@ -186,7 +186,7 @@ class fMPS(object):
 
         self.data = Bs
         self.Ls = Ls[::-1]
-        
+
         self.D = max([max(shape[1:]) for shape in self.structure()])
 
         return self
@@ -452,8 +452,8 @@ class fMPS(object):
         return F[0][0]
 
     def norm(self):
-        """norm: not efficient - computes full overlap. 
-        use self.E(identity(self.d), site) for mixed 
+        """norm: not efficient - computes full overlap.
+        use self.E(identity(self.d), site) for mixed
         canonicalising version"""
         return self.overlap(self)
 
@@ -498,9 +498,9 @@ class fMPS(object):
         return (lambda n: Rs[n-i-1]) if ret_all else Rs[0]
 
     def links(self, op=True):
-        """links: op True: return the links for ncon for full contraction of this 
+        """links: op True: return the links for ncon for full contraction of this
         mps with operator shape of [d,d]*L
-                  op False: return links for full contraction of this mps 
+                  op False: return links for full contraction of this mps
         """
         if op:
             L = self.L
@@ -553,7 +553,7 @@ class fMPS(object):
             return re(sum(e))
         else:
             return self.E_L(H)
-    
+
     def serialize(self, real=False):
         """serialize: return a vector with mps data in it"""
         vec = concatenate([a.reshape(-1) for a in self])
@@ -563,7 +563,7 @@ class fMPS(object):
             return vec
 
     def deserialize(self, vec, L, d, D, real=False):
-        """deserialize: take a vector with mps data (from serialize), 
+        """deserialize: take a vector with mps data (from serialize),
                         make MPS
 
         :param vec: vector to deserialize
@@ -582,8 +582,8 @@ class fMPS(object):
         return self
 
     def store(self, filename):
-        """store in file 
-        :param filename: filename to store in 
+        """store in file
+        :param filename: filename to store in
         """
         save(filename, ct([array([self.L, self.d, self.D]), self.serialize()]))
 
@@ -597,13 +597,13 @@ class fMPS(object):
         return self.deserialize(arr, self.L, self.d, self.D)
 
     def dA_dt(self, H, store_energy=False, fullH=False, par=False, store_envs=False):
-        """dA_dt: Finds A_dot (from TDVP) [B(n) for n in range(n)], energy. Uses inverses. 
+        """dA_dt: Finds A_dot (from TDVP) [B(n) for n in range(n)], energy. Uses inverses.
         Indexing is A[0], A[1]...A[L-1]
 
         :param self: matrix product states @ current time
         :param H: Hamiltonian
         :param energy: store list of 2 site energies as self.e: sum(self.e) = E
-        :param par: whether to calculate the update in parallel. 
+        :param par: whether to calculate the update in parallel.
                     almost never faster
         :param store envs: whether to store the environments as self.l, self.r
         """
@@ -612,7 +612,7 @@ class fMPS(object):
         pr = lambda n: self.left_null_projector(n, l)
 
         if not fullH:
-            def B(n, H=H):  
+            def B(n, H=H):
                 e = []
                 B = -1j*zl(A[n])
                 _, Dn, Dn_1 = A[n].shape
@@ -647,7 +647,7 @@ class fMPS(object):
             def B(n, H=H):
                 H = H.reshape([self.d, self.d]*self.L)
                 links = self.links()
-                # open up links for projector 
+                # open up links for projector
                 links[n] = [-1, -2]+links[n][:2]
                 if n == L-1:
                     links[-1] = links[-1][:2]+[-3]
@@ -660,9 +660,9 @@ class fMPS(object):
                 return fMPS(list(p.map(B, range(L))))
         else:
             return fMPS([B(n) for n in range(L)])
-    
+
     def ddA_dt(self, v, H, fullH=False):
-        """d(dA)_dt: find ddA_dt - in 2nd tangent space: 
+        """d(dA)_dt: find ddA_dt - in 2nd tangent space:
            for time evolution of v in tangent space
 
         :param H: hamiltonian
@@ -675,7 +675,7 @@ class fMPS(object):
         # down are the tensors acting on c(Aj), up act on Aj
         up, down = self.jac(H, fullH)
 
-        ddA = [sum([td(down(i, j), c(dA[j]), [[3, 4, 5], [0, 1, 2]]) + 
+        ddA = [sum([td(down(i, j), c(dA[j]), [[3, 4, 5], [0, 1, 2]]) +
                     td(up(i, j),     dA[j],  [[3, 4, 5], [0, 1, 2]]) for j in range(L)], axis=0)
                for i in range(L)]
 
@@ -705,7 +705,7 @@ class fMPS(object):
         def F2t(i, j): return F2(i, j) + Γ2(i, j) #F2, Γ2 act on dA*j
 
         if not as_matrix:
-            return F1t, F2t 
+            return F1t, F2t
         elif as_matrix:
             vL, sh = self.tangent_space_dims(l, True)
             shapes = list(cs([prod([a, b]) for (a, b) in sh if a!=0 and a!=0]))
@@ -717,20 +717,20 @@ class fMPS(object):
 
             nulls = len([1 for (a, b) in sh if a==0 or b==0])
 
-            def ungauge_i(tens, i, conj=False): 
+            def ungauge_i(tens, i, conj=False):
                 def co(x): return x if not conj else c(x)
                 k = len(tens.shape[3:])
                 links = [1, 2, -2]+list(range(-3, -3-k, -1))
-                return ncon([ch(l(i-1))@co(vL[i]), 
-                            ncon([tens, ch(r(i))], [[-1, -2, 1, -4, -5, -6], [1, -3]])], 
+                return ncon([ch(l(i-1))@co(vL[i]),
+                            ncon([tens, ch(r(i))], [[-1, -2, 1, -4, -5, -6], [1, -3]])],
                             [[1, 2, -1], links])
 
-            def ungauge_j(tens, i, conj=False): 
+            def ungauge_j(tens, i, conj=False):
                 # apply -ch(l)-vL=tens-ch(r) to last 3 indices
                 def co(x): return x if not conj else c(x)
                 k = len(tens.shape[:-3])
                 links = list(range(-1, -k-1, -1))+[1, 2, -k-2]
-                return ncon([ch(l(i-1))@co(vL[i]), tens@ch(r(i))], 
+                return ncon([ch(l(i-1))@co(vL[i]), tens@ch(r(i))],
                         [[1, 2, -k-1], links])
 
             def ungauge(tens, i, j, conj=(True, False)):
@@ -789,7 +789,7 @@ class fMPS(object):
                                 #AAHAA
                                 Am, Am_1 = self.data[m:m+2]
                                 C = ncon([h]+[Am, Am_1], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]], [3, 2, 1]) # HAA
-                                Kr = ncon([c(Am), c(Am_1)@r(m+1)]+[C], 
+                                Kr = ncon([c(Am), c(Am_1)@r(m+1)]+[C],
                                          [[1, -2, 4], [2, 4, 3], [1, 2, -1, 3]])
                                 G += tr(Lbs(m)@Kr, 0, -1, -2)
 
@@ -798,7 +798,7 @@ class fMPS(object):
                         if m==i:
                             if j==i:
                                 # BAHBA
-                                G += ncon([l(m-1)]+[pr(m), inv(r(m))@Am_1]+[h]+[pr(m), inv(r(m))@c(Am_1)]+[r(m+1)], 
+                                G += ncon([l(m-1)]+[pr(m), inv(r(m))@Am_1]+[h]+[pr(m), inv(r(m))@c(Am_1)]+[r(m+1)],
                                           [[5, 6], [1, 5, -4, -5], [2, -6, 7], [1, 2, 3, 4], [-1, -2, 3, 6], [4, -3, 8], [7, 8]])
 
                             elif j==i+1:
@@ -807,7 +807,7 @@ class fMPS(object):
                                          [[5, 6], [1, 6, 7], [2, 7, -4, -5], [1, 2, 3, 4], [-1, -2, 3, 5], [4, -3, -6]])
                             else:
                                 # AAHBA
-                                O = ncon([l(m-1)@Am, Am_1]+[h]+[pr(m), inv(r(m))@c(Am_1)], 
+                                O = ncon([l(m-1)@Am, Am_1]+[h]+[pr(m), inv(r(m))@c(Am_1)],
                                          [[3, 6, 5], [4, 5, -4], [1, 2, 3, 4], [-1, -2, 1, 6], [2, -3, -5]]) #(A)ud
                                 G += tensordot(O, Rus(m+2), [[-1, -2], [0, 1]])
                         elif m==i-1:
@@ -817,37 +817,37 @@ class fMPS(object):
                                           [[3, 5, 6], [4, 6, -4, -5], [1, 2, 3, 4], [1, 5, 7], [-1, -2, 2, 7], [-3, -6]]) #AA
                             else:
                                 # AAHAB
-                                Q = ncon([l(m-1)@Am, Am_1]+[h]+[c(Am), pr(m+1)], 
+                                Q = ncon([l(m-1)@Am, Am_1]+[h]+[c(Am), pr(m+1)],
                                          [[3, 6, 5], [4, 5, -3], [1, 2, 3, 4], [1, 6, 7], [-1, -2, 2, 7]]) #(A)
                                 G += tensordot(Q, Rus(m+2), [-1, 0])
                         elif m<i:
                             #AAHAA
                             C = ncon([h]+[Am, Am_1], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
-                            K = ncon([l(m-1)@c(Am), c(Am_1)]+[C], 
+                            K = ncon([l(m-1)@c(Am), c(Am_1)]+[C],
                                      [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]])
                             if i==j:
                                 G += tensordot(K, Rbs(m+2), [[0, 1], [0, 1]])
                             else:
-                                G += tensordot(K, tensordot(Rds(m+2)@inv(r(i)), Rus(i+1), [-1, 0]), 
+                                G += tensordot(K, tensordot(Rds(m+2)@inv(r(i)), Rus(i+1), [-1, 0]),
                                                [[0, 1], [0, 1]])
                         if testing:
                             #AAHAA
-                            K = ncon([c(l(m-1))@Am.conj(), Am_1.conj()]+[C], 
+                            K = ncon([c(l(m-1))@Am.conj(), Am_1.conj()]+[C],
                                      [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]])
                             # BAHBA
-                            M = ncon([l(m-1)]+[pr(m), inv(r(m))@Am_1]+[h]+[pr(m), inv(r(m))@c(Am_1)]+[r(m+1)], 
+                            M = ncon([l(m-1)]+[pr(m), inv(r(m))@Am_1]+[h]+[pr(m), inv(r(m))@c(Am_1)]+[r(m+1)],
                                       [[5, 6], [1, 5, -4, -5], [2, -6, 7], [1, 2, 3, 4], [-1, -2, 3, 6], [4, -3, 8], [7, 8]])
                             # ABHBA
                             N = ncon([l(m-1)]+[Am, pr(m+1)]+[h]+[pr(m), r(m)@c(Am_1)],
                                      [[5, 6], [1, 6, 7], [2, 7, -4, -5], [1, 2, 3, 4], [-1, -2, 3, 5], [4, -3, -6]])
                             # AAHBA
-                            O = ncon([l(m-1)@Am, Am_1]+[h]+[pr(m), inv(r(m))@c(Am_1)], 
+                            O = ncon([l(m-1)@Am, Am_1]+[h]+[pr(m), inv(r(m))@c(Am_1)],
                                      [[3, 6, 5], [4, 5, -4], [1, 2, 3, 4], [-1, -2, 1, 6], [2, -3, -5]]) #(A)ud
                             # ABHAB
                             P = ncon([l(m-1)@Am, pr(m+1)]+[h]+[c(Am), pr(m+1)]+[r(m+1)],
                                      [[3, 5, 6], [4, 6, -4, -5], [1, 2, 3, 4], [1, 5, 7], [-1, -2, 2, 7], [-3, -6]]) #AA
                             # AAHAB
-                            Q = ncon([l(m-1)@Am, Am_1]+[h]+[c(Am), pr(m+1)], 
+                            Q = ncon([l(m-1)@Am, Am_1]+[h]+[c(Am), pr(m+1)],
                                      [[3, 6, 5], [4, 5, -3], [1, 2, 3, 4], [1, 6, 7], [-1, -2, 2, 7]]) #(A)
                             assert allclose(norm(td(M, l(m-1)@c(Am), [[0, 1, 2], [0, 1, 2]])), 0)
                             assert allclose(norm(td(M, l(m-1)@Am, [[3, 4, 5], [0, 1, 2]])), 0)
@@ -933,8 +933,8 @@ class fMPS(object):
                     else:
                         L = ncon([K, Ris(m+2)], [[1, 2], [1, 2, -1, -2, -3]])
                         G1 = deepcopy(G)
-                        G += ncon([ncon([L, Rjs(i+1)], [[-1, -2, 1], [1, -3, -4, -5, -6]]), 
-                                   inv(r(i))], 
+                        G += ncon([ncon([L, Rjs(i+1)], [[-1, -2, 1], [1, -3, -4, -5, -6]]),
+                                   inv(r(i))],
                                    [[-1, -2, 1, -4, -5, -6], [1, -3]])
         elif fullH:
             H = H.reshape([self.d, self.d]*self.L)
@@ -948,9 +948,9 @@ class fMPS(object):
                     bottom = [pr(m) if (m==i or m==j) else a.conj() for m, a in enumerate(A)]
                     bottom = [c(inv(r(m-1)))@a.conj() if m==i+1 or m==j+1 else a for m, a in enumerate(bottom)]
                 top = A
-                links[i] = links[i][:2]+[-1, -2] 
+                links[i] = links[i][:2]+[-1, -2]
                 links[i+1][1] = -3
-                links[j] = links[j][:2]+[-4, -5] 
+                links[j] = links[j][:2]+[-4, -5]
                 if j == L-1:
                     links[-1][-1] = -6
                 else:
@@ -963,7 +963,7 @@ class fMPS(object):
             return G
 
     def christoffel(self, i, j, k, envs=None, closed=(None, None, None)):
-        """christoffel: return the christoffel symbol in basis c(A_i), c(A_j), A_k. 
+        """christoffel: return the christoffel symbol in basis c(A_i), c(A_j), A_k.
            Close indices i, j, k, with elements of closed tuple: i.e. (B_i, B_j, B_k).
            Will leave any indices marked none open :-<d_id_jψ|d_kψ>"""
         L, d, A = self.L, self.d, self.data
@@ -992,7 +992,7 @@ class fMPS(object):
             c_ind = [m for m, A in enumerate(closed) if A is not None]
             o_ind = [m for m, A in enumerate(closed) if A is None]
             links = [reduce(lambda x, y: x+y,
-                           [list(array([-1, -2, -3])-3*(o_ind.index(n))) if n in o_ind else 
+                           [list(array([-1, -2, -3])-3*(o_ind.index(n))) if n in o_ind else
                            [c_ind.index(n), c_ind.index(n)+3, c_ind.index(n)+6] for n in range(3)])]+\
                     [[n, n+3, n+6] for n in range(len(c_ind))]
             Γ_c = ncon([Γ(i, j, k)]+[closed[j] for j in c_ind], links)
@@ -1002,7 +1002,7 @@ class fMPS(object):
         return Γ_c
 
     def left_null_projector(self, n, l=None, get_vL=False, store_envs=False, vL=None):
-        """left_null_projector:           |    
+        """left_null_projector:           |
                          - inv(sqrt(l)) - vL = vL- inv(sqrt(l))-
                                                |
         replaces A(n) in TDVP
@@ -1047,7 +1047,7 @@ class fMPS(object):
         return array(reduce(direct_sum, Qs))
 
     def extract_tangent_vector(self, dA):
-        """extract_tangent_vector from dA: 
+        """extract_tangent_vector from dA:
            assume mps represents element of tangent space i.e.
            [B1...BN] <=> A1...Bn...AN + A1...Bn+1...AN+...
            return x1++x2++x3...++xN (concatenate + flatten)"""
@@ -1073,7 +1073,7 @@ class fMPS(object):
         Bs = [zl(A) for A in self.data[:nulls]] + \
              [inv(ch(l_(n-1)))@vL@x@inv(ch(r_(n))) for n, (vL, x) in enumerate(zip(vLs, xs))]
         return fMPS(Bs)
-         
+
 class vfMPS(object):
     """vidal finite MPS
     lists of tuples (\Gamma, \Lambda) of numpy arrays"""
@@ -1113,7 +1113,7 @@ class TestfMPS(unittest.TestCase):
         """setUp"""
         self.N = N = 5  # Number of MPSs to test
         #  min and max params for randint
-        L_min, L_max = 6, 8 
+        L_min, L_max = 6, 8
         d_min, d_max = 2, 4
         D_min, D_max = 5, 10
         ut_min, ut_max = 3, 7
@@ -1527,7 +1527,7 @@ class TestfMPS(unittest.TestCase):
         """test_profile_dA_dt: profile dA_dt: """
         #list hamiltonian slower until L~6
         # ~10s for 100 sites D=10
-        d, L = 2, 10 
+        d, L = 2, 10
         mps = fMPS().random(L, d, 10)
         listH = [randn(4, 4)+1j*randn(4, 4) for _ in range(L-1)]
         listH = [h+h.conj().T for h in listH]
@@ -1555,7 +1555,7 @@ class TestfMPS(unittest.TestCase):
     def test_profile_F2_F1_christoffel(self):
         Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
         Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
-        L = 20 
+        L = 20
         mps = fMPS().random(L, 2, 30).left_canonicalise()
         H = [Sz12@Sz22+Sx12] +[Sz12@Sz22+Sx12+Sx22 for _ in range(L-3)]+[Sz12@Sz22+Sx22]
         dA_dt = mps.dA_dt(H, store_envs=True)
@@ -1585,7 +1585,7 @@ class TestfMPS(unittest.TestCase):
     def test_profile_jac(self):
         Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
         Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
-        L = 7 
+        L = 7
         mps = fMPS().random(L, 2, 40).left_canonicalise()
         H = [Sz12@Sz22+Sx12] +[Sz12@Sz22+Sx12+Sx22 for _ in range(L-3)]+[Sz12@Sz22+Sx22]
         J = mps.jac(H)
@@ -1635,7 +1635,7 @@ class TestfMPS(unittest.TestCase):
             if i==j:
                 b = mps.F1(i, j, eyeH)
                 a = ncon([mps.left_null_projector(i), inv(r(i))], [[-1, -2, -4, -5], [-3, -6]])
-                self.assertTrue(allclose(a, b)) 
+                self.assertTrue(allclose(a, b))
 
             # Test gauge projectors are in the right place
             mps.left_canonicalise()
@@ -1652,7 +1652,7 @@ class TestfMPS(unittest.TestCase):
             self.assertTrue(allclose(z1, 0))
             self.assertTrue(allclose(z2, 0))
 
-            # TODO: fullH fails gauge projectors test (listH doesn't): 
+            # TODO: fullH fails gauge projectors test (listH doesn't):
             # TODO: fullH different from listH:
 
     def test_F2_F1_christoffel(self):
@@ -1724,9 +1724,9 @@ class TestfMPS(unittest.TestCase):
             self.assertTrue(not k_false)
 
             # symmetric in i, j
-            self.assertTrue(allclose(mps.christoffel(i, j, k, closed=(c(mps[i]), c(mps[j]), mps[k])), 
+            self.assertTrue(allclose(mps.christoffel(i, j, k, closed=(c(mps[i]), c(mps[j]), mps[k])),
                                      mps.christoffel(j, i, k, closed=(c(mps[j]), c(mps[i]), mps[k]))  ))
-            
+
             self.assertTrue(allclose(tra(mps.christoffel(i, j, k), [3, 4, 5, 0, 1, 2, 6, 7, 8]), mps.christoffel(j, i, k)))
 
 
@@ -1784,7 +1784,7 @@ class TestfMPS(unittest.TestCase):
         self.assertTrue(allclose(J1+J1.conj().T, 0))
 
         mps = fMPS().random(5, 2, 10).left_canonicalise()
-        N = 5 
+        N = 5
         for _ in range(N):
             H = [randn(4, 4)+1j*randn(4, 4) for _ in range(4)]
             H = [h+h.conj().T for h in H]
