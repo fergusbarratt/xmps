@@ -16,7 +16,7 @@ from tests import is_left_canonical, is_left_env_canonical, has_trace_1
 from tensor import H as cT, truncate_A, truncate_B, diagonalise, rank, mps_pad
 from tensor import C as c, lanczos_expm, tr_svd, T
 from tensor import rdot, ldot, structure
-from copy import deepcopy
+from copy import deepcopy, copy
 from functools import reduce
 from itertools import product
 from scipy.sparse.linalg import LinearOperator, aslinearoperator
@@ -610,7 +610,7 @@ class fMPS(object):
         return self.deserialize(arr, self.L, self.d, self.D)
 
     def dA_dt(self, H, store_energy=False, fullH=False, prs=None):
-        """dA_dt: Finds A_dot (from TDVP) [B(n) for n in range(n)], energy. Uses inverses. 
+        """dA_dt: Finds A_dot (from TDVP) [B(n) for n in range(n)], energy. Uses inverses.
         Indexing is A[0], A[1]...A[L-1]
 
         :param self: matrix product state @ current time
@@ -642,15 +642,20 @@ class fMPS(object):
 
                     Am, Am_1 = self.data[m:m+2]
                     C = ncon([h]+[Am, Am_1], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
-                    K = ncon([c(l(m-1))@Am.conj(), Am_1.conj()]+[C], [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]]) #AAHAA
-                    e.append(trace(K@c(r(m+1))))
+                    K = ncon([l(m-1)@Am.conj(), Am_1.conj()]+[C], [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]]) #AAHAA
+                    e.append(trace(K@r(m+1)))
+                    #C -= trace(K@r(m+1))
+                    #K -= trace(K@r(m+1))
 
                     if m==n:
-                        B += -1j*ncon([pr(m)@l(m-1), c(inv(r(m)))@c(Am_1)@c(r(m+1))]+[C], [[-1, -2, 1, 3], [2, -3, 4], [1, 2, 3, 4]])
+                        B_ = copy(B)
+                        B += -1j *ncon([l(m-1)@C@r(m+1), pr(m), inv(r(m))@Am_1.conj()], [[3, 4, 1, 2], [-1, -2, 3, 1], [4, -3, 2]])
                     if m==n-1:
-                        B += -1j*ncon([c(l(m-1))@c(Am), pr(m+1)]+[C], [[1, 3, 4], [-1, -2, 2, 4], [1, 2, 3, -3]])
+                        B_ = copy(B)
+                        B += -1j *ncon([l(m-1)@Am.conj(), pr(m+1)]+[C], [[1, 3, 4], [-1, -2, 2, 4], [1, 2, 3, -3]])
                     if m < n-1:
-                        B += -1j*ncon([K, Rs(m+2)], [[1, 2], [1, 2, -1, -2, -3]])
+                        B_ = copy(B)
+                        B += -1j *ncon([K, Rs(m+2)], [[1, 2], [1, 2, -1, -2, -3]])
                 self.e = e
                 return B
         else:
@@ -663,7 +668,7 @@ class fMPS(object):
                     links[-1] = links[-1][:2]+[-3]
                 else:
                     links[n+1] = [links[n+1][0], -3, links[n+1][2]]
-                return -1j*ncon([pr(m) if m==n else c(inv(r(n)))@a.conj() if m==n+1 else a.conj() for m, a in enumerate(A)]+[H]+A, links)
+                return -1j *ncon([pr(m) if m==n else c(inv(r(n)))@a.conj() if m==n+1 else a.conj() for m, a in enumerate(A)]+[H]+A, links)
 
         return fMPS([B(n) for n in range(L)])
 
@@ -682,7 +687,7 @@ class fMPS(object):
         def G(m):
             C = ncon([H[m]]+[l(m-1)@A[m], A[m+1]@r(m+1)], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
             return ncon([c(vL(m)), c(vR(m+1)), C], [[1, 3, -1], [2, -2, 4], [1, 2, 3, 4]])
-        
+
         ε = 0
         for m, (Dm, Dm_1) in list(enumerate(self.structure()))[:-1]:
             _, Dm_2 = self.structure()[m+1]
@@ -699,7 +704,7 @@ class fMPS(object):
             ## left environments change as we move along the chain
             # this is a hack because I used lambdas for the envs in vL etc.
             ln = sum(cT(A[m])@l(m-1)@A[m], 0)
-            def l(n): return ln 
+            def l(n): return ln
         self.ε = ε # store last projection error on mps
         return ε
 
@@ -717,14 +722,13 @@ class fMPS(object):
         self.D = D_
         return self
 
-
     def dynamical_expand(self, H, dt, D_, threshold=1e-8):
         """dynamical_expand: expand bond dimension to D_ during timestep dt with H
 
         :param H: hamiltonian
         :param dt: timestep
         :param D_: new bond dimension
-        :param threshold: by default will not expand if no need to: 
+        :param threshold: by default will not expand if no need to:
                           set to None to expand regardless
         """
         L, d, A, D = self.L, self.d, self.data, self.D
@@ -734,7 +738,7 @@ class fMPS(object):
         def G(m):
             return ncon([l(m-1)@A[m], A[m+1]@r(m+1), H[m], c(vL(m)), c(vR(m+1))],
                         [[2, 1, 4], [6, 4, 8], [3, 6, 2, 7], [3, 1, -1], [7, -2, 8]])
-        
+
         if threshold is not None:
             if self.projection_error(H, dt) < threshold:
                 return self
@@ -765,7 +769,7 @@ class fMPS(object):
         while self.D<min(D_, (self.d**(self.L//2))):
             self.dynamical_expand(H, dt, min(self.d*self.D, D_), None)
         return self
-    
+
     def ddA_dt(self, v, H, fullH=False):
         """d(dA)_dt: find ddA_dt - in 2nd tangent space:
            for time evolution of v in tangent space
@@ -1145,7 +1149,7 @@ class fMPS(object):
         pr = ncon([inv(ch(r(n))), vR, c(vR), inv(ch(r(n)))], [[-2, 2], [-1, 1, 2], [-3, 1, 4], [-4, 4]])
         if get_vR:
             return pr, vR
-        return pr 
+        return pr
 
     def tangent_state(self, x, n, envs=None, vL=None):
         l , r = self.get_envs() if envs is None else envs
@@ -1885,7 +1889,7 @@ class TestfMPS(unittest.TestCase):
     def test_dynamical_expand(self):
         Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
         Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
-        
+
         # need to expand with 2 site heisenberg hamiltonian
         from mps_examples import comp_z
         H = [Sx1@Sx2+Sy1@Sy2+Sz1@Sz2]
@@ -1908,7 +1912,7 @@ class TestfMPS(unittest.TestCase):
             mps.dynamical_expand(H, 0.1, 2*D)
             post_struc = mps.structure()
             self.assertTrue(pre_struc==post_struc)
-        
+
         # need to expand with 4 site heisenberg hamiltonian
         H = [Sx1@Sx2+Sy1@Sy2+Sz1@Sz2]*3
         D = 1
@@ -1981,7 +1985,7 @@ class TestfMPS(unittest.TestCase):
         self.assertTrue(mps.structure()==[(1, 1), (1, 1), (1, 1)])
         mps.expand(2)
         self.assertTrue(mps.structure()==[(1, 2), (2, 2), (2, 1)])
-        
+
 
 class TestvfMPS(unittest.TestCase):
     """TestvfMPS"""
