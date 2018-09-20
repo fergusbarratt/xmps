@@ -8,7 +8,6 @@ from numpy import swapaxes, count_nonzero, diag, insert, pad, dot, argmax, sqrt
 from numpy import allclose, array, tensordot, transpose, all, identity, squeeze
 from numpy import isclose, mean, sign, kron, zeros, conj, max
 from itertools import product
-from numba import jit
 from qmb import sigmaz
 from expokitpy import zgexpv, zhexpv
 import scipy as sp
@@ -82,6 +81,10 @@ def truncate_B(U, S, B, D):
     S = S[:D, :D]
     B = B[:, :D, :]
     return (U, S, B)
+
+def tr_svd(A, D):
+    U, s, V = svd(A, full_matrices=False)
+    return U[:, :D], diag(s[:D]), V[:D, :]
 
 def diagonalise(M):
     """diagonalise: wrap eig better

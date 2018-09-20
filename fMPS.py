@@ -14,7 +14,7 @@ from numpy import mean, count_nonzero
 from tests import is_right_canonical, is_right_env_canonical, is_full_rank
 from tests import is_left_canonical, is_left_env_canonical, has_trace_1
 from tensor import H as cT, truncate_A, truncate_B, diagonalise, rank, mps_pad
-from tensor import C as c, lanczos_expm
+from tensor import C as c, lanczos_expm, tr_svd, T
 from tensor import rdot, ldot, structure
 from qmb import sigmaz, sigmax, sigmay
 from copy import deepcopy
@@ -471,14 +471,15 @@ class fMPS(object):
         def get_l(mps):
             ls = [array([[1]])]
             for n in range(len(mps)):
-                ls.append(sum(cT(mps[n]) @ ls[-1] @ mps[n], axis=0))
+                ls.append(sum(re(cT(mps[n]) @ ls[-1] @ mps[n]), axis=0))
             return lambda n: ls[n+1]
 
         def get_r(mps):
             rs = [array([[1]])]
             for n in range(len(mps))[::-1]:
-                rs.append(sum(mps[n] @ rs[-1] @ cT(mps[n]), axis=0))
+                rs.append(sum(re(mps[n] @ rs[-1] @ cT(mps[n])), axis=0))
             return lambda n: rs[::-1][n+1]
+
         if store_envs:
             self.l, self.r = get_l(self), get_r(self)
             return self.l, self.r
@@ -609,20 +610,17 @@ class fMPS(object):
         self.L, self.d, self.D = map(lambda x: int(re(x)), params)
         return self.deserialize(arr, self.L, self.d, self.D)
 
-    def dA_dt(self, H, store_energy=False, fullH=False, par=False, store_envs=False):
+    def dA_dt(self, H, store_energy=False, fullH=False, prs=None):
         """dA_dt: Finds A_dot (from TDVP) [B(n) for n in range(n)], energy. Uses inverses. 
         Indexing is A[0], A[1]...A[L-1]
 
-        :param self: matrix product states @ current time
+        :param self: matrix product state @ current time
         :param H: Hamiltonian
-        :param energy: store list of 2 site energies as self.e: sum(self.e) = E
-        :param par: whether to calculate the update in parallel. 
-                    almost never faster
-        :param store envs: whether to store the environments as self.l, self.r
         """
         L, d, A = self.L, self.d, self.data
-        l, r = self.get_envs(store_envs)
-        pr = lambda n: self.left_null_projector(n, l)
+        l, r = self.get_envs(True)
+        prs = [self.left_null_projector(n, l) for n in range(self.L)] if prs is None else prs
+        def pr(n): return prs[n]
 
         if not fullH:
             def B(n, H=H):  
@@ -668,11 +666,96 @@ class fMPS(object):
                     links[n+1] = [links[n+1][0], -3, links[n+1][2]]
                 return -1j*ncon([pr(m) if m==n else c(inv(r(n)))@a.conj() if m==n+1 else a.conj() for m, a in enumerate(A)]+[H]+A, links)
 
-        if par:
-            with Pool(2) as p:
-                return fMPS(list(p.map(B, range(L))))
-        else:
-            return fMPS([B(n) for n in range(L)])
+        return fMPS([B(n) for n in range(L)])
+
+    def projection_error(self, H, dt):
+        """projection_error: error in projection to mps manifold
+
+        :param H: hamiltonian
+        :param dt: time step
+        """
+        L, d, A, D = self.L, self.d, self.data, self.D
+        dA_dt = self.dA_dt(H, True)
+        l, r = self.l, self.r
+        def vR(n): return self.right_null_projector(n, r, True)[1]
+
+        H = [h.reshape(2, 2, 2, 2) for h in H]
+        def G(m):
+            C = ncon([H[m]]+[l(m-1)@A[m], A[m+1]@r(m+1)], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
+            return ncon([c(vL(m)), c(vR(m+1)), C], [[1, 3, -1], [2, -2, 4], [1, 2, 3, 4]])
+        
+        ε = 0
+        for m, (Dm, Dm_1) in list(enumerate(self.structure()))[:-1]:
+            _, Dm_2 = self.structure()[m+1]
+            if d*Dm==Dm_1 or Dm_1==d*Dm_2:
+                continue
+            def vL(n): return self.left_null_projector(n, l, True)[1]
+            U, s, V = tr_svd(G(m), d*D-D)
+
+            x, y = U@sqrt(s), sqrt(s)@V
+            dA01, dA10 = sqrt(dt)*l(m-1)@vL(m)@x, sqrt(dt)*y@vR(m+1)@r(m+1)
+
+            ε += re(tr(sum(cT(dA01)@l(m-1)@dA01, 0)@sum(dA10@r(m+1)@cT(dA10), 0)))
+
+            ## left environments change as we move along the chain
+            # this is a hack because I used lambdas for the envs in vL etc.
+            ln = sum(cT(A[m])@l(m-1)@A[m], 0)
+            def l(n): return ln 
+        self.ε = ε # store last projection error on mps
+        return ε
+
+    def should_expand(self, H, dt, threshold):
+        """should_expand the manifold?
+        """
+        return self.projection_error(H, dt) > threshold
+
+    def dynamical_expand(self, H, dt, D_, threshold=1e-8):
+        """dynamical_expand: expand bond dimension to D_ during timestep dt with H
+
+        :param H: hamiltonian
+        :param dt: timestep
+        :param D_: new bond dimension
+        :param threshold: by default will not expand if no need to: 
+                          set to None to expand regardless
+        """
+        L, d, A, D = self.L, self.d, self.data, self.D
+        def vR(n): return self.right_null_projector(n, r, True)[1]
+
+        H = [h.reshape(2, 2, 2, 2) for h in H]
+        def G(m):
+            return ncon([l(m-1)@A[m], A[m+1]@r(m+1), H[m], c(vL(m)), c(vR(m+1))],
+                        [[2, 1, 4], [6, 4, 8], [3, 6, 2, 7], [3, 1, -1], [7, -2, 8]])
+        
+        if threshold is not None:
+            if self.projection_error(H, dt) < threshold:
+                return self
+
+        for m, (Dm, Dm_1) in list(enumerate(self.structure()))[:-1]:
+            _, Dm_2 = self.structure()[m+1]
+            if d*Dm==Dm_1 or Dm_1==d*Dm_2:
+                continue
+            def vL(n): return self.left_null_projector(n, l, True)[1]
+            dA_dt = self.dA_dt(H)
+            l, r = self.l, self.r
+
+            U, s, V = tr_svd(G(m), D_-D)
+            x, y = U@sqrt(s), sqrt(s)@V
+            dA01, dA10 = sqrt(dt)*l(m-1)@vL(m)@x, sqrt(dt)*y@vR(m+1)@r(m+1)
+
+            A[m], A[m+1] = ct([A[m]+dt*dA_dt[m], dA01], 2), ct([A[m+1]+dt*dA_dt[m+1], dA10], 1)
+
+        self.D = max([max(shape) for shape in self.structure()])
+
+        return self
+
+    def grow(self, H, dt, D_):
+        """grow bond dimension to D_ with timesteps dt. goes d*D at a time
+        """
+        if D_ is None:
+            return self
+        while self.D<min(D_, (self.d**(self.L//2))):
+            self.dynamical_expand(H, dt, min(self.d*self.D, D_), None)
+        return self
     
     def ddA_dt(self, v, H, fullH=False):
         """d(dA)_dt: find ddA_dt - in 2nd tangent space: 
@@ -683,7 +766,7 @@ class fMPS(object):
         """
         L, d, A = self.L, self.d, self.data
         dA = self.import_tangent_vector(v)
-        dA_dt = self.dA_dt(H, store_energy=True, fullH=fullH, store_envs=True)
+        dA_dt = self.dA_dt(H, store_energy=True, fullH=fullH)
         l, r, e = self.l, self.r, self.e
         # down are the tensors acting on c(Aj), up act on Aj
         up, down = self.jac(H, fullH)
@@ -704,7 +787,7 @@ class fMPS(object):
         """jac: calculate the jacobian of the current mps
         """
         L, d, A = self.L, self.d, self.data
-        dA_dt = self.dA_dt(H, fullH=fullH, store_envs=True)
+        dA_dt = self.dA_dt(H, fullH=fullH)
         l, r = self.l, self.r
         prs = [self.left_null_projector(n, l) for n in range(self.L)]
 
@@ -1035,13 +1118,25 @@ class fMPS(object):
         if l is None:
             l, _ = self.get_envs(store_envs)
         if vL is None:
-            L_ = cT(self[n])@ch(l(n-1))
-            L = sw(L_, 0, 1).reshape(-1, self.d*L_.shape[-1])
-            vL = null(L).reshape((self.d, int(L.shape[1]/self.d), -1))
-        pr = ncon([inv(ch(l(n-1))), vL, c(vL), c(inv(ch(l(n-1))))], [[-2, 2], [-1, 2, 1], [-3, 4, 1], [-4, 4]])
+            L_ = sw(cT(self[n])@ch(l(n-1)), 0, 1)
+            L = L_.reshape(-1, self.d*L_.shape[-1])
+            vL = null(L).reshape((self.d, L.shape[1]//self.d, -1))
+        pr = ncon([inv(ch(l(n-1))), vL, c(vL), inv(ch(l(n-1)))], [[-2, 2], [-1, 2, 1], [-3, 4, 1], [-4, 4]])
         if get_vL:
             return pr, vL
         return pr
+
+    def right_null_projector(self, n, r=None, get_vR=False, store_envs=False, vR=None):
+        if r is None:
+            _, r = self.get_envs(store_envs)
+        if vR is None:
+            R_ = sw(c(self[n])@r(n), 0, 1)
+            R = R_.reshape(-1, self.d*R_.shape[-1])
+            vR = sw(null(R).reshape(self.d, R_.shape[-1], -1), 1, 2)
+        pr = ncon([inv(ch(r(n))), vR, c(vR), inv(ch(r(n)))], [[-2, 2], [-1, 1, 2], [-3, 1, 4], [-4, 4]])
+        if get_vR:
+            return pr, vR
+        return pr 
 
     def tangent_state(self, x, n, envs=None, vL=None):
         l , r = self.get_envs() if envs is None else envs
@@ -1099,11 +1194,11 @@ class fMPS(object):
          
 class vfMPS(object):
     """vidal finite MPS
-    lists of tuples (\Gamma, \Lambda) of numpy arrays"""
+    lists of tuples (Gamma, Lambda) of numpy arrays"""
     def __init__(self,  data=None, d=None):
         """__init__
 
-        :param data: matrices in form [(\Gamma, \Lambda)]
+        :param data: matrices in form [(Gamma, Lambda)]
         :param d: local state space dimension
         """
         if data is not None and d is not None:
@@ -1581,7 +1676,7 @@ class TestfMPS(unittest.TestCase):
         L = 10
         mps = fMPS().random(L, 2, 30).left_canonicalise()
         H = [Sz12@Sz22+Sx12] +[Sz12@Sz22+Sx12+Sx22 for _ in range(L-3)]+[Sz12@Sz22+Sx22]
-        dA_dt = mps.dA_dt(H, store_envs=True)
+        dA_dt = mps.dA_dt(H)
         l, r = mps.l, mps.r
 
         T = []
@@ -1682,7 +1777,7 @@ class TestfMPS(unittest.TestCase):
         Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
         mps = self.mps_0_3
         H = [Sz1@Sz2+Sz1, Sz1@Sz2+Sz1+Sz2]
-        dA_dt = mps.dA_dt(H, store_envs=True)
+        dA_dt = mps.dA_dt(H)
         l, r = mps.l, mps.r
         i, j = 1, 2
         F2 = -1j*mps.F2(i, j, H)
@@ -1691,7 +1786,7 @@ class TestfMPS(unittest.TestCase):
 
         mps = self.mps_0_4
         H = [Sz1@Sz2+Sz1, Sz1@Sz2+Sz1+Sz2, Sz1@Sz2+Sz2]
-        dA_dt = mps.dA_dt(H, store_envs=True)
+        dA_dt = mps.dA_dt(H)
         l, r = mps.l, mps.r
         i, j = 2, 3
         F2 = -1j*mps.F2(i, j, H)
@@ -1700,7 +1795,7 @@ class TestfMPS(unittest.TestCase):
 
         mps = self.mps_0_5
         H = [Sz1@Sz2+Sz1, Sz1@Sz2+Sz1+Sz2, Sz1@Sz2+Sz1+Sz2, Sz1@Sz2+Sz2]
-        dA_dt = mps.dA_dt(H, store_envs=True)
+        dA_dt = mps.dA_dt(H)
         l, r = mps.l, mps.r
         for i, j in [(2, 3), (2, 4), (3, 2), (4, 2)]:
             F2 = -1j*mps.F2(i, j, H)
@@ -1769,6 +1864,62 @@ class TestfMPS(unittest.TestCase):
 
         for z in Z:
             self.assertTrue(allclose(mps.ddA_dt(z, eyeH), -1j*z))
+
+    def test_null_projectors(self):
+        mps = self.mps_0_4.right_canonicalise()
+        for n in range(3):
+            _, vR = mps.right_null_projector(n, get_vR=True, store_envs=True)
+            _, vL = mps.left_null_projector(n, get_vL=True)
+            self.assertTrue(allclose(ncon([mps[n]@ch(mps.r(n)), vR], [[1, -1, 3], [1, -2, 3]]), 0))
+            self.assertTrue(allclose(ncon([ch(mps.l(n-1))@mps[n], vL], [[1, 3, -1], [1, 3, -2]]), 0))
+
+    def test_dynamical_expand(self):
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
+        
+        # need to expand with 2 site heisenberg hamiltonian
+        from mps_examples import comp_z
+        H = [Sx1@Sx2+Sy1@Sy2+Sz1@Sz2]
+
+        # up down: must project
+        mps = comp_z(2).left_canonicalise()
+        self.assertTrue(not allclose(mps.projection_error(H, 0.1), 0))
+
+        # up up: no projection
+        mps = comp_z(1).left_canonicalise()
+        self.assertTrue(allclose(mps.projection_error(H, 0.1), 0))
+
+        # no need to expand with local hamiltonian
+        for D in [1, 2, 3]:
+            H = [Sx1+Sx2+Sy1+Sy2+Sz1+Sz2]*3
+            mps = self.mps_0_4.left_canonicalise(D)
+
+            self.assertTrue(allclose(mps.projection_error(H, 0.1), 0))
+            pre_struc = mps.structure()
+            mps.dynamical_expand(H, 0.1, 2*D)
+            post_struc = mps.structure()
+            self.assertTrue(pre_struc==post_struc)
+        
+        # need to expand with 4 site heisenberg hamiltonian
+        H = [Sx1@Sx2+Sy1@Sy2+Sz1@Sz2]*3
+        D = 1
+        mps = self.mps_0_4.left_canonicalise(D)
+
+        pre_struc = mps.structure()
+        mps.dynamical_expand(H, 0.1, 2*D)
+        post_struc = mps.structure()
+        self.assertTrue(pre_struc!=post_struc)
+
+    def test_grow(self):
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
+        mps = self.mps_0_4.left_canonicalise(1)
+        H = [Sx1@Sx2+Sy1@Sy2+Sz1@Sz2]*3
+        for D in [1, 2, 3, 4]:
+            A = mps.copy().grow(H, 0.1, D)
+            self.assertTrue(A.D == D)
+        A = mps.copy().grow(H, 0.1, 5)
+        self.assertTrue(A.D == 4)
 
     def test_jac_eye(self):
         mps = self.mps_0_2
