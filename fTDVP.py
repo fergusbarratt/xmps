@@ -12,10 +12,11 @@ from numpy import cross, dot, kron, split, concatenate as ct, isnan, isinf
 from numpy import trace as tr
 from numpy.random import randn
 from scipy.linalg import sqrtm, expm, norm, null_space as null, cholesky as ch
+from scipy.linalg import qr, rq
 from scipy.sparse.linalg import expm_multiply, expm
 from scipy.integrate import odeint, complex_ode as c_ode
 from scipy.integrate import ode, solve_ivp
-from numpy.linalg import inv, qr
+from numpy.linalg import inv, svd
 import numpy as np
 from tensor import get_null_space, H as cT, C as c
 from matplotlib import pyplot as plt
@@ -50,16 +51,60 @@ class Trajectory(object):
 
     def rk4(self, mps, dt, H=None, store=True):
         H = self.H if H is None else H
-        k1 = mps.dA_dt(H, fullH=self.fullH)*dt
-        k2 = (mps+k1/2).left_canonicalise().dA_dt(H, fullH=self.fullH)*dt
-        k3 = (mps+k2/2).left_canonicalise().dA_dt(H, fullH=self.fullH)*dt
-        k4 = (mps+k3).left_canonicalise().dA_dt(H, fullH=self.fullH)*dt
         if store:
             self.mps_history.append(mps.serialize(real=True))
+        k1 = mps.dA_dt(H, fullH=self.fullH)*dt
+        k2 = (mps+k1/2).dA_dt(H, fullH=self.fullH)*dt
+        k3 = (mps+k2/2).dA_dt(H, fullH=self.fullH)*dt
+        k4 = (mps+k3).dA_dt(H, fullH=self.fullH)*dt
 
         return (mps+(k1+2*k2+2*k3+k4)/6).left_canonicalise()
 
+    def invfree(self, mps, dt, H=None, store=True):
+        H_ = self.H if H is None else H
+
+        def rect(x):
+            shape = x.shape
+            assert len(shape)%2==0
+            return x.reshape(prod(shape[:len(shape)//2]), -1)
+        
+        if store:
+            self.mps_history.append(mps.serialize(real=True))
+
+        #dt = dt/2
+        mps.right_canonicalise()
+        for n, _ in enumerate(mps.data):
+            def H(n): return rect(mps.invfreeH(n, H_))
+            Ac = (expm(-1j*H(n)*dt)@mps[n].reshape(-1)).reshape(mps[n].shape)
+            U, S, V = svd(Ac.reshape(-1, Ac.shape[-1]), full_matrices=False)
+
+            mps[n] = U.reshape(Ac.shape)
+
+            if n != mps.L-1:
+                def K(n): return rect(mps.invfreeK(n, H_))
+                C = (expm(1j*K(n)*dt)@C.reshape(-1)).reshape(C.shape)
+
+                mps[n+1] = C@mps[n+1]
+
+        #for n, _ in reversed(list(enumerate(mps.data))):
+        #    def H(n): return rect(mps.invfreeH(n, H_))
+        #    Ac = sw((expm(-1j*H(n)*dt)@mps[n].reshape(-1)).reshape(mps[n].shape), 0, 1) # aux, sp, aux
+        #    U, S, V = svd(Ac.reshape(Ac.shape[0], -1), full_matrices=False)
+        #    mps[n] = sw(V.reshape(Ac.shape), 0, 1) #sp, aux, aux
+        #    C = U@diag(S)
+
+        #    if n!=0:
+        #        def K(n): return rect(mps.invfreeK(n, H_))
+        #        C = (expm(1j*K(n-1)*dt)@C.reshape(-1)).reshape(C.shape)
+        #        mps[n-1] = mps[n-1]@C
+
+        return mps
+
     def eulerint(self, T):
+        """eulerint: integrate with euler time steps
+
+        :param T:
+        """
         mps, H = self.mps.left_canonicalise(), self.H
         L, d, D = mps.L, mps.d, mps.D
 
@@ -70,11 +115,25 @@ class Trajectory(object):
         return self
 
     def rk4int(self, T):
+        """rk4int: integrate with rk4 timesteps
+        """
         mps, H = self.mps.left_canonicalise(), self.H
         L, d, D = mps.L, mps.d, mps.D
 
         for t in tqdm(T):
             mps = self.rk4(mps, T[1]-T[0])
+
+        self.mps = fMPS().deserialize(self.mps_history[-1], L, d, D, real=True)
+        return self
+
+    def invfreeint(self, T, D=None):
+        """invfreeint: right_canonicalisation is important here
+        """
+        mps, H = self.mps.right_canonicalise(), self.H
+        L, d, D = mps.L, mps.d, mps.D
+
+        for t in tqdm(T):
+            mps = self.invfree(mps, T[1]-T[0])
 
         self.mps = fMPS().deserialize(self.mps_history[-1], L, d, D, real=True)
         return self
@@ -90,7 +149,7 @@ class Trajectory(object):
         mps, H = self.mps.left_canonicalise(), self.H
         L, d, D = mps.L, mps.d, mps.D
         bar = tqdm()
-
+        m=0
 
         def f(t, v):
             """f_odeint: f acting on real vector
@@ -99,13 +158,22 @@ class Trajectory(object):
             :param t: Time
             """
             bar.update()
-            return fMPS().deserialize(v, L, d, D, real=True)\
-                         .left_canonicalise()\
-                         .dA_dt(H, fullH=self.fullH)\
-                         .serialize(real=True)\
+            nonlocal m
+            m+=1
+            if m==4:
+                return fMPS().deserialize(v, L, d, D, real=True)\
+                            .left_canonicalise()\
+                            .dA_dt(H, fullH=self.fullH)\
+                            .serialize(real=True)
+            else:
+                return fMPS().deserialize(v, L, d, D, real=True)\
+                            .dA_dt(H, fullH=self.fullH)\
+                            .serialize(real=True)
+
 
         v = mps.serialize(real=True)
-        Q = solve_ivp(f, (T[0], T[-1]), v, method='RK45', t_eval=T)
+        Q = solve_ivp(f, (T[0], T[-1]), v, method='LSODA', t_eval=T,
+                      max_step=T[1]-T[0], min_step=T[1]-T[0])
         traj = Q.y.T
         bar.close()
 
@@ -114,6 +182,8 @@ class Trajectory(object):
         return self
 
     def edint(self, T):
+        """edint: exact diagonalisation 
+        """
         H = self.H
         psi_0 = self.mps.recombine().reshape(-1)
         H = sum([n_body(a, i, len(H), d=2)
@@ -131,11 +201,8 @@ class Trajectory(object):
 
     def lyapunov(self, T, D=None):
         H = self.H
-        self.mps = self.mps.grow(self.H, 0.1, D).left_canonicalise()
-        for _ in range(20):
-            J = self.mps.jac(H)
-            self.mps = self.rk4(self.mps, 5e-3)
-            self.mps.left_canonicalise()
+        self.mps = self.mps.grow(self.H, 0.1, D).right_canonicalise()
+        self.invfreeint(0, 1, 0.1)
 
         l, r = self.mps.get_envs()
         Q = kron(eye(2), self.mps.tangent_space_basis())
@@ -167,9 +234,6 @@ class Trajectory(object):
             Ws.append(-re(c(psi_0)@comm(W_t, W_0)@comm(W_t, W_0)@psi_0))
         return Ws
 
-    def invfree(self, T, D=None):
-        pass
-
     def mps_evs(self, ops, site):
         assert hasattr(self, "mps_history")
         L, d, D = self.mps.L, self.mps.d, self.mps.D
@@ -183,6 +247,7 @@ class Trajectory(object):
     def clear(self):
         self.mps_history = []
         self.mps = self.mps_0.copy()
+
 
 class TestTrajectory(unittest.TestCase):
     """TestF"""
@@ -206,6 +271,65 @@ class TestTrajectory(unittest.TestCase):
 
         self.mps_0_5 = fMPS().left_from_state(self.tens_0_5)
         self.psi_0_5 = self.mps_0_5.recombine().reshape(-1)
+
+    def test_integrators(self):
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
+
+        test_2 = False
+        if test_2:
+            dt, t_fin = 2e-2, 10
+            T = linspace(0, t_fin, int(t_fin//dt)+1)
+
+            mps_0 = self.mps_0_2
+            H = [Sz1@Sz2+Sx1+Sx2]
+            F = Trajectory(mps_0, H)
+
+            A = F.edint(T).ed_evs([Sx1, Sy1, Sz1])
+            F.clear()
+            B = F.eulerint(T).mps_evs([Sx, Sy, Sz], 0)
+            F.clear()
+            C = F.invfreeint(T).mps_evs([Sx, Sy, Sz], 0)
+            F.clear()
+
+            fig, ax = plt.subplots(2, 1, sharex=True, sharey=True)
+            ax[0].set_ylim([-1, 1])
+            ax[0].plot(T, A)
+            ax[0].plot(T, B)
+            ax[0].plot(T, C)
+            plt.show()
+
+        test_3 = True
+        if test_3:
+            dt, t_fin = 2.5e-2, 10
+            T = linspace(0, t_fin, int(t_fin//dt)+1)
+
+            mps_0 = self.mps_0_3
+
+            H = [Sx2]+[eye(4)]
+            F = Trajectory(mps_0, H)
+
+            Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 3)
+            Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 3)
+            Sx3, Sy3, Sz3 = N_body_spins(0.5, 3, 3)
+
+
+            A = F.edint(T).ed_evs([Sx1, Sy1, Sz1])
+            F.clear()
+            B = F.eulerint(T).mps_evs([Sx, Sy, Sz], 0)
+            F.clear()
+            #C = F.rk4int(T).mps_evs([Sx, Sy, Sz], 0)
+            #F.clear()
+            D = F.invfreeint(T).mps_evs([Sx, Sy, Sz], 0)
+
+            fig, ax = plt.subplots(2, 1, sharey=True, sharex=True)
+            ax[0].set_ylim([-1, 1])
+            ax[0].plot(T, A)
+            ax[0].plot(T, B)
+            #ax[0].plot(T, C)
+
+            ax[1].plot(T, D)
+            plt.show()
 
     def test_OTOC(self):
         """OTOC zero for W=eye"""
@@ -378,51 +502,6 @@ class TestTrajectory(unittest.TestCase):
         dt, N = 1e-1, 300
         T = linspace(0, N*dt, N)
         plt.plot(Trajectory(mps_0, H).odeint(T).evs([Sx, Sy, Sz], 0))
-        plt.show()
-
-    def test_integrators(self):
-        #dt, N = 5e-3, 2000
-        #T = linspace(0, N*dt, N)
-
-        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
-        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
-
-        #mps_0 = self.mps_0_2
-        #H = [Sz1@Sz2+Sx1+Sx2]
-        #F = Trajectory(mps_0, H)
-        #A = F.edint(T).ed_evs([Sx2, Sy2, Sz2])
-        #B = F.odeint(T).mps_evs([Sx, Sy, Sz], 1)
-        #plt.plot(T, A)
-        #plt.plot(T, B)
-        #plt.show()
-
-        dt, N = 5e-3, 2000
-        T = linspace(0, N*dt, N)
-        mps_0 = self.mps_0_3
-
-
-        H = [Sz1@Sz2+Sx1]+[Sz1@Sz2+Sx1+Sx2]
-        F = Trajectory(mps_0, H)
-
-        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 3)
-        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 3)
-        Sx3, Sy3, Sz3 = N_body_spins(0.5, 3, 3)
-
-        F = Trajectory(mps_0, H)
-        A = F.edint(T).ed_evs([Sx1, Sy1, Sz1])
-        F.clear()
-        C = F.eulerint(T).mps_evs([Sx, Sy, Sz], 0)
-        F.clear()
-
-        fig, ax = plt.subplots(2, 1, sharey=True)
-        ax[0].set_ylim([-1, 1])
-        ax[0].plot(T, A)
-        ax[0].plot(T, C)
-
-        B = F.odeint(T).mps_evs([Sx, Sy, Sz], 0)
-        F.clear()
-
-        ax[1].plot(T, B)
         plt.show()
 
 

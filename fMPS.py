@@ -25,8 +25,8 @@ from time import time
 Sx, Sy, Sz = spins(0.5)
 Sx, Sy, Sz = 2*Sx, 2*Sy, 2*Sz
 
-from ncon import ncon as nc
-def ncon(*args): return nc(*args, check_indices=False)
+from ncon import ncon as ncon
+#def ncon(*args): return nc(*args, check_indices=False)
 
 
 class fMPS(object):
@@ -648,13 +648,10 @@ class fMPS(object):
                     #K -= trace(K@r(m+1))
 
                     if m==n:
-                        B_ = copy(B)
                         B += -1j *ncon([l(m-1)@C@r(m+1), pr(m), inv(r(m))@Am_1.conj()], [[3, 4, 1, 2], [-1, -2, 3, 1], [4, -3, 2]])
                     if m==n-1:
-                        B_ = copy(B)
                         B += -1j *ncon([l(m-1)@Am.conj(), pr(m+1)]+[C], [[1, 3, 4], [-1, -2, 2, 4], [1, 2, 3, -3]])
                     if m < n-1:
-                        B_ = copy(B)
                         B += -1j *ncon([K, Rs(m+2)], [[1, 2], [1, 2, -1, -2, -3]])
                 self.e = e
                 return B
@@ -714,7 +711,7 @@ class fMPS(object):
         return self.projection_error(H, dt) > threshold
 
     def expand(self, D_):
-        """expand - just pad with zeros and right canonicalise()"""
+        """expand - just pad with zeros"""
         from numpy import pad
         L, d, D = self.L, self.d, self.D
         for m, (sh, sh_) in enumerate(zip(self.structure(), self.create_structure(L, d, D_))):
@@ -1166,7 +1163,7 @@ class fMPS(object):
         else:
             return shapes
 
-    def tangent_space_basis(self, full=False):
+    def tangent_space_basis(self):
         """ return a tangent space basis
         """
         Qs = [eye(d1*d2)+1j*0 for d1, d2 in self.tangent_space_dims() if d1*d2 != 0]
@@ -1176,6 +1173,48 @@ class fMPS(object):
             return [ct([b1, zeros(d2)]) for b1 in basis1]+\
                    [ct([zeros(d1), b2]) for b2 in basis2]
         return array(reduce(direct_sum, Qs))
+
+    def invfreeH(self, n, H, fullH=False):
+        """invfreeH: H(n) from the inverse free algorithm. 
+                     Assume current mps is in correct canonical form
+        :param n:orthogonality centre
+        :param H:hamiltonian
+        """
+        A = self.data
+        left, right = self[:n], self[n+1:]
+        B = zeros((*self[n].shape, *self[n].shape))*1j
+        IS, IL, IR = eye(self[n].shape[0]), eye(self[n].shape[1]), eye(self[n].shape[2])
+        H = [h.reshape(2, 2, 2, 2) for h in H]
+        l, r = self.get_envs()
+        for m, h in reversed(list(enumerate(H))):
+            #if m<n-1:
+            #    C = ncon([h]+[A[m], A[m+1]], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
+            #    K = ncon([l(m-1)@A[m].conj(), A[m+1].conj()]+[C], [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]]) #AAHAA
+            #    L = self.right_transfer(K, m+2, n)
+            #    print('m<n-1', L(n).shape, IS.shape, IL.shape)
+            if m==n-1:
+                B += ncon([A[n-1], H[n-1], A[n-1].conj(), IR], [[4, 1, -2], [3, -4, 4, -1], [3, 1, -5], [-3, -6]])
+            if m==n:
+                B += ncon([IL, A[n+1], H[n], A[n+1].conj()], [[-5, -2], [4, -3, 1], [-4, 3, -1, 4], [3, -6, 1]])
+            if m>n:
+                C = ncon([h]+[A[m], A[m+1]], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
+                Kr = ncon([c(A[m]), c(A[m+1])]+[C], [[1, -2, 4], [2, 4, 3], [1, 2, -1, 3]])
+                R = self.left_transfer(Kr, n, m)
+                B += ncon([IL, IS, R(n)], [[-2, -5], [-1, -4], [-3, -6]])
+                print('m>n', IL.shape, IS.shape, R(n).shape)
+
+        return B
+
+    def invfreeK(self, n, H, fullH=False):
+        """invfreeK: K(n) from the inverse free algorithm.
+                     Assume current mps is in correct canonical form 
+
+        :param n: orthogonality centre
+        :param H: hamiltonian
+        """
+        H = self.invfreeH(n, H, fullH) 
+        Ac = self[n]
+        return ncon([H, Ac, Ac.conj()], [[1, 2, -2, 3, 4, -4], [1, 2, -1], [3, 4, -3]])
 
     def extract_tangent_vector(self, dA):
         """extract_tangent_vector from dA:
@@ -1986,6 +2025,29 @@ class TestfMPS(unittest.TestCase):
         mps.expand(2)
         self.assertTrue(mps.structure()==[(1, 2), (2, 2), (2, 1)])
 
+    def test_invfreeH_K(self):
+        """Hermitian H, K, get energy out if contracted etc."""
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
+
+        mps = self.mps_0_2
+        H = [Sz1@Sz2+Sx1+Sx2]
+        for n in range(mps.L):
+            k = mps.invfreeK(n, H)
+            h = mps.invfreeH(n, H)
+            self.assertTrue(allclose(mps.energy(H), re(ncon([k], [1, 1, 2, 2]))))
+            self.assertTrue(allclose(k,c(tra(k, [2, 3, 0, 1]))))
+            self.assertTrue(allclose(h,c(tra(h, [3, 4, 5, 0, 1, 2]))))
+
+        mps = self.mps_0_3
+        H = [Sz1@Sz2+Sx1]+ [Sz1@Sz2+Sx1+Sx2]
+        for n in range(mps.L):
+            #h = mps.invfreeH(n, H)
+            print(n)
+            k = mps.invfreeK(n, H)
+            self.assertTrue(allclose(mps.energy(H), re(ncon([k], [1, 1, 2, 2]))))
+            #self.assertTrue(allclose(k,c(tra(k, [2, 3, 0, 1]))))
+            #self.assertTrue(allclose(h,c(tra(h, [3, 4, 5, 0, 1, 2]))))
 
 class TestvfMPS(unittest.TestCase):
     """TestvfMPS"""
