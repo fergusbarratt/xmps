@@ -2,17 +2,16 @@ import unittest
 from time import time
 from fMPS import fMPS
 from ncon import ncon
-from numpy.linalg import det
+from numpy.linalg import det, qr
 from spin import N_body_spins, spins, comm, n_body
 from numpy import array, linspace, real as re, reshape, sum, swapaxes as sw
 from numpy import tensordot as td, squeeze, trace as tr, expand_dims as ed
 from numpy import load, isclose, allclose, zeros_like as zl, prod, imag as im
 from numpy import log, abs, diag, cumsum as cs, arange as ar, eye, kron as kr
 from numpy import cross, dot, kron, split, concatenate as ct, isnan, isinf
-from numpy import trace as tr
+from numpy import trace as tr, zeros, printoptions, tensordot, trace
 from numpy.random import randn
 from scipy.linalg import sqrtm, expm, norm, null_space as null, cholesky as ch
-from scipy.linalg import qr, rq
 from scipy.sparse.linalg import expm_multiply, expm
 from scipy.integrate import odeint, complex_ode as c_ode
 from scipy.integrate import ode, solve_ivp
@@ -63,40 +62,51 @@ class Trajectory(object):
     def invfree(self, mps, dt, H=None, store=True):
         H_ = self.H if H is None else H
 
+        if store:
+            self.mps_history.append(mps.serialize(real=True))
+
         def rect(x):
             shape = x.shape
             assert len(shape)%2==0
             return x.reshape(prod(shape[:len(shape)//2]), -1)
-        
-        if store:
-            self.mps_history.append(mps.serialize(real=True))
+
+        def H(n, mps): return rect(mps.invfreeH(n, H_))
+        def K(n, mps): return rect(mps.invfreeK(n, H_))
+        mps.right_canonicalise()
 
         #dt = dt/2
-        mps.right_canonicalise()
-        for n, _ in enumerate(mps.data):
-            def H(n): return rect(mps.invfreeH(n, H_))
-            Ac = (expm(-1j*H(n)*dt)@mps[n].reshape(-1)).reshape(mps[n].shape)
-            U, S, V = svd(Ac.reshape(-1, Ac.shape[-1]), full_matrices=False)
 
-            mps[n] = U.reshape(Ac.shape)
+        for n, _ in enumerate(mps.data):
+            l, r = mps.get_envs()
+
+            Ac = (expm(-1j*rect(H(n, mps))*dt)@(mps[n].reshape(-1))).reshape(mps[n].shape)
+            Al, s, V = svd(ct(Ac, 0), False)
+            mps[n] = array(split(Al, mps.d, axis=0))
 
             if n != mps.L-1:
-                def K(n): return rect(mps.invfreeK(n, H_))
-                C = (expm(1j*K(n)*dt)@C.reshape(-1)).reshape(C.shape)
+                #s = (expm(1j*rect(K(n, mps))*dt)@diag(s).reshape(-1)).reshape(diag(s).shape)
+                mps[n+1] = diag(s)@V@mps[n+1]
 
-                mps[n+1] = C@mps[n+1]
+            l, r = mps.get_envs()
+            print(n, re(ncon([l(1)@mps[2], mps[2].conj(), Sx], [[1, 2, 3], [4, 2, 3], [1, 4]])))
+            print('\n')
 
         #for n, _ in reversed(list(enumerate(mps.data))):
-        #    def H(n): return rect(mps.invfreeH(n, H_))
-        #    Ac = sw((expm(-1j*H(n)*dt)@mps[n].reshape(-1)).reshape(mps[n].shape), 0, 1) # aux, sp, aux
+        #    l, r = mps.get_envs()
+        #    print(n, re(ncon([l(1)@mps[2], mps[2].conj(), Sx], [[1, 2, 3], [4, 2, 3], [1, 4]])))
+        #    Ac = sw((expm(-1j*rect(H(n, mps))*dt)@mps[n].reshape(-1)).reshape(mps[n].shape), 0, 1) # aux, sp, aux
         #    U, S, V = svd(Ac.reshape(Ac.shape[0], -1), full_matrices=False)
         #    mps[n] = sw(V.reshape(Ac.shape), 0, 1) #sp, aux, aux
         #    C = U@diag(S)
 
         #    if n!=0:
-        #        def K(n): return rect(mps.invfreeK(n, H_))
-        #        C = (expm(1j*K(n-1)*dt)@C.reshape(-1)).reshape(C.shape)
+        #        print(re(eigvals(C.conj().T@C)))
+        #        C = (expm(1j*rect(K(n-1, mps))*dt)@C.reshape(-1)).reshape(C.shape)
         #        mps[n-1] = mps[n-1]@C
+        #        print(re(eigvals(C.conj().T@C)))
+        #    l, r = mps.get_envs()
+        #    print(n, re(ncon([l(1)@mps[2], mps[2].conj(), Sx], [[1, 2, 3], [4, 2, 3], [1, 4]])))
+        #    print('\n')
 
         return mps
 
@@ -129,7 +139,7 @@ class Trajectory(object):
     def invfreeint(self, T, D=None):
         """invfreeint: right_canonicalisation is important here
         """
-        mps, H = self.mps.right_canonicalise(), self.H
+        mps, H = self.mps, self.H
         L, d, D = mps.L, mps.d, mps.D
 
         for t in tqdm(T):
@@ -301,12 +311,11 @@ class TestTrajectory(unittest.TestCase):
 
         test_3 = True
         if test_3:
-            dt, t_fin = 2.5e-2, 10
+            dt, t_fin = 1e-1, 4
             T = linspace(0, t_fin, int(t_fin//dt)+1)
 
-            mps_0 = self.mps_0_3
-
-            H = [Sx2]+[eye(4)]
+            mps_0 = self.mps_0_3.right_canonicalise()
+            H = [Sz1@Sz2+Sx1+Sx2] + [eye(4)]
             F = Trajectory(mps_0, H)
 
             Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 3)
@@ -314,18 +323,18 @@ class TestTrajectory(unittest.TestCase):
             Sx3, Sy3, Sz3 = N_body_spins(0.5, 3, 3)
 
 
-            A = F.edint(T).ed_evs([Sx1, Sy1, Sz1])
-            F.clear()
-            B = F.eulerint(T).mps_evs([Sx, Sy, Sz], 0)
-            F.clear()
+            #B = F.eulerint(T).mps_evs([Sx, Sy, Sz], 1)
+            #F.clear()
             #C = F.rk4int(T).mps_evs([Sx, Sy, Sz], 0)
             #F.clear()
-            D = F.invfreeint(T).mps_evs([Sx, Sy, Sz], 0)
+            D = F.invfreeint(T).mps_evs([Sx, Sy, Sz], 2)
+            F.clear()
+            A = F.edint(T).ed_evs([Sx3, Sy3, Sz3])
 
             fig, ax = plt.subplots(2, 1, sharey=True, sharex=True)
             ax[0].set_ylim([-1, 1])
             ax[0].plot(T, A)
-            ax[0].plot(T, B)
+            #ax[0].plot(T, B)
             #ax[0].plot(T, C)
 
             ax[1].plot(T, D)

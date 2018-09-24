@@ -1181,17 +1181,16 @@ class fMPS(object):
         :param H:hamiltonian
         """
         A = self.data
-        left, right = self[:n], self[n+1:]
         B = zeros((*self[n].shape, *self[n].shape))*1j
         IS, IL, IR = eye(self[n].shape[0]), eye(self[n].shape[1]), eye(self[n].shape[2])
         H = [h.reshape(2, 2, 2, 2) for h in H]
-        l, r = self.get_envs()
         for m, h in reversed(list(enumerate(H))):
-            #if m<n-1:
-            #    C = ncon([h]+[A[m], A[m+1]], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
-            #    K = ncon([l(m-1)@A[m].conj(), A[m+1].conj()]+[C], [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]]) #AAHAA
-            #    L = self.right_transfer(K, m+2, n)
-            #    print('m<n-1', L(n).shape, IS.shape, IL.shape)
+            if m<n-1:
+                C = ncon([h]+[A[m], A[m+1]], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
+                K = ncon([A[m].conj(), A[m+1].conj()]+[C], [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]]) #AAHAA
+                L = self.right_transfer(K, m+1, n)
+                x = ncon([L(n), IS, IR], [[-2, -5], [-1, -4], [-3, -6]])
+                B+=x
             if m==n-1:
                 B += ncon([A[n-1], H[n-1], A[n-1].conj(), IR], [[4, 1, -2], [3, -4, 4, -1], [3, 1, -5], [-3, -6]])
             if m==n:
@@ -1199,9 +1198,8 @@ class fMPS(object):
             if m>n:
                 C = ncon([h]+[A[m], A[m+1]], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
                 Kr = ncon([c(A[m]), c(A[m+1])]+[C], [[1, -2, 4], [2, 4, 3], [1, 2, -1, 3]])
-                R = self.left_transfer(Kr, n, m)
-                B += ncon([IL, IS, R(n)], [[-2, -5], [-1, -4], [-3, -6]])
-                print('m>n', IL.shape, IS.shape, R(n).shape)
+                R = self.left_transfer(Kr, n+1, m)
+                B += ncon([IL, IS, R(n+1)], [[-2, -5], [-1, -4], [-3, -6]])
 
         return B
 
@@ -2042,12 +2040,42 @@ class TestfMPS(unittest.TestCase):
         mps = self.mps_0_3
         H = [Sz1@Sz2+Sx1]+ [Sz1@Sz2+Sx1+Sx2]
         for n in range(mps.L):
-            #h = mps.invfreeH(n, H)
-            print(n)
+            h = mps.invfreeH(n, H)
+            mps.mixed_canonicalise(n)
             k = mps.invfreeK(n, H)
             self.assertTrue(allclose(mps.energy(H), re(ncon([k], [1, 1, 2, 2]))))
-            #self.assertTrue(allclose(k,c(tra(k, [2, 3, 0, 1]))))
-            #self.assertTrue(allclose(h,c(tra(h, [3, 4, 5, 0, 1, 2]))))
+            self.assertTrue(allclose(k,c(tra(k, [2, 3, 0, 1]))))
+            self.assertTrue(allclose(h,c(tra(h, [3, 4, 5, 0, 1, 2]))))
+
+        mps = self.mps_0_4
+        H = [Sz1@Sz2+Sx1]+[Sz1@Sz2+Sx1+Sx2]+[Sz1@Sz2+Sx1+Sx2]
+        for n in range(mps.L):
+            h = mps.invfreeH(n, H)
+            mps.mixed_canonicalise(n)
+            k = mps.invfreeK(n, H)
+            self.assertTrue(allclose(mps.energy(H), re(ncon([k], [1, 1, 2, 2]))))
+            self.assertTrue(allclose(k,c(tra(k, [2, 3, 0, 1]))))
+            self.assertTrue(allclose(h,c(tra(h, [3, 4, 5, 0, 1, 2]))))
+
+        mps = self.mps_0_5
+        H = [Sz1@Sz2+Sx1]+[Sz1@Sz2+Sx1+Sx2]+[Sz1@Sz2+Sx1+Sx2]+[Sz1@Sz2+Sx1+Sx2]
+        for n in range(mps.L):
+            h = mps.invfreeH(n, H)
+            mps.mixed_canonicalise(n)
+            k = mps.invfreeK(n, H)
+            self.assertTrue(allclose(mps.energy(H), re(ncon([k], [1, 1, 2, 2]))))
+            self.assertTrue(allclose(k,c(tra(k, [2, 3, 0, 1]))))
+            self.assertTrue(allclose(h,c(tra(h, [3, 4, 5, 0, 1, 2]))))
+
+        mps = self.mps_0_6
+        H = [Sz1@Sz2+Sx1]+[Sz1@Sz2+Sx1+Sx2]+[Sz1@Sz2+Sx1+Sx2]+[Sz1@Sz2+Sx1+Sx2]+[Sz1@Sz2+Sx1+Sx2]
+        for n in range(mps.L):
+            h = mps.invfreeH(n, H)
+            mps.mixed_canonicalise(n)
+            k = mps.invfreeK(n, H)
+            self.assertTrue(allclose(mps.energy(H), re(ncon([k], [1, 1, 2, 2]))))
+            self.assertTrue(allclose(k,c(tra(k, [2, 3, 0, 1]))))
+            self.assertTrue(allclose(h,c(tra(h, [3, 4, 5, 0, 1, 2]))))
 
 class TestvfMPS(unittest.TestCase):
     """TestvfMPS"""
