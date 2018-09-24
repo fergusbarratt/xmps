@@ -29,13 +29,14 @@ mps = fMPS().left_from_state(mat)
 
 T = linspace(0, 30, 200)
 
-ops = Sz3, Sz5
+ops = Sz1, Sz7
 otocs = Trajectory(mps, fullH, fullH=True).OTOC(T, ops)
 
-fig, ax = plt.subplots(4, 1, sharex=True)
+fig, ax = plt.subplots(3, 1, sharex=True)
+ax[0].set_title('$Sz^1, Sz^7, L=7$', loc='right')
 ax[0].plot(T, otocs)
 ax[1].plot(T, log(otocs))
 ax[2].plot(T[:-1], numdiff(log(array(otocs)), T))
-ax[3].plot(T[:-2], numdiff(numdiff(log(array(otocs)), T), T[:-1]))
-ax[3].set_ylim([-200, 100])
+fig.tight_layout()
+fig.savefig('images/Sz1Sz7.pdf', bbox_inches='tight')
 plt.show()

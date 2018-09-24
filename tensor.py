@@ -53,7 +53,7 @@ def C(tensor):
     """
     return tensor.conj()
 
-def truncate_A(A, S, V, D):
+def truncate_A(A, S, V, D, minD=True):
     """truncate: truncate A, S, V to D. Ditch all zero diagonals
 
     :param A: SVD U matrix reshaped
@@ -62,14 +62,17 @@ def truncate_A(A, S, V, D):
     :param D: Bond dimension to truncate to
     """
     if D is None:
-        D = rank(S)
+        if minD:
+            D = rank(S)
+        else:
+            return (U, S, B)
 
     A = A[:, :, :D]
     S = S[:D, :D]
     V = V[:D, :]
     return (A, S, V)
 
-def truncate_B(U, S, B, D):
+def truncate_B(U, S, B, D, minD=True):
     """truncate: truncate U, S, B to D. Ditch all zero diagonals
 
     :param U: SVD U matrix
@@ -78,12 +81,12 @@ def truncate_B(U, S, B, D):
     :param D: Bond dimension to truncate to
     """
     if D is None:
-        D = rank(S)
+        if minD:
+            D = rank(S)
+        else:
+            return (U, S, B)
 
-    U = U[:, :D]
-    S = S[:D, :D]
-    B = B[:, :D, :]
-    return (U, S, B)
+    return (U[:, :D], S[:D, :D], B[:, :D, :])
 
 def tr_svd(A, D):
     U, s, V = svd(A, full_matrices=False)

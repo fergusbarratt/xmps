@@ -28,7 +28,6 @@ Sx, Sy, Sz = 2*Sx, 2*Sy, 2*Sz
 from ncon import ncon as ncon
 #def ncon(*args): return nc(*args, check_indices=False)
 
-
 class fMPS(object):
     """finite MPS:
     lists of numpy arrays (1d) of numpy arrays (2d). Finite"""
@@ -240,7 +239,7 @@ class fMPS(object):
                         transpose(left[::-1])
         return structure
 
-    def right_canonicalise(self, D=None, testing=False, sweep_back=True):
+    def right_canonicalise(self, D=None, testing=False, sweep_back=True, minD=True):
         """right_canonicalise: bring internal fMPS to right canonical form,
         potentially with a truncation
 
@@ -262,10 +261,10 @@ class fMPS(object):
 
         # left sweep
         for m in range(len(self.data))[::-1]:
-            U, S, B = split(concatenate(self.data[m], axis=1))
-            U, S, self.data[m] = truncate_B(U, S, B, D)
+            U, S, B = split(concatenate(self[m], axis=1))
+            U, S, self[m] = truncate_B(U, S, B, D, minD)
             if m-1 >= 0:
-                self.data[m-1] = tensordot(self.data[m-1], dot(U, S), (-1, 0))
+                self[m-1] = self[m-1]@U@S
 
         if sweep_back:
             # right sweep
@@ -310,7 +309,7 @@ class fMPS(object):
 
         return self
 
-    def left_canonicalise(self, D=None, testing=False, sweep_back=True):
+    def left_canonicalise(self, D=None, testing=False, sweep_back=True, minD=True):
         """left_canonicalise: bring internal fMPS to left canonical form,
         potentially with a truncation
 
@@ -333,7 +332,7 @@ class fMPS(object):
         for m in range(len(self.data)):
             # sort out canonicalisation
             A, S, V = split(concatenate(self.data[m], axis=0))
-            self.data[m], S, V = truncate_A(A, S, V, D)
+            self.data[m], S, V = truncate_A(A, S, V, D, minD)
             if m+1 < len(self.data):
                 self.data[m+1] = swapaxes(tensordot(dot(S, V),
                                           self.data[m+1], (-1, 1)), 0, 1)
@@ -404,11 +403,9 @@ class fMPS(object):
         for m in range(len(self.data))[:oc]:
             # sort out canonicalisation
             A, S, V = split(concatenate(self.data[m], axis=0))
-            self.data[m], S, V = truncate_A(A, S, V, D)
+            self.data[m], S, V = truncate_A(A, S, V, D, minD)
             if m+1 < len(self.data):
-                self.data[m+1] = swapaxes(tensordot(dot(S, V),
-                                                    self.data[m+1],
-                                                    (-1, 1)), 0, 1)
+                self[m+1] = S@V@self[m+1]
 
         if testing:
             self.ok = self.ok and is_left_canonical(self.data[:oc])\
@@ -2046,8 +2043,8 @@ class TestfMPS(unittest.TestCase):
         mps = self.mps_0_2
         H = [Sz1@Sz2+Sx1+Sx2]
         for n in range(mps.L):
-            k = mps.invfreeK(n, H)
-            h = mps.invfreeH(n, H)
+            k = mps.invfreeK(n, H, False)
+            h = mps.invfreeH(n, H, False)
             self.assertTrue(allclose(mps.energy(H), re(ncon([k], [1, 1, 2, 2]))))
             self.assertTrue(allclose(k,c(tra(k, [2, 3, 0, 1]))))
             self.assertTrue(allclose(h,c(tra(h, [3, 4, 5, 0, 1, 2]))))
