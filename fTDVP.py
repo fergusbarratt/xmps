@@ -16,6 +16,7 @@ from scipy.sparse.linalg import expm_multiply, expm
 from scipy.integrate import odeint, complex_ode as c_ode
 from scipy.integrate import ode, solve_ivp
 from numpy.linalg import inv, svd
+from exp import expm_lanczos
 import numpy as np
 from tensor import get_null_space, H as cT, C as c
 from matplotlib import pyplot as plt
@@ -70,27 +71,30 @@ class Trajectory(object):
             assert len(shape)%2==0
             return x.reshape(prod(shape[:len(shape)//2]), -1)
 
-        def H(n, mps): return rect(mps.invfreeH(n, H_))
-        def K(n, mps): return rect(mps.invfreeK(n, H_))
+        def H(n, mps): return mps.invfreeH(n, H_)
+        def K(n, mps): return mps.invfreeK(n, H_)
         mps.right_canonicalise()
 
         #dt = dt/2
 
         for n, _ in enumerate(mps.data):
             l, r = mps.get_envs()
+            print(n, re(ncon([l(1)@mps[2], mps[2].conj(), Sz], [[1, 2, 3], [4, 2, 3], [1, 4]])))
 
-            Ac = (expm(-1j*rect(H(n, mps))*dt)@(mps[n].reshape(-1))).reshape(mps[n].shape)
+            Ac = expm_lanczos(-1j*H(n, mps), mps[n].reshape(-1), dt, 20).reshape(mps[n].shape)
+            #Ac = (expm(-1j*rect(H(n, mps)*dt))@mps[n].reshape(-1)).reshape(mps[n].shape)
             Al, s, V = svd(ct(Ac, 0), False)
             mps[n] = array(split(Al, mps.d, axis=0))
 
             if n != mps.L-1:
+                s = expm_lanczos(-1j*K(n, mps), diag(s).reshape(-1), -dt, 20).reshape(diag(s).shape)
                 #s = (expm(1j*rect(K(n, mps))*dt)@diag(s).reshape(-1)).reshape(diag(s).shape)
-                mps[n+1] = diag(s)@V@mps[n+1]
+                mps[n+1] = s@V@mps[n+1]
 
             l, r = mps.get_envs()
-            print(n, re(ncon([l(1)@mps[2], mps[2].conj(), Sx], [[1, 2, 3], [4, 2, 3], [1, 4]])))
+            print(n, re(ncon([l(1)@mps[2], mps[2].conj(), Sz], [[1, 2, 3], [4, 2, 3], [1, 4]])))
             print('\n')
-
+        raise Exception
         #for n, _ in reversed(list(enumerate(mps.data))):
         #    l, r = mps.get_envs()
         #    print(n, re(ncon([l(1)@mps[2], mps[2].conj(), Sx], [[1, 2, 3], [4, 2, 3], [1, 4]])))
@@ -259,6 +263,8 @@ class Trajectory(object):
         self.mps = self.mps_0.copy()
 
 
+
+
 class TestTrajectory(unittest.TestCase):
     """TestF"""
     def setUp(self):
@@ -315,7 +321,7 @@ class TestTrajectory(unittest.TestCase):
             T = linspace(0, t_fin, int(t_fin//dt)+1)
 
             mps_0 = self.mps_0_3.right_canonicalise()
-            H = [Sz1@Sz2+Sx1+Sx2] + [eye(4)]
+            H = [Sx2] + [eye(4)]
             F = Trajectory(mps_0, H)
 
             Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 3)

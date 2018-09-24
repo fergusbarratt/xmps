@@ -1174,7 +1174,7 @@ class fMPS(object):
                    [ct([zeros(d1), b2]) for b2 in basis2]
         return array(reduce(direct_sum, Qs))
 
-    def invfreeH(self, n, H, fullH=False):
+    def invfreeH(self, n, H, fullH=False, op=True):
         """invfreeH: H(n) from the inverse free algorithm. 
                      Assume current mps is in correct canonical form
         :param n:orthogonality centre
@@ -1200,19 +1200,34 @@ class fMPS(object):
                 Kr = ncon([c(A[m]), c(A[m+1])]+[C], [[1, -2, 4], [2, 4, 3], [1, 2, -1, 3]])
                 R = self.left_transfer(Kr, n+1, m)
                 B += ncon([IL, IS, R(n+1)], [[-2, -5], [-1, -4], [-3, -6]])
+        if not op:
+            return B
 
-        return B
+        def mv(v):
+            v = v.reshape(self[n].shape)
+            v_out = ncon([B, v], [[-1, -2, -3, 1, 2, 3], [1, 2, 3]])
+            return v_out.reshape(-1)
 
-    def invfreeK(self, n, H, fullH=False):
+        return LinearOperator(shape=(prod(self[n].shape), prod(self[n].shape)), matvec=mv)
+
+    def invfreeK(self, n, H, fullH=False, op=True):
         """invfreeK: K(n) from the inverse free algorithm.
                      Assume current mps is in correct canonical form 
 
         :param n: orthogonality centre
         :param H: hamiltonian
         """
-        H = self.invfreeH(n, H, fullH) 
+        H = self.invfreeH(n, H, fullH, op=False) 
         Ac = self[n]
-        return ncon([H, Ac, Ac.conj()], [[1, 2, -2, 3, 4, -4], [1, 2, -1], [3, 4, -3]])
+        B = ncon([H, Ac, Ac.conj()], [[1, 2, -2, 3, 4, -4], [1, 2, -1], [3, 4, -3]])
+        if not op:
+            return B
+        def mv(v):
+            v = v.reshape(self[n].shape[-1], self[n+1].shape[1])
+            v_out = ncon([B, v], [[-1, -2, 1, 2], [1, 2]])
+            return v_out.reshape(-1)
+
+        return LinearOperator(shape=(self[n].shape[-1]*self[n+1].shape[1], self[n].shape[-1]*self[n+1].shape[1]), matvec=mv)
 
     def extract_tangent_vector(self, dA):
         """extract_tangent_vector from dA:
