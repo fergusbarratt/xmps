@@ -94,7 +94,6 @@ class Trajectory(object):
             l, r = mps.get_envs()
             print(n, re(ncon([l(1)@mps[2], mps[2].conj(), Sz], [[1, 2, 3], [4, 2, 3], [1, 4]])))
             print('\n')
-        raise Exception
         #for n, _ in reversed(list(enumerate(mps.data))):
         #    l, r = mps.get_envs()
         #    print(n, re(ncon([l(1)@mps[2], mps[2].conj(), Sx], [[1, 2, 3], [4, 2, 3], [1, 4]])))
@@ -213,39 +212,46 @@ class Trajectory(object):
         self.psi = self.ed_history[-1]
         return self
 
-    def lyapunov(self, T, D=None):
+    def lyapunov(self, T, D=None, just_max=False):
         H = self.H
         self.mps = self.mps.grow(self.H, 0.1, D).right_canonicalise()
-        self.invfreeint(0, 1, 0.1)
+        self.rk4int(linspace(0, 0.5, 50))
 
         l, r = self.mps.get_envs()
         Q = kron(eye(2), self.mps.tangent_space_basis())
+        if just_max:
+            q = Q[0]
         dt = T[1]-T[0]
         e = []
         lys = []
         calc = False
         for t in tqdm(range(1, len(T)+1)):
             J = self.mps.jac(H)
-            M = expm_multiply(J*dt, Q)
-            if(sum(isnan(M))>0):
-                raise Exception
-            Q, R = qr(M)
-            lys.append(log(abs(diag(R))))
+            if just_max:
+                q = expm_multiply(J*dt, Q)
+                lys.append(log(abs(norm(q))))
+                q /= norm(q)
+            else:
+                M = expm_multiply(J*dt, Q)
+                if(sum(isnan(M))>0):
+                    raise Exception
+                Q, R = qr(M)
+                lys.append(log(abs(diag(R))))
 
             self.mps = self.rk4(self.mps, dt, H).left_canonicalise()
         exps = (1/(dt))*cs(array(lys), axis=0)/ed(ar(1, len(lys)+1), 1)
         return exps, array(lys)
 
-    def OTOC(self, T, op):
+    def OTOC(self, T, ops):
+        V, W = ops
         psi_0 = self.mps.recombine().reshape(-1)
         H = self.H
         dt = T[1]-T[0]
         Ws = []
         for t in T:
             U = expm(-1j*H*t)
-            W_0 = op
-            W_t = cT(U)@op@U
-            Ws.append(-re(c(psi_0)@comm(W_t, W_0)@comm(W_t, W_0)@psi_0))
+            Wt = cT(U)@W@U
+            Ws.append(-re(c(psi_0)@comm(Wt, V)@comm(Wt, V)@psi_0))
         return Ws
 
     def mps_evs(self, ops, site):
@@ -261,9 +267,6 @@ class Trajectory(object):
     def clear(self):
         self.mps_history = []
         self.mps = self.mps_0.copy()
-
-
-
 
 class TestTrajectory(unittest.TestCase):
     """TestF"""
