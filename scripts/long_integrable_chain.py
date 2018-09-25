@@ -16,24 +16,24 @@ Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
 
 Sx, Sy, Sz = spins(0.5)
 
-L = 4 
+L = 8 
 bulkH =Sz12@Sz22+Sx12+Sx22
 H_i = [Sz12@Sz22+Sx12] + [bulkH for _ in range(L-3)] + [Sz12@Sz22+Sx22]
 H = [H_i[0]+Sz12]+[H_i[i]+Sz12+Sz22 for i in range(1, L-2)]+[H_i[-1]+Sz22]
 W = L*[MPO_TFI(0, 0.25, 0.5, 0.5)]
 
-dt = 1e-2
-t_fin = 10
+dt = 5e-3
+t_fin = 100 
 T = linspace(0, t_fin, int(t_fin//dt)+1)
 
 psi_0 = load('fixtures/mat{}x{}.npy'.format(L,L))
 mps = fMPS().left_from_state(psi_0).right_canonicalise(1)
-Ds = [2]
+Ds = [2, 3, 4, 5, 6]
 for D in Ds:
-    exps, _ = Trajectory(mps, H=H, W=W).lyapunov(T, D, False)
+    exps, _ = Trajectory(mps, H=H, W=W).lyapunov(T, D, True, m=5)
     save('data/lyapunovs_L{}_D{}_t{}'.format(L, D, t_fin), exps)
     plt.plot(exps)
-    plt.show()
+    plt.savefig('images/max_l_L{}_D{}_t{}.pdf'.format(L, D, t_fin), bbox_inches='tight')
 
 #Ds = [1, 2, 3, 4]
 #exps_D = []

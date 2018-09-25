@@ -23,11 +23,13 @@ from itertools import product
 from scipy.sparse.linalg import LinearOperator, aslinearoperator
 import cProfile
 from time import time
+from numba import jit
 Sx, Sy, Sz = spins(0.5)
 Sx, Sy, Sz = 2*Sx, 2*Sy, 2*Sz
 
 from ncon import ncon as ncon
 #def ncon(*args): return nc(*args, check_indices=False)
+
 
 class fMPS(object):
     """finite MPS:
@@ -1713,73 +1715,6 @@ class TestfMPS(unittest.TestCase):
         listH = [Sz12@Sz22+Sx12, Sz12@Sz22+Sx12+Sx22, Sz12@Sz22+Sx22]
         fullH = Sz1@Sz2+Sz2@Sz3+Sz3@Sz4+Sx1+Sx2+Sx3+Sx4
         self.assertTrue(isclose(mps.energy(listH, fullH=False), mps.energy(fullH, fullH=True)))
-
-    def test_profile_dA_dt(self):
-        """test_profile_dA_dt: profile dA_dt: """
-        #list hamiltonian slower until L~6
-        # ~10s for 100 sites D=10
-        d, L = 2, 10
-        mps = fMPS().random(L, d, 10)
-        listH = [randn(4, 4)+1j*randn(4, 4) for _ in range(L-1)]
-        listH = [h+h.conj().T for h in listH]
-        #print('')
-        t1 = time()
-        B = mps.dA_dt(listH, fullH=False)
-        t2 = time()
-        #print('ser, list: ', t2-t1)
-        if L<9:
-            H = randn(d**L, d**L)+1j*randn(d**L, d**L)
-            fullH = H+H.conj().T
-            t1 = time()
-            B = mps.dA_dt(listH, fullH=False, par=True)
-            t2 = time()
-           # print('par, list: ', t2-t1)
-            t1 = time()
-            B = mps.dA_dt(fullH, fullH=True)
-            t2 = time()
-            #print('ser, full: ', t2-t1)
-            t1 = time()
-            B = mps.dA_dt(fullH, fullH=True, par=True)
-            t2 = time()
-            #print('par, full: ', t2-t1)
-
-    def test_profile_F2_F1_christoffel(self):
-        Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
-        Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
-        L = 20
-        mps = fMPS().random(L, 2, 30).left_canonicalise()
-        H = [Sz12@Sz22+Sx12] +[Sz12@Sz22+Sx12+Sx22 for _ in range(L-3)]+[Sz12@Sz22+Sx22]
-        dA_dt = mps.dA_dt(H)
-        l, r = mps.l, mps.r
-
-        T = []
-        k = L-3
-        mps.F1(k, k, H, envs=(l, r))
-        #cProfile.runctx('mps.F1(k, k, H, envs=(l, r))', {'mps':mps, 'H':H, 'l':l, 'r':r, 'k':k}, {}, sort='cumtime')
-        #t1 = time()
-        #for i, j in product(range(L), range(L)):
-        #    mps.F1(i, j, H, envs=(l, r))
-        #t2 = time()
-        #print('\nF1: ', t2-t1)
-        #t1 = time()
-        #for i, j in product(range(L), range(L)):
-        #    mps.F2(i, j, H, envs=(l, r))
-        #t2 = time()
-        #print('F2: ', t2-t1)
-        #t1 = time()
-        #for i, k in product(range(L), range(L)):
-        #    td(mps.christoffel(i, k, min(i, k), envs=(l, r)), l(min(i, k)-1)@dA_dt[min(i, k)]@r(min(i, k)), [[6, 7, 8], [0, 1, 2]])
-        #t2 = time()
-        #print('Γ2: ', t2-t1)
-
-    def test_profile_jac(self):
-        Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
-        Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
-        L = 7
-        mps = fMPS().random(L, 2, 40).left_canonicalise()
-        H = [Sz12@Sz22+Sx12] +[Sz12@Sz22+Sx12+Sx22 for _ in range(L-3)]+[Sz12@Sz22+Sx22]
-        J = mps.jac(H)
-        #cProfile.runctx('mps.jac(H)', {'mps':mps, 'H':H}, {}, sort='cumtime')
 
     def test_F2_F1(self):
         '''<d_id_j ψ|H|ψ>, <d_iψ|H|d_jψ>'''

@@ -212,8 +212,10 @@ class Trajectory(object):
                 self.mps = self.invfree(self.mps, dt, H)
             else:
                 self.mps = self.rk4(self.mps, dt, H).left_canonicalise()
-
-        exps = (1/(dt))*cs(array(lys), axis=0)/ed(ar(1, len(lys)+1), 1)
+        if just_max:
+            exps = (1/(dt))*cs(array(lys), axis=0)/ar(1, len(lys)+1)
+        else:
+            exps = (1/(dt))*cs(array(lys), axis=0)/ed(ar(1, len(lys)+1), 1)
         return exps, array(lys)
 
     def ed_OTOC(self, T, ops):
@@ -249,7 +251,6 @@ class Trajectory(object):
         n2_0 = psi_2.norm_
         T = ct([[0], T])
         for t1, t2 in zip(T, T[1:]):
-            print(int((t2-t1)/dt))
             for _ in linspace(t1, t2, int((t2-t1)/dt)):
                 psi_1 = self.invfree(psi_1, dt)
                 psi_2 = self.invfree(psi_2, dt)
