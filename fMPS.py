@@ -2,7 +2,7 @@ import unittest
 from spin import n_body, N_body_spins, spins
 from numpy.random import rand, randint, randn
 from numpy.linalg import svd, inv, norm, cholesky as ch
-from scipy.linalg import null_space as null, expm#, sqrtm as ch
+from scipy.linalg import null_space as null, orth, expm#, sqrtm as ch
 from numpy import array, concatenate, diag, dot, allclose, isclose, swapaxes as sw
 from numpy import identity, swapaxes, trace, tensordot, sum, prod
 from numpy import real as re, stack as st, concatenate as ct
@@ -256,7 +256,7 @@ class fMPS(object):
 
             :param M: matrices
             """
-            (U, S, B) = svd(M, full_matrices=False)
+            (U, S, B) = svd(M)
             return (U, diag(S), array(chop(B, self.d, axis=1)))
 
         # left sweep
@@ -321,21 +321,23 @@ class fMPS(object):
 
         self.ok = True
 
+        self.tangent_space_basis = []
         def split(M):
             """split: Do SVD and reshape A matrix
 
             :param M: matrix
             """
-            (A, S, V) = svd(M, full_matrices=False)
+            (u, S, v) = svd(M)
+            A = u[:, :len(S)]
+            V = v[:len(S), :]
+            o = u[:, len(S):]
             return (array(chop(A, self.d, axis=0)), diag(S), V)
-
         for m in range(len(self.data)):
             # sort out canonicalisation
             A, S, V = split(concatenate(self.data[m], axis=0))
             self.data[m], S, V = truncate_A(A, S, V, D, minD)
             if m+1 < len(self.data):
-                self.data[m+1] = swapaxes(tensordot(dot(S, V),
-                                          self.data[m+1], (-1, 1)), 0, 1)
+                self[m+1] = S@V@self[m+1]
 
         if sweep_back:
             Ls = [None]*self.L
@@ -403,7 +405,7 @@ class fMPS(object):
         for m in range(len(self.data))[:oc]:
             # sort out canonicalisation
             A, S, V = split(concatenate(self.data[m], axis=0))
-            self.data[m], S, V = truncate_A(A, S, V, D, minD)
+            self.data[m], S, V = truncate_A(A, S, V, D)
             if m+1 < len(self.data):
                 self[m+1] = S@V@self[m+1]
 
@@ -1160,10 +1162,15 @@ class fMPS(object):
         else:
             return shapes
 
-    def tangent_space_basis(self):
+    def tangent_space_basis(self, type='rand'):
         """ return a tangent space basis
         """
-        Qs = [eye(d1*d2)+1j*0 for d1, d2 in self.tangent_space_dims() if d1*d2 != 0]
+        if type=='rand':
+            Qs = [orth(randn(d1*d2, d1*d2)+1j*randn(d1*d2, d1*d2)) 
+                  for d1, d2 in self.tangent_space_dims() if d1*d2 != 0]
+        elif type=='eye':
+            Qs = [eye(d1*d2)+1j*0
+                  for d1, d2 in self.tangent_space_dims() if d1*d2 != 0]
         def direct_sum(basis1, basis2):
             d1 = len(basis1[0])
             d2 = len(basis2[0])

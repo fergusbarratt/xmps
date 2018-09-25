@@ -60,59 +60,6 @@ class Trajectory(object):
 
         return (mps+(k1+2*k2+2*k3+k4)/6).left_canonicalise()
 
-    def invfree(self, mps, dt, H=None, store=True):
-        H_ = self.H if H is None else H
-
-        if store:
-            self.mps_history.append(mps.serialize(real=True))
-
-        def rect(x):
-            shape = x.shape
-            assert len(shape)%2==0
-            return x.reshape(prod(shape[:len(shape)//2]), -1)
-
-        def H(n, mps): return mps.invfreeH(n, H_)
-        def K(n, mps): return mps.invfreeK(n, H_)
-        mps.right_canonicalise()
-
-        #dt = dt/2
-
-        for n, _ in enumerate(mps.data):
-            l, r = mps.get_envs()
-            print(n, re(ncon([l(1)@mps[2], mps[2].conj(), Sz], [[1, 2, 3], [4, 2, 3], [1, 4]])))
-
-            Ac = expm_lanczos(-1j*H(n, mps), mps[n].reshape(-1), dt, 20).reshape(mps[n].shape)
-            #Ac = (expm(-1j*rect(H(n, mps)*dt))@mps[n].reshape(-1)).reshape(mps[n].shape)
-            Al, s, V = svd(ct(Ac, 0), False)
-            mps[n] = array(split(Al, mps.d, axis=0))
-
-            if n != mps.L-1:
-                s = expm_lanczos(-1j*K(n, mps), diag(s).reshape(-1), -dt, 20).reshape(diag(s).shape)
-                #s = (expm(1j*rect(K(n, mps))*dt)@diag(s).reshape(-1)).reshape(diag(s).shape)
-                mps[n+1] = s@V@mps[n+1]
-
-            l, r = mps.get_envs()
-            print(n, re(ncon([l(1)@mps[2], mps[2].conj(), Sz], [[1, 2, 3], [4, 2, 3], [1, 4]])))
-            print('\n')
-        #for n, _ in reversed(list(enumerate(mps.data))):
-        #    l, r = mps.get_envs()
-        #    print(n, re(ncon([l(1)@mps[2], mps[2].conj(), Sx], [[1, 2, 3], [4, 2, 3], [1, 4]])))
-        #    Ac = sw((expm(-1j*rect(H(n, mps))*dt)@mps[n].reshape(-1)).reshape(mps[n].shape), 0, 1) # aux, sp, aux
-        #    U, S, V = svd(Ac.reshape(Ac.shape[0], -1), full_matrices=False)
-        #    mps[n] = sw(V.reshape(Ac.shape), 0, 1) #sp, aux, aux
-        #    C = U@diag(S)
-
-        #    if n!=0:
-        #        print(re(eigvals(C.conj().T@C)))
-        #        C = (expm(1j*rect(K(n-1, mps))*dt)@C.reshape(-1)).reshape(C.shape)
-        #        mps[n-1] = mps[n-1]@C
-        #        print(re(eigvals(C.conj().T@C)))
-        #    l, r = mps.get_envs()
-        #    print(n, re(ncon([l(1)@mps[2], mps[2].conj(), Sx], [[1, 2, 3], [4, 2, 3], [1, 4]])))
-        #    print('\n')
-
-        return mps
-
     def eulerint(self, T):
         """eulerint: integrate with euler time steps
 

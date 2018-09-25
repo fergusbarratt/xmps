@@ -15,18 +15,18 @@ Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
 
 Sx, Sy, Sz = spins(0.5)
 
-L = 9 
+L = 4 
 bulkH =Sz12@Sz22+Sx12+Sx22
 H_i = [Sz12@Sz22+Sx12] + [bulkH for _ in range(L-3)] + [Sz12@Sz22+Sx22]
 H = [H_i[0]+Sz12]+[H_i[i]+Sz12+Sz22 for i in range(1, L-2)]+[H_i[-1]+Sz22]
 
 dt = 1e-2
-N = 2000
+N = 5000
 T = linspace(0, N*dt, N)
 
 psi_0 = load('fixtures/mat{}x{}.npy'.format(L,L))
 mps = fMPS().left_from_state(psi_0).right_canonicalise(1)
-Ds = [3]
+Ds = [1]
 for D in Ds:
     exps, _ = Trajectory(mps, H).lyapunov(T, D, False)
     plt.plot(exps)
