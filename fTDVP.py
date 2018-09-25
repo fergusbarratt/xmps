@@ -175,14 +175,16 @@ class Trajectory(object):
 
     def lyapunov(self, T, D=None, just_max=False):
         H = self.H
-        self.mps = self.mps.grow(self.H, 0.1, D).right_canonicalise()
+        if D is not None:
+            print('growing: ')
+            self.mps = self.mps.grow(self.H, 0.1, D).right_canonicalise()
         if hasattr(self, 'W') and self.mps.D!=1 and D!=1:
             self.invfreeint(linspace(0, 0.5, 50))
         else:
             self.rk4int(linspace(0, 0.5, 50))
 
         l, r = self.mps.get_envs()
-        Q = kron(eye(2), self.mps.tangent_space_basis())
+        Q = kron(eye(2), self.mps.tangent_space_basis(type='eye'))
         if just_max:
             q = Q[0]
         dt = T[1]-T[0]
@@ -202,8 +204,8 @@ class Trajectory(object):
                 Q, R = qr(M)
                 lys.append(log(abs(diag(R))))
 
-            #self.mps = self.rk4(self.mps, dt, H).left_canonicalise()
-            self.mps = self.invfree(self.mps, dt, H)
+            self.mps = self.rk4(self.mps, dt, H).left_canonicalise()
+            #self.mps = self.invfree(self.mps, dt, H)
 
         exps = (1/(dt))*cs(array(lys), axis=0)/ed(ar(1, len(lys)+1), 1)
         return exps, array(lys)
