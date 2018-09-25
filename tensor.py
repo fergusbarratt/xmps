@@ -65,7 +65,7 @@ def truncate_A(A, S, V, D, minD=True):
         if minD:
             D = rank(S)
         else:
-            return (U, S, B)
+            return (A, S, V)
 
     A = A[:, :, :D]
     S = S[:D, :D]

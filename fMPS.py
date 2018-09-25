@@ -1,7 +1,8 @@
+"""fMPS: Finite length matrix product states"""
 import unittest
 from spin import n_body, N_body_spins, spins
 from numpy.random import rand, randint, randn
-from numpy.linalg import svd, inv, norm, cholesky as ch
+from numpy.linalg import svd, inv, norm, cholesky as ch, qr
 from scipy.linalg import null_space as null, orth, expm#, sqrtm as ch
 from numpy import array, concatenate, diag, dot, allclose, isclose, swapaxes as sw
 from numpy import identity, swapaxes, trace, tensordot, sum, prod
@@ -245,6 +246,8 @@ class fMPS(object):
 
         :param D: bond dimension to truncate to during right sweep
         :param testing: test canonicalness
+        :param sweep_back: whether to go back and make the left envs the schmidt coefficients
+        :param minD: whether to minimize the bond dimension
         """
         if D is not None:
             self.D = min(D, self.D)
@@ -256,7 +259,7 @@ class fMPS(object):
 
             :param M: matrices
             """
-            (U, S, B) = svd(M)
+            (U, S, B) = svd(M, full_matrices=False)
             return (U, diag(S), array(chop(B, self.d, axis=1)))
 
         # left sweep
@@ -266,7 +269,7 @@ class fMPS(object):
             if m-1 >= 0:
                 self[m-1] = self[m-1]@U@S
 
-        if sweep_back:
+        if sweep_back and minD:
             # right sweep
             Vs = [None]*self.L
             Ls = [None]*self.L
@@ -321,7 +324,6 @@ class fMPS(object):
 
         self.ok = True
 
-        self.tangent_space_basis = []
         def split(M):
             """split: Do SVD and reshape A matrix
 
@@ -332,14 +334,17 @@ class fMPS(object):
             V = v[:len(S), :]
             o = u[:, len(S):]
             return (array(chop(A, self.d, axis=0)), diag(S), V)
+
         for m in range(len(self.data)):
             # sort out canonicalisation
             A, S, V = split(concatenate(self.data[m], axis=0))
-            self.data[m], S, V = truncate_A(A, S, V, D, minD)
+            self[m], S, V = truncate_A(A, S, V, D, minD)
             if m+1 < len(self.data):
                 self[m+1] = S@V@self[m+1]
+            else:
+                self.norm_ = S@V
 
-        if sweep_back:
+        if sweep_back and minD:
             Ls = [None]*self.L
             Vs = [None]*self.L
             V = S = identity(1)
@@ -392,7 +397,7 @@ class fMPS(object):
         """
         self.ok = True
         self.oc = oc
-        self.right_canonicalise(D)
+        self.right_canonicalise(D, minD=False)
 
         def split(M):
             """split: Do SVD and reshape A matrix
@@ -520,10 +525,9 @@ class fMPS(object):
             return links
 
     def apply(self, opsite):
-        ret = self.copy()
         op, site = opsite
-        ret.data[site] = td(op, ret[site], [1, 0])
-        return ret
+        self[site] = td(op, self[site], [1, 0])
+        return self
 
     def copy(self):
         return fMPS(self.data.copy())
@@ -716,7 +720,7 @@ class fMPS(object):
         for m, (sh, sh_) in enumerate(zip(self.structure(), self.create_structure(L, d, D_))):
             self[m] = pad(self[m], list(zip([0, 0, 0], (0, *tuple(array(sh_)-array(sh))))), 'constant')
         self.D = D_
-        return self
+        return self.left_canonicalise(minD=False)
 
     def dynamical_expand(self, H, dt, D_, threshold=1e-8):
         """dynamical_expand: expand bond dimension to D_ during timestep dt with H
@@ -1162,11 +1166,11 @@ class fMPS(object):
         else:
             return shapes
 
-    def tangent_space_basis(self, type='rand'):
+    def tangent_space_basis(self, type='eye'):
         """ return a tangent space basis
         """
         if type=='rand':
-            Qs = [orth(randn(d1*d2, d1*d2)+1j*randn(d1*d2, d1*d2)) 
+            Qs = [qr(randn(d1*d2, d1*d2)+1j*randn(d1*d2, d1*d2))[0]
                   for d1, d2 in self.tangent_space_dims() if d1*d2 != 0]
         elif type=='eye':
             Qs = [eye(d1*d2)+1j*0
@@ -2039,7 +2043,14 @@ class TestfMPS(unittest.TestCase):
     def test_expand(self):
         mps = fMPS().random(3, 2, 1)
         self.assertTrue(mps.structure()==[(1, 1), (1, 1), (1, 1)])
+        ls = mps.Es([Sx, Sy, Sz], 0)
+
         mps.expand(2)
+        l, r = mps.get_envs()
+        print([l(i) for i in range(mps.L)])
+        print([r(i) for i in range(mps.L)])
+
+        self.assertTrue(allclose(ls, mps.Es([Sx, Sy, Sz], 0)))
         self.assertTrue(mps.structure()==[(1, 2), (2, 2), (2, 1)])
 
     def test_invfreeH_K(self):

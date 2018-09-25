@@ -102,7 +102,7 @@ class Trajectory(object):
         :param T:
         :param D:
         """
-        assert hasattr(self, 'W')
+        assert self.W is not None
         mps, H = self.mps, self.H
         L, d, D = mps.L, mps.d, mps.D
 
@@ -173,44 +173,55 @@ class Trajectory(object):
         self.psi = self.ed_history[-1]
         return self
 
-    def lyapunov(self, T, D=None, just_max=False):
+    def lyapunov(self, T, D=None, just_max=False, m=5):
         H = self.H
+        has_mpo = self.W is not None
         if D is not None:
-            print('growing: ')
-            self.mps = self.mps.grow(self.H, 0.1, D).right_canonicalise()
-        if hasattr(self, 'W') and self.mps.D!=1 and D!=1:
-            self.invfreeint(linspace(0, 0.5, 50))
-        else:
-            self.rk4int(linspace(0, 0.5, 50))
+            # if MPO supplied - just expand, canonicalise and use inverse free integrator
+            # otherwise use dynamical expand: less numerically stable
+            if has_mpo and self.mps.D!=1:
+                self.mps = self.mps.expand(D)
+                self.invfreeint(linspace(0, 0.5, 50))
+            else:
+                self.mps = self.mps.grow(self.H, 0.1, D).left_canonicalise()
+                self.rk4int(linspace(0, 0.5, 50))
 
-        l, r = self.mps.get_envs()
-        Q = kron(eye(2), self.mps.tangent_space_basis(type='eye'))
+        Q = kron(eye(2), self.mps.tangent_space_basis(type='rand'))
         if just_max:
+            # just evolve top vector, dont bother with QR
             q = Q[0]
         dt = T[1]-T[0]
         e = []
         lys = []
         calc = False
         for t in tqdm(range(1, len(T)+1)):
-            J = self.mps.jac(H)
-            if just_max:
-                q = expm_multiply(J*dt, Q)
-                lys.append(log(abs(norm(q))))
-                q /= norm(q)
-            else:
-                M = expm_multiply(J*dt, Q)
-                if(sum(isnan(M))>0):
-                    raise Exception
-                Q, R = qr(M)
-                lys.append(log(abs(diag(R))))
+            if t%m == 0:
+                J = self.mps.jac(H)
+                if just_max:
+                    q = expm_multiply(J*dt, q)
+                    lys.append(log(abs(norm(q))))
+                    q /= norm(q)
+                else:
+                    M = expm_multiply(J*dt, Q)
+                    if(sum(isnan(M))>0):
+                        raise Exception
+                    Q, R = qr(M)
+                    lys.append(log(abs(diag(R))))
 
-            self.mps = self.rk4(self.mps, dt, H).left_canonicalise()
-            #self.mps = self.invfree(self.mps, dt, H)
+            if has_mpo:
+                self.mps = self.invfree(self.mps, dt, H)
+            else:
+                self.mps = self.rk4(self.mps, dt, H).left_canonicalise()
 
         exps = (1/(dt))*cs(array(lys), axis=0)/ed(ar(1, len(lys)+1), 1)
         return exps, array(lys)
 
     def ed_OTOC(self, T, ops):
+        """ed_OTOC: -<[W(t), V(0)], [W(t), V(0)]>
+
+        :param T: times
+        :param ops: (V, W)
+        """
         V, W = ops
         psi_0 = self.mps.recombine().reshape(-1)
         H = self.H
@@ -222,8 +233,41 @@ class Trajectory(object):
             Ws.append(-re(c(psi_0)@comm(Wt, V)@comm(Wt, V)@psi_0))
         return Ws
 
-    def mps_OTOC(self, T, ops):
-        pass
+    def mps_OTOC(self, T, ops, dt=1e-2):
+        """mps_OTOCs: -<[W(t), V(0)], [W(t), V(0)]>
+
+        :param T: times
+        :param ops: operators (V, W)
+        """
+        assert self.W is not None
+        # want to use inverse free method since it's time symmetric
+        V, W = ops
+        mps_0, mpo = self.mps, self.W
+        Ws = []
+        psi_1 = mps_0 #|s>
+        psi_2 = mps_0.copy().apply(V).left_canonicalise() # V|s>
+        n2_0 = psi_2.norm_
+        T = ct([[0], T])
+        for t1, t2 in zip(T, T[1:]):
+            print(int((t2-t1)/dt))
+            for _ in linspace(t1, t2, int((t2-t1)/dt)):
+                psi_1 = self.invfree(psi_1, dt)
+                psi_2 = self.invfree(psi_2, dt)
+            psi_1_ = psi_1.copy().apply(W).left_canonicalise() #WU|s>
+            psi_2_ = psi_2.copy().apply(W).left_canonicalise() #WUV|s>
+            n1_1 = psi_1_.norm_
+            n2_1 = psi_2_.norm_
+            for _ in linspace(t1, t2, int((t2-t1)/dt)):
+                psi_1_ = self.invfree(psi_1_, -dt)
+                psi_2_ = self.invfree(psi_2_, -dt)
+            psi_1_.apply(V).left_canonicalise()
+            n1_0 = psi_1_.norm_
+            psi_1[0] *= n1_0*n1_1
+            psi_2[0] *= n2_0*n2_1
+            Ws.append(psi_1_.overlap(psi_1_)+psi_2_.overlap(psi_2_)-
+                      0.5*re(psi_1_.overlap(psi_2_)))
+            
+        return Ws
 
     def mps_evs(self, ops, site):
         assert hasattr(self, "mps_history")
@@ -401,7 +445,7 @@ class TestTrajectory(unittest.TestCase):
                 ax.plot(T, C)
                 plt.show()
 
-    def test_OTOC(self):
+    def test_OTOCs_eye(self):
         """OTOC zero for W=eye"""
         Sx1,  Sy1,  Sz1 =  N_body_spins(0.5, 1,  5)
         Sx2,  Sy2,  Sz2 =  N_body_spins(0.5, 2,  5)
@@ -410,13 +454,45 @@ class TestTrajectory(unittest.TestCase):
         Sx5,  Sy5,  Sz5 =  N_body_spins(0.5, 5,  5)
 
         mps = fMPS().random(5, 2, None).left_canonicalise()
+        W = mps.L*[MPO_TFI(0, 0.25, 0.5, 0.5)]
         H = Sz1@Sz2+Sz2@Sz3+Sz3@Sz4+Sz4@Sz5+\
                 Sx1+Sx2+Sx3+Sx4+Sx5+\
                 Sz1+Sz2+Sz3+Sz4+Sz5
-        op = eye(2**5)
-        T = linspace(0, 10, 100)
-        Ws = Trajectory(mps, H).ed_OTOC(T, op)
-        self.assertTrue(allclose(Ws, 0))
+        ops = eye(2**5), eye(2**5)
+        ops_ = ((eye(2), 0), (eye(2), 0))
+        T = linspace(0, 1, 3)
+        F = Trajectory(mps, H=H, W=W)
+        ed_evs  = F.ed_OTOC(T, ops)
+        mps_evs = F.mps_OTOC(T, ops_)
+        plt.plot(mps_evs)
+        plt.show()
+        self.assertTrue(allclose(ed_evs, 0))
+        self.assertTrue(allclose(mps_evs, 0))
+
+    def test_OTOCs_ed(self):
+        """test mps otocs against ed"""
+        Sx1,  Sy1,  Sz1 =  N_body_spins(0.5, 1,  5)
+        Sx2,  Sy2,  Sz2 =  N_body_spins(0.5, 2,  5)
+        Sx3,  Sy3,  Sz3 =  N_body_spins(0.5, 3,  5)
+        Sx4,  Sy4,  Sz4 =  N_body_spins(0.5, 4,  5)
+        Sx5,  Sy5,  Sz5 =  N_body_spins(0.5, 5,  5)
+
+        mps = fMPS().random(5, 2, None).left_canonicalise()
+        W = mps.L*[MPO_TFI(0, 0.25, 0.5, 0.5)]
+        H = Sz1@Sz2+Sz2@Sz3+Sz3@Sz4+Sz4@Sz5+\
+                Sx1+Sx2+Sx3+Sx4+Sx5+\
+                Sz1+Sz2+Sz3+Sz4+Sz5
+        ops = Sz2, Sz5
+        ops_ = ((Sz, 1), (Sz, 4))
+        T = linspace(0, 1, 3)
+        F = Trajectory(mps, H=H, W=W)
+        ed_evs  = F.ed_OTOC(T, ops)
+        mps_evs = F.mps_OTOC(T, ops_)
+        plt.plot(mps_evs)
+        plt.plot(ed_evs)
+        plt.show()
+        self.assertTrue(allclose(ed_evs, 0))
+        self.assertTrue(allclose(mps_evs, 0))
 
     def test_lyapunov_local_hamiltonian_2(self):
         """zero lyapunov exponents with local hamiltonian"""
