@@ -16,13 +16,13 @@ from scipy.sparse.linalg import expm_multiply, expm
 from scipy.integrate import odeint, complex_ode as c_ode
 from scipy.integrate import ode, solve_ivp
 from numpy.linalg import inv, svd
-from exp import expm_lanczos
 import numpy as np
 from tensor import get_null_space, H as cT, C as c
 from matplotlib import pyplot as plt
 from functools import reduce
 from copy import copy, deepcopy
 from tqdm import tqdm
+from tdvp.tdvp_fast import tdvp, MPO_TFI
 Sx, Sy, Sz = spins(0.5)
 Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
 Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
@@ -30,14 +30,16 @@ Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
 class Trajectory(object):
     """Trajectory"""
 
-    def __init__(self, mps_0, H, fullH=False):
+    def __init__(self, mps_0, H=None, W=None, fullH=False):
         """__init__
 
         :param mps_0: initial state
         :param H: hamiltonian
         :param T: time steps
         """
-        self.H = H
+        self.H = H # hamiltonian as list of 4x4 mats or big matrix
+        self.W = W # hamiltonian as mpo - required for invfreeint
+
         self.mps_0 = deepcopy(mps_0)
         self.mps = deepcopy(mps_0)
         self.fullH=fullH
@@ -59,6 +61,12 @@ class Trajectory(object):
         k4 = (mps+k3).dA_dt(H, fullH=self.fullH)*dt
 
         return (mps+(k1+2*k2+2*k3+k4)/6).left_canonicalise()
+
+    def invfree(self, mps, dt, W=None, store=True):
+        if store:
+            self.mps_history.append(mps.serialize(real=True))
+        A = tdvp(mps.data, self.W, 1j*dt/2)
+        return fMPS(A[0])
 
     def eulerint(self, T):
         """eulerint: integrate with euler time steps
@@ -87,8 +95,14 @@ class Trajectory(object):
         return self
 
     def invfreeint(self, T, D=None):
-        """invfreeint: right_canonicalisation is important here
+        """invfreeint: inverse free (symmetric) integrator - wraps Frank code. 
+                       requires a MPO - MPO_TFI/MPO_XXZ from tdvp 
+                       remember my ed thing has Sx = 1/2 Sx etc. for some reason
+
+        :param T:
+        :param D:
         """
+        assert hasattr(self, 'W')
         mps, H = self.mps, self.H
         L, d, D = mps.L, mps.d, mps.D
 
@@ -162,7 +176,10 @@ class Trajectory(object):
     def lyapunov(self, T, D=None, just_max=False):
         H = self.H
         self.mps = self.mps.grow(self.H, 0.1, D).right_canonicalise()
-        self.rk4int(linspace(0, 0.5, 50))
+        if hasattr(self, 'W') and self.mps.D!=1 and D!=1:
+            self.invfreeint(linspace(0, 0.5, 50))
+        else:
+            self.rk4int(linspace(0, 0.5, 50))
 
         l, r = self.mps.get_envs()
         Q = kron(eye(2), self.mps.tangent_space_basis())
@@ -185,11 +202,13 @@ class Trajectory(object):
                 Q, R = qr(M)
                 lys.append(log(abs(diag(R))))
 
-            self.mps = self.rk4(self.mps, dt, H).left_canonicalise()
+            #self.mps = self.rk4(self.mps, dt, H).left_canonicalise()
+            self.mps = self.invfree(self.mps, dt, H)
+
         exps = (1/(dt))*cs(array(lys), axis=0)/ed(ar(1, len(lys)+1), 1)
         return exps, array(lys)
 
-    def OTOC(self, T, ops):
+    def ed_OTOC(self, T, ops):
         V, W = ops
         psi_0 = self.mps.recombine().reshape(-1)
         H = self.H
@@ -200,6 +219,9 @@ class Trajectory(object):
             Wt = cT(U)@W@U
             Ws.append(-re(c(psi_0)@comm(Wt, V)@comm(Wt, V)@psi_0))
         return Ws
+
+    def mps_OTOC(self, T, ops):
+        pass
 
     def mps_evs(self, ops, site):
         assert hasattr(self, "mps_history")
@@ -239,17 +261,18 @@ class TestTrajectory(unittest.TestCase):
         self.psi_0_5 = self.mps_0_5.recombine().reshape(-1)
 
     def test_integrators(self):
-        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
-        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
-
-        test_2 = False
+        test_2 = True
         if test_2:
+            Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
+            Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
+
             dt, t_fin = 2e-2, 10
             T = linspace(0, t_fin, int(t_fin//dt)+1)
 
             mps_0 = self.mps_0_2
             H = [Sz1@Sz2+Sx1+Sx2]
-            F = Trajectory(mps_0, H)
+            W = mps_0.L*[MPO_TFI(0, 0.25, 0.5, 0)]
+            F = Trajectory(mps_0, H=H, W=W)
 
             A = F.edint(T).ed_evs([Sx1, Sy1, Sz1])
             F.clear()
@@ -257,44 +280,124 @@ class TestTrajectory(unittest.TestCase):
             F.clear()
             C = F.invfreeint(T).mps_evs([Sx, Sy, Sz], 0)
             F.clear()
+            self.assertTrue(norm(B-A)/prod(A.shape)<dt**2)
+            self.assertTrue(norm(C-A)/prod(A.shape)<dt**2)
 
-            fig, ax = plt.subplots(2, 1, sharex=True, sharey=True)
-            ax[0].set_ylim([-1, 1])
-            ax[0].plot(T, A)
-            ax[0].plot(T, B)
-            ax[0].plot(T, C)
-            plt.show()
+            plot=False
+            if plot:
+                fig, ax = plt.subplots(1, 1, sharex=True, sharey=True)
+                ax.set_ylim([-1, 1])
+                ax.plot(T, A)
+                ax.plot(T, B)
+                ax.plot(T, C)
+                plt.show()
 
         test_3 = True
         if test_3:
-            dt, t_fin = 1e-1, 4
+            Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
+            Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
+
+            dt, t_fin = 2e-2, 10 
             T = linspace(0, t_fin, int(t_fin//dt)+1)
 
             mps_0 = self.mps_0_3.right_canonicalise()
-            H = [Sx2] + [eye(4)]
-            F = Trajectory(mps_0, H)
+            H = [Sz1@Sz2+Sx1+Sx2] + [Sz1@Sz2+Sx2]
+            W = mps_0.L*[MPO_TFI(0, 0.25, 0.5, 0)]
+            F = Trajectory(mps_0, H=H, W=W)
 
             Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 3)
             Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 3)
             Sx3, Sy3, Sz3 = N_body_spins(0.5, 3, 3)
 
 
-            #B = F.eulerint(T).mps_evs([Sx, Sy, Sz], 1)
-            #F.clear()
-            #C = F.rk4int(T).mps_evs([Sx, Sy, Sz], 0)
-            #F.clear()
-            D = F.invfreeint(T).mps_evs([Sx, Sy, Sz], 2)
-            F.clear()
             A = F.edint(T).ed_evs([Sx3, Sy3, Sz3])
+            F.clear()
+            B = F.eulerint(T).mps_evs([Sx, Sy, Sz], 2)
+            F.clear()
+            C = F.invfreeint(T).mps_evs([Sx, Sy, Sz], 2)
+            self.assertTrue(norm(B-A)/prod(A.shape)<dt**2)
+            self.assertTrue(norm(C-A)/prod(A.shape)<dt**2)
 
-            fig, ax = plt.subplots(2, 1, sharey=True, sharex=True)
-            ax[0].set_ylim([-1, 1])
-            ax[0].plot(T, A)
-            #ax[0].plot(T, B)
-            #ax[0].plot(T, C)
+            plot=False
+            if plot:
+                fig, ax = plt.subplots(1, 1, sharey=True, sharex=True)
+                ax.set_ylim([-1, 1])
+                ax.plot(T, A)
+                ax.plot(T, B)
+                ax.plot(T, C)
+                plt.show()
 
-            ax[1].plot(T, D)
-            plt.show()
+        test_4 = True
+        if test_4:
+            Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
+            Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
+
+            dt, t_fin = 2e-2, 10 
+            T = linspace(0, t_fin, int(t_fin//dt)+1)
+
+            mps_0 = self.mps_0_4.right_canonicalise()
+            H = [Sz1@Sz2+Sx1+Sx2] + [Sz1@Sz2+Sx2] + [Sz1@Sz2+Sx2]
+            W = mps_0.L*[MPO_TFI(0, 0.25, 0.5, 0)]
+            F = Trajectory(mps_0, H=H, W=W)
+
+            Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 4)
+            Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 4)
+            Sx3, Sy3, Sz3 = N_body_spins(0.5, 3, 4)
+            Sx4, Sy4, Sz4 = N_body_spins(0.5, 4, 4)
+
+            A = F.edint(T).ed_evs([Sx3, Sy3, Sz3])
+            F.clear()
+            B = F.eulerint(T).mps_evs([Sx, Sy, Sz], 2)
+            F.clear()
+            C = F.invfreeint(T).mps_evs([Sx, Sy, Sz], 2)
+            self.assertTrue(norm(B-A)/prod(A.shape)<dt)
+            self.assertTrue(norm(C-A)/prod(A.shape)<dt**2)
+
+            plot=False
+            if plot:
+                fig, ax = plt.subplots(1, 1, sharey=True, sharex=True)
+                ax.set_ylim([-1, 1])
+                ax.plot(T, A)
+                #ax.plot(T, B)
+                ax.plot(T, C)
+                plt.show()
+
+        test_5 = True
+        if test_5:
+            Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
+            Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
+
+            dt, t_fin = 2e-2, 10 
+            T = linspace(0, t_fin, int(t_fin//dt)+1)
+
+            mps_0 = self.mps_0_5.right_canonicalise()
+            H = [Sz1@Sz2+Sx1+Sx2] + [Sz1@Sz2+Sx2] + [Sz1@Sz2+Sx2] + [Sz1@Sz2+Sx2]
+            W = mps_0.L*[MPO_TFI(0, 0.25, 0.5, 0)]
+            F = Trajectory(mps_0, H=H, W=W)
+
+            Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 5)
+            Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 5)
+            Sx3, Sy3, Sz3 = N_body_spins(0.5, 3, 5)
+            Sx4, Sy4, Sz4 = N_body_spins(0.5, 4, 5)
+            Sx5, Sy5, Sz5 = N_body_spins(0.5, 5, 5)
+
+
+            A = F.edint(T).ed_evs([Sx3, Sy3, Sz3])
+            F.clear()
+            B = F.eulerint(T).mps_evs([Sx, Sy, Sz], 2)
+            F.clear()
+            C = F.invfreeint(T).mps_evs([Sx, Sy, Sz], 2)
+            self.assertTrue(norm(B-A)/prod(A.shape)<dt)
+            self.assertTrue(norm(C-A)/prod(A.shape)<dt**2)
+
+            plot=False
+            if plot:
+                fig, ax = plt.subplots(1, 1, sharey=True, sharex=True)
+                ax.set_ylim([-1, 1])
+                ax.plot(T, A)
+                #ax.plot(T, B)
+                ax.plot(T, C)
+                plt.show()
 
     def test_OTOC(self):
         """OTOC zero for W=eye"""
@@ -310,7 +413,7 @@ class TestTrajectory(unittest.TestCase):
                 Sz1+Sz2+Sz3+Sz4+Sz5
         op = eye(2**5)
         T = linspace(0, 10, 100)
-        Ws = Trajectory(mps, H).OTOC(T, op)
+        Ws = Trajectory(mps, H).ed_OTOC(T, op)
         self.assertTrue(allclose(Ws, 0))
 
     def test_lyapunov_local_hamiltonian_2(self):
@@ -352,123 +455,6 @@ class TestTrajectory(unittest.TestCase):
         T = linspace(0, 0.1, 100)
         exps, lys, _ = Trajectory(mps, H).lyapunov(T, D=None, bar=True)
         self.assertTrue(allclose(exps[-1], 0))
-
-    def test_exps_2(self):
-        """test_exps_2: 2 spins: 100 timesteps, expectation values within tol=1e-2 of ed results"""
-        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
-        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
-        H = Sz1@Sz2 + Sx1+Sx2
-        mps_0 = self.mps_0_2.right_canonicalise()
-        psi_0 = self.psi_0_2
-        dt = 1e-2
-        N = 100
-        tol = 1e-2
-        mps_n = mps_0
-        psi_n = psi_0
-        for _ in range(N):
-            self.assertTrue(isclose(psi_n.conj()@Sx1@psi_n, mps_n.E(Sx, 0), atol=tol))
-            self.assertTrue(isclose(psi_n.conj()@Sy1@psi_n, mps_n.E(Sy, 0), atol=tol))
-            self.assertTrue(isclose(psi_n.conj()@Sz1@psi_n, mps_n.E(Sz, 0), atol=tol))
-            self.assertTrue(isclose(psi_n.conj()@Sx2@psi_n, mps_n.E(Sx, 1), atol=tol))
-            self.assertTrue(isclose(psi_n.conj()@Sy2@psi_n, mps_n.E(Sy, 1), atol=tol))
-            self.assertTrue(isclose(psi_n.conj()@Sz2@psi_n, mps_n.E(Sz, 1), atol=tol))
-
-            mps_n = mps_n + mps_n.dA_dt(H, fullH=True)*dt
-            psi_n = expm(-1j*H*dt)@psi_n
-
-    def test_exps_3(self):
-        """test_exps_3: 3 spins: 100 timesteps, expectation values within tol=1e-2 of ed results"""
-        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 3)
-        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 3)
-        Sx3, Sy3, Sz3 = N_body_spins(0.5, 3, 3)
-        H = Sz1@Sz2 + Sz2@Sz3 + Sx1+Sx2+Sx3
-        mps_0 = self.mps_0_3
-        psi_0 = self.psi_0_3
-        dt = 1e-2
-        N = 100
-        tol = 1e-2
-        mps_n = mps_0
-        psi_n = psi_0
-        for _ in range(N):
-            self.assertTrue(isclose(psi_n.conj()@Sx1@psi_n, mps_n.E(Sx, 0), atol=tol))
-            self.assertTrue(isclose(psi_n.conj()@Sy1@psi_n, mps_n.E(Sy, 0), atol=tol))
-            self.assertTrue(isclose(psi_n.conj()@Sz1@psi_n, mps_n.E(Sz, 0), atol=tol))
-            self.assertTrue(isclose(psi_n.conj()@Sx2@psi_n, mps_n.E(Sx, 1), atol=tol))
-            self.assertTrue(isclose(psi_n.conj()@Sy2@psi_n, mps_n.E(Sy, 1), atol=tol))
-            self.assertTrue(isclose(psi_n.conj()@Sz2@psi_n, mps_n.E(Sz, 1), atol=tol))
-
-            mps_n = mps_n + mps_n.dA_dt(H, fullH=True)*dt
-            psi_n = expm(-1j*H*dt)@psi_n
-
-    def test_exps_4(self):
-        """test_exps_4: 4 spins: 100 timesteps, expectation values within tol=1e-2 of ed results"""
-        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 4)
-        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 4)
-        Sx3, Sy3, Sz3 = N_body_spins(0.5, 3, 4)
-        Sx4, Sy4, Sz4 = N_body_spins(0.5, 4, 4)
-        H = Sz1@Sz2 +Sz2@Sz3 + Sz3@Sz4 + Sx1+Sx2+Sx3+Sx4
-        mps_0 = self.mps_0_4
-        psi_0 = self.psi_0_4
-        dt = 1e-2
-        N = 100
-        tol = 1e-2
-        mps_n = mps_0
-        psi_n = psi_0
-        for _ in range(N):
-            self.assertTrue(isclose(psi_n.conj()@Sx1@psi_n, mps_n.E(Sx, 0), atol=tol))
-            self.assertTrue(isclose(psi_n.conj()@Sy1@psi_n, mps_n.E(Sy, 0), atol=tol))
-            self.assertTrue(isclose(psi_n.conj()@Sz1@psi_n, mps_n.E(Sz, 0), atol=tol))
-            self.assertTrue(isclose(psi_n.conj()@Sx2@psi_n, mps_n.E(Sx, 1), atol=tol))
-            self.assertTrue(isclose(psi_n.conj()@Sy2@psi_n, mps_n.E(Sy, 1), atol=tol))
-            self.assertTrue(isclose(psi_n.conj()@Sz2@psi_n, mps_n.E(Sz, 1), atol=tol))
-
-            mps_n = mps_n + mps_n.dA_dt(H, fullH=True)*dt
-            psi_n = expm(-1j*H*dt)@psi_n
-
-    def test_trajectory_2_no_truncate(self):
-        """test_trajectory_2: 2 spins"""
-        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
-        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
-        mps_0 = self.mps_0_2
-        H = [Sz1@Sz2 + Sx1+Sx2]
-        dt, N = 1e-1, 300
-        T = linspace(0, N*dt, N)
-        plt.plot(Trajectory(mps_0, H).odeint(T).evs([Sx, Sy, Sz], 0))
-        plt.show()
-
-    def test_trajectory_3_no_truncate(self):
-        """test_trajectory_3: 3 spins"""
-        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
-        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
-        mps_0 = self.mps_0_3
-        H = [Sz1@Sz2+Sx1, Sz1@Sz2+Sx1+Sx2]
-        dt, N = 1e-1, 100
-        T = linspace(0, N*dt, N)
-        plt.plot(Trajectory(mps_0, H).odeint(T).evs([Sx, Sy, Sz], 0))
-        plt.show()
-
-    def test_trajectory_4_no_truncate(self):
-        """test_trajectory_4: 4 spins"""
-        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
-        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
-        mps_0 = self.mps_0_4
-        H = [Sz1@Sz2+Sx1, Sz1@Sz2+Sx1+Sx2, Sz1@Sz2+Sx2]
-        dt, N = 1e-1, 300
-        T = linspace(0, N*dt, N)
-        plt.plot(Trajectory(mps_0, H).odeint(T).evs([Sx, Sy, Sz], 0))
-        plt.show()
-
-    def test_trajectory_4_1(self):
-        """test_trajectory_4: 4 spins"""
-        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
-        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
-        mps_0 = self.mps_0_4.left_canonicalise(1)
-        H = [Sz1@Sz2+Sx1, Sz1@Sz2+Sx1+Sx2, Sz1@Sz2+Sx2]
-        dt, N = 1e-1, 300
-        T = linspace(0, N*dt, N)
-        plt.plot(Trajectory(mps_0, H).odeint(T).evs([Sx, Sy, Sz], 0))
-        plt.show()
-
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
