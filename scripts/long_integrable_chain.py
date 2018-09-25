@@ -16,7 +16,7 @@ Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
 
 Sx, Sy, Sz = spins(0.5)
 
-L = 8 
+L = 4 
 bulkH =Sz12@Sz22+Sx12+Sx22
 H_i = [Sz12@Sz22+Sx12] + [bulkH for _ in range(L-3)] + [Sz12@Sz22+Sx22]
 H = [H_i[0]+Sz12]+[H_i[i]+Sz12+Sz22 for i in range(1, L-2)]+[H_i[-1]+Sz22]
@@ -31,7 +31,7 @@ mps = fMPS().left_from_state(psi_0).right_canonicalise(1)
 Ds = [2]
 for D in Ds:
     exps, _ = Trajectory(mps, H=H, W=W).lyapunov(T, D, False)
-    save('../data/lyapunovs_L{}_D{}_t{}'.format(L, D, t_fin), exps)
+    save('data/lyapunovs_L{}_D{}_t{}'.format(L, D, t_fin), exps)
     plt.plot(exps)
     plt.show()
 
