@@ -32,10 +32,9 @@ ops = Sz1, SzL
 otocs = Trajectory(mps, fullH, fullH=True).ed_OTOC(T, ops)
 
 fig, ax = plt.subplots(3, 1, sharex=True)
-ax[0].set_title('$Sz^{}, Sz^{}, L={}$'.format(n+1, m+1, L), loc='right')
+ax[0].set_title('$Sz^{}, Sz^{}, L={}, \lambda={}$'.format(n+1, m+1, L, (log(otocs)[2]-log(otocs)[1])/(T[2]-T[1])), loc='right')
 ax[0].plot(T, otocs)
 ax[1].plot(T, otocs)
-ax[2].plot(T[:-1], numdiff(log(otocs), T))
 ax[1].set_yscale('log')
 fig.tight_layout()
 #fig.savefig('images/Sz1Sz7.pdf', bbox_inches='tight')
