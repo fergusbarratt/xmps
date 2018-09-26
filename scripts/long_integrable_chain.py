@@ -8,7 +8,6 @@ from fTDVP import Trajectory
 from spin import N_body_spins, spins, n_body
 from numpy import load, linspace, save, sum
 import matplotlib.pyplot as plt
-from seaborn import distplot
 from tdvp.tdvp_fast import MPO_TFI
 
 Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
@@ -16,7 +15,7 @@ Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
 
 Sx, Sy, Sz = spins(0.5)
 
-L = 8 
+L = 11 
 bulkH =Sz12@Sz22+Sx12+Sx22
 H_i = [Sz12@Sz22+Sx12] + [bulkH for _ in range(L-3)] + [Sz12@Sz22+Sx22]
 H = [H_i[0]+Sz12]+[H_i[i]+Sz12+Sz22 for i in range(1, L-2)]+[H_i[-1]+Sz22]
@@ -26,13 +25,17 @@ dt = 5e-3
 t_fin = 10 
 T = linspace(0, t_fin, int(t_fin//dt)+1)
 
-psi_0 = load('fixtures/mat{}x{}.npy'.format(L,L))
-mps = fMPS().left_from_state(psi_0).right_canonicalise(1)
-Ds = [1, 2, 3, 4]
+if L<10:
+    psi_0 = load('fixtures/mat{}x{}.npy'.format(L,L))
+    mps = fMPS().left_from_state(psi_0).right_canonicalise(1)
+else:
+    mps = fMPS().random(L, 2, 1).load('fixtures/product{}.npy'.format(L))
+
+Ds = [2]
 for D in Ds:
     F = Trajectory(mps, H=H, W=W)
     F.run_name = 'lyapunovs'
-    exps, _ = F.lyapunov(T, D, True, m=5)
+    exps, _ = F.lyapunov(T, D, True, m=1)
     F.save()
     plt.plot(exps)
 plt.savefig('images/{}.pdf'.format(F.id), bbox_inches='tight')
