@@ -31,7 +31,7 @@ if L<10:
 else:
     mps = fMPS().random(L, 2, 1).load('fixtures/product{}.npy'.format(L))
 
-Ds = [2]
+Ds = [3]
 for D in Ds:
     F = Trajectory(mps, H=H, W=W)
     F.run_name = 'lyapunovs'

@@ -508,6 +508,7 @@ class fMPS(object):
         """transfer an operator (u, d, ...) on aux indices at i to site(s) j
         Returns a function such that R(j) == op at j. No bounds checking.
         """
+        self.calls+=1
         def lt(op, As, j, i):
             Ls = [op]
             for m in reversed(range(j, i)):
@@ -522,6 +523,7 @@ class fMPS(object):
         """transfer an operator (..., u, d) on aux indices at i to site(s) j
         Returns a function such that R(j) == op at j. No bounds checking.
         """
+        self.calls+=1
         Rs = [op]
         oplinks = list(range(-1, -len(op.shape)+1, -1))+[2, 3]
         for m in range(i+1, j+1):
@@ -820,6 +822,7 @@ class fMPS(object):
             parallel_transport=True):
         """jac: calculate the jacobian of the current mps
         """
+        self.calls=0
         L, d, A = self.L, self.d, self.data
         dA_dt = self.dA_dt(H, fullH=fullH)
         l, r = self.l, self.r
@@ -889,7 +892,6 @@ class fMPS(object):
         if not real_matrix:
             return J1_, J2_
         J = kron(Sz, re(J2_))+kron(eye(2), re(J1_)) + kron(Sx, im(J2_)) + kron(-1j*Sy, im(J1_))
-        J[abs(J)<1e-15]=0
         if as_linearoperator:
             return aslinearoperator(J)
         else:
