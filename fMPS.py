@@ -638,27 +638,29 @@ class fMPS(object):
         :param self: matrix product state @ current time
         :param H: Hamiltonian
         """
+        self.dA_cache = {}
         L, d, A = self.L, self.d, self.data
         l, r = self.get_envs(True)
         prs = [self.left_null_projector(n, l) for n in range(self.L)] if prs is None else prs
         def pr(n): return prs[n]
 
         if not fullH:
-            def B(n, H=H):
+            def B(i, H=H):
                 e = []
-                B = -1j*zl(A[n])
-                _, Dn, Dn_1 = A[n].shape
+                B = -1j*zl(A[i])
+                _, Dn, Dn_1 = A[i].shape
                 H = [h.reshape(2, 2, 2, 2) for h in H]
 
                 if d*Dn==Dn_1:
                     # Projector is full of zeros
                     return -1j*B
 
-                R = ncon([pr(n), A[n]], [[-3, -4, 1, -2], [1, -1, -5]])
-                Rs = self.left_transfer(R, 0, n) # list of E**k @ R - see left_transfer docs
+                R = ncon([pr(i), A[i]], [[-3, -4, 1, -2], [1, -1, -5]])
+                Rs = self.left_transfer(R, 0, i) # list of E**k @ R - see left_transfer docs
+                self.dA_cache[str(i)] = Rs
 
                 for m, h in reversed(list(enumerate(H))):
-                    if m > n:
+                    if m > i:
                         # from gauge symmetry
                         continue
 
@@ -669,11 +671,11 @@ class fMPS(object):
                     #C -= trace(K@r(m+1))
                     #K -= trace(K@r(m+1))
 
-                    if m==n:
+                    if m==i:
                         B += -1j *ncon([l(m-1)@C@r(m+1), pr(m), inv(r(m))@Am_1.conj()], [[3, 4, 1, 2], [-1, -2, 3, 1], [4, -3, 2]])
-                    if m==n-1:
+                    if m==i-1:
                         B += -1j *ncon([l(m-1)@Am.conj(), pr(m+1)]+[C], [[1, 3, 4], [-1, -2, 2, 4], [1, 2, 3, -3]])
-                    if m < n-1:
+                    if m < i-1:
                         B += -1j *ncon([K, Rs(m+2)], [[1, 2], [1, 2, -1, -2, -3]])
                 self.e = e
                 return B
@@ -689,7 +691,7 @@ class fMPS(object):
                     links[n+1] = [links[n+1][0], -3, links[n+1][2]]
                 return -1j *ncon([pr(m) if m==n else c(inv(r(n)))@a.conj() if m==n+1 else a.conj() for m, a in enumerate(A)]+[H]+A, links)
 
-        return fMPS([B(n) for n in range(L)])
+        return fMPS([B(i) for i in range(L)])
 
     def projection_error(self, H, dt):
         """projection_error: error in projection to mps manifold
@@ -845,15 +847,14 @@ class fMPS(object):
         #-<d_iψ|d_kd_jψ> dA_j/dt (dA_k) (range(k+1, L))
         #def Γ1(i, k): return sum([td(c(self.christoffel(k, j, i, envs=(l, r))), l(j-1)@dA_dt[j]@r(j), [[3, 4, 5], [0, 1, 2]]) for j in range(L)], axis=0)
         #-i<d_iψ|H|d_kψ> (dA_k)
-        id1 = uuid.uuid4().hex # for memoization
-        def F1(i, k): return  -1j*self.F1(i, k, H, envs=(l, r), prs=prs, fullH=fullH, id=id1)
+        id = uuid.uuid4().hex # for memoization
+        def F1(i, k): return  -1j*self.F1(i, k, H, envs=(l, r), prs=prs, fullH=fullH, id=id)
 
         ## non unitary (from projection): -<d_id_kψ|(d_t |ψ> +iH|ψ>) (dA_k*) (should be zero for no projection)
         #-<d_id_kψ|d_jψ> dA_j/dt (dA_k*)
         def Γ2(i, k): return td(self.christoffel(i, k, min(i, k), envs=(l, r), prs=prs), l(min(i, k)-1)@dA_dt[min(i, k)]@r(min(i, k)), [[7, 8, 6], [1, 2, 0]])
         #-i<d_id_k ψ|H|ψ> (dA_k*)
-        id2 = uuid.uuid4().hex # for memoization
-        def F2(i, k): return -1j*self.F2(i, k, H, envs=(l, r), prs=prs, fullH=fullH, id=id2)
+        def F2(i, k): return -1j*self.F2(i, k, H, envs=(l, r), prs=prs, fullH=fullH, id=id)
 
         def F1t(i, j): return F1(i, j)# + Γ1(i, j)
         if parallel_transport:
@@ -1100,9 +1101,12 @@ class fMPS(object):
                     Rjs = self.F2_ij_mem[str(i)+str(j)]
 
                 if str(i) not in self.F2_i_mem:
-                    Ri = ncon([pr(i), A[i]], [[-3, -4, 1, -2], [1, -1, -5]])
-                    Ris = self.left_transfer(Ri, 0, i)
-                    self.F2_i_mem[str(i)] = Ris
+                    if str(i) not in self.F1_j_mem:
+                        # check the memory - in F1 these things are computed too
+                        Ri = ncon([pr(i), A[i]], [[-3, -4, 1, -2], [1, -1, -5]])
+                        Ris = self.left_transfer(Ri, 0, i)
+                        self.F2_i_mem[str(i)] = Ris
+                    else: Ris = self.F1_j_mem[str(i)]
                 else:
                     Ris = self.F2_i_mem[str(i)]
 
