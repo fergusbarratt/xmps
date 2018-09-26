@@ -1,6 +1,8 @@
 """fMPS: Finite length matrix product states"""
+import numpy as np
 import pyximport
-pyximport.install()
+pyximport.install(setup_args={"include_dirs":np.get_include()},
+                  reload_support=True)
 
 import unittest
 
@@ -506,23 +508,12 @@ class fMPS(object):
         """
         def lt(op, As, j, i):
             Ls = [op]
-            oplinks = [2, 3]+list(range(-3, -len(op.shape)-1, -1))
             for m in reversed(range(j, i)):
-                t1 = time()
-                R = td(As[m], td(As[m].conj(), Ls[0], [2, 1]), [[0, 2], [0, 2]])
-                t2 = time()
-                print('not ncon', t2-t1)
-                t1 = time()
-                W = ncon([As[m].conj(), As[m], Ls[0]], [[1, -2, 3], [1, -1, 2], oplinks], [2, 3, 1])
-                t2 = time()
-                print('ncon', t2-t1)
-                print(norm(R-W))
-                raise Exception
+                W = td(As[m], td(As[m].conj(), Ls[0], [2, 1]), [[0, 2], [0, 2]])
                 Ls.insert(0, W)
-            raise Exception
             return Ls
 
-        Ls = lt(op, self.data, j, i)
+        Ls = lt_(op, self.data, j, i)
         return (lambda n: Ls[n-j]) if ret_all else Ls[0]
 
     def right_transfer(self, op, i, j, ret_all=True):
