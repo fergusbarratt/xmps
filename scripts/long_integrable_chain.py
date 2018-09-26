@@ -23,17 +23,19 @@ H = [H_i[0]+Sz12]+[H_i[i]+Sz12+Sz22 for i in range(1, L-2)]+[H_i[-1]+Sz22]
 W = L*[MPO_TFI(0, 0.25, 0.5, 0.5)]
 
 dt = 5e-3
-t_fin = 100 
+t_fin = 10 
 T = linspace(0, t_fin, int(t_fin//dt)+1)
 
 psi_0 = load('fixtures/mat{}x{}.npy'.format(L,L))
 mps = fMPS().left_from_state(psi_0).right_canonicalise(1)
-Ds = [2, 3, 4, 5, 6]
+Ds = [1, 2, 3, 4]
 for D in Ds:
-    exps, _ = Trajectory(mps, H=H, W=W).lyapunov(T, D, True, m=5)
-    save('data/lyapunovs_L{}_D{}_t{}'.format(L, D, t_fin), exps)
+    F = Trajectory(mps, H=H, W=W)
+    F.run_name = 'lyapunovs'
+    exps, _ = F.lyapunov(T, D, True, m=5)
+    F.save()
     plt.plot(exps)
-    plt.savefig('images/max_l_L{}_D{}_t{}.pdf'.format(L, D, t_fin), bbox_inches='tight')
+plt.savefig('images/{}.pdf'.format(F.id), bbox_inches='tight')
 
 #Ds = [1, 2, 3, 4]
 #exps_D = []
