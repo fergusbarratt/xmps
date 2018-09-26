@@ -9,7 +9,7 @@ from numpy import tensordot as td, squeeze, trace as tr, expand_dims as ed
 from numpy import load, isclose, allclose, zeros_like as zl, prod, imag as im
 from numpy import log, abs, diag, cumsum as cs, arange as ar, eye, kron as kr
 from numpy import cross, dot, kron, split, concatenate as ct, isnan, isinf
-from numpy import trace as tr, zeros, printoptions, tensordot, trace
+from numpy import trace as tr, zeros, printoptions, tensordot, trace, save
 from numpy.random import randn
 from scipy.linalg import sqrtm, expm, norm, null_space as null, cholesky as ch
 from scipy.sparse.linalg import expm_multiply, expm
@@ -30,12 +30,14 @@ Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
 class Trajectory(object):
     """Trajectory"""
 
-    def __init__(self, mps_0, H=None, W=None, fullH=False):
+    def __init__(self, mps_0, H=None, W=None, fullH=False, run_name=''):
         """__init__
 
         :param mps_0: initial state
         :param H: hamiltonian
+        :param W: mpo (for invfreeint)
         :param T: time steps
+        :param run_name: prefix for saving
         """
         self.H = H # hamiltonian as list of 4x4 mats or big matrix
         self.W = W # hamiltonian as mpo - required for invfreeint
@@ -44,6 +46,7 @@ class Trajectory(object):
         self.mps = deepcopy(mps_0)
         self.fullH=fullH
         self.mps_history = []
+        self.run_name = run_name
 
     def euler(self, mps, dt, H=None, store=True):
         H = self.H if H is None else H
@@ -173,7 +176,7 @@ class Trajectory(object):
         self.psi = self.ed_history[-1]
         return self
 
-    def lyapunov(self, T, D=None, just_max=False, m=5, par_trans=True):
+    def lyapunov(self, T, D=None, just_max=False, m=1, par_trans=True):
         H = self.H
         has_mpo = self.W is not None
         if D is not None:
@@ -284,6 +287,14 @@ class Trajectory(object):
     def clear(self):
         self.mps_history = []
         self.mps = self.mps_0.copy()
+
+    def save(self, loc='data/', clear=True):
+        assert self.mps_history 
+        self.id = self.run_name+'_L{}_D{}_N{}'.format(self.mps.L, self.mps.D, len(self.mps_history))
+        save(loc+self.id, self.mps_history)
+        if clear:
+            self.clear()
+
 
 class TestTrajectory(unittest.TestCase):
     """TestF"""

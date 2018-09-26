@@ -1,6 +1,7 @@
 old/
 data/
 tdvp/
+*.npy
 
 # Byte-compiled / optimized / DLL files
 *.swp
