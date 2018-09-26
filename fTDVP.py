@@ -173,7 +173,7 @@ class Trajectory(object):
         self.psi = self.ed_history[-1]
         return self
 
-    def lyapunov(self, T, D=None, just_max=False, m=5):
+    def lyapunov(self, T, D=None, just_max=False, m=5, par_trans=True):
         H = self.H
         has_mpo = self.W is not None
         if D is not None:
@@ -196,7 +196,7 @@ class Trajectory(object):
         calc = False
         for t in tqdm(range(1, len(T)+1)):
             if t%m == 0:
-                J = self.mps.jac(H)
+                J = self.mps.jac(H, parallel_transport=par_trans)
                 if just_max:
                     q = expm_multiply(J*dt, q)
                     lys.append(log(abs(norm(q))))
@@ -224,12 +224,13 @@ class Trajectory(object):
         :param T: times
         :param ops: (V, W)
         """
+        assert self.fullH == True
         V, W = ops
         psi_0 = self.mps.recombine().reshape(-1)
         H = self.H
         dt = T[1]-T[0]
         Ws = []
-        for t in T:
+        for t in tqdm(T):
             U = expm(-1j*H*t)
             Wt = cT(U)@W@U
             Ws.append(-re(c(psi_0)@comm(Wt, V)@comm(Wt, V)@psi_0))
