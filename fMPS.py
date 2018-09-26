@@ -1,29 +1,38 @@
 """fMPS: Finite length matrix product states"""
+import pyximport
+pyximport.install()
+
 import unittest
-from spin import n_body, N_body_spins, spins
+
 from numpy.random import rand, randint, randn
 from numpy.linalg import svd, inv, norm, cholesky as ch, qr
-from scipy.linalg import null_space as null, orth, expm#, sqrtm as ch
+
 from numpy import array, concatenate, diag, dot, allclose, isclose, swapaxes as sw
-from numpy import identity, swapaxes, trace, tensordot, sum, prod
-from numpy import real as re, stack as st, concatenate as ct
-from numpy import split as chop, zeros, ones, ones_like, empty
-from numpy import save, load, zeros_like as zl, eye, cumsum as cs
-from numpy import sqrt, expand_dims as ed, transpose as tra
-from numpy import trace as tr, tensordot as td, kron, imag as im
+from numpy import identity, swapaxes, trace, tensordot, sum, prod, ones
+from numpy import real as re, stack as st, concatenate as ct, zeros, empty
+from numpy import split as chop, ones_like, save, load, zeros_like as zl
+from numpy import eye, cumsum as cs, sqrt, expand_dims as ed, imag as im
+from numpy import transpose as tra, trace as tr, tensordot as td, kron
 from numpy import mean, count_nonzero
+
+from scipy.linalg import null_space as null, orth, expm#, sqrtm as ch
+from scipy.sparse.linalg import LinearOperator, aslinearoperator
+
 from tests import is_right_canonical, is_right_env_canonical, is_full_rank
 from tests import is_left_canonical, is_left_env_canonical, has_trace_1
+
 from tensor import H as cT, truncate_A, truncate_B, diagonalise, rank, mps_pad
 from tensor import C as c, lanczos_expm, tr_svd, T
 from tensor import rdot, ldot, structure
+from left_transfer import lt as lt_
+
+from spin import n_body, N_body_spins, spins
 from copy import deepcopy, copy
 from functools import reduce
 from itertools import product
-from scipy.sparse.linalg import LinearOperator, aslinearoperator
 import cProfile
 from time import time
-from numba import jit
+
 Sx, Sy, Sz = spins(0.5)
 Sx, Sy, Sz = 2*Sx, 2*Sy, 2*Sz
 
@@ -495,10 +504,25 @@ class fMPS(object):
         """transfer an operator (u, d, ...) on aux indices at i to site(s) j
         Returns a function such that R(j) == op at j. No bounds checking.
         """
-        Ls = [op]
-        oplinks = [2, 3]+list(range(-3, -len(op.shape)-1, -1))
-        for m in reversed(range(j, i)):
-            Ls.insert(0, ncon([self[m].conj(), self[m], Ls[0]], [[1, -2, 3], [1, -1, 2], oplinks], [2, 3, 1]))
+        def lt(op, As, j, i):
+            Ls = [op]
+            oplinks = [2, 3]+list(range(-3, -len(op.shape)-1, -1))
+            for m in reversed(range(j, i)):
+                t1 = time()
+                R = td(As[m], td(As[m].conj(), Ls[0], [2, 1]), [[0, 2], [0, 2]])
+                t2 = time()
+                print('not ncon', t2-t1)
+                t1 = time()
+                W = ncon([As[m].conj(), As[m], Ls[0]], [[1, -2, 3], [1, -1, 2], oplinks], [2, 3, 1])
+                t2 = time()
+                print('ncon', t2-t1)
+                print(norm(R-W))
+                raise Exception
+                Ls.insert(0, W)
+            raise Exception
+            return Ls
+
+        Ls = lt(op, self.data, j, i)
         return (lambda n: Ls[n-j]) if ret_all else Ls[0]
 
     def right_transfer(self, op, i, j, ret_all=True):
@@ -1515,7 +1539,7 @@ class TestfMPS(unittest.TestCase):
             self.assertTrue(case.apply((Sx, 0)).apply((Sx, 0))==case)
             self.assertTrue(case.apply((Sy, 0)).apply((Sy, 0))==case)
             self.assertTrue(case.apply((Sz, 0)).apply((Sz, 0))==case)
-            self.assertTrue(case.apply((Sz, 0))!=case)
+            self.assertTrue(case.copy().apply((Sz, 0))!=case)
 
     def test_left_norms(self):
         """test_left_norms"""
