@@ -34,6 +34,7 @@ from functools import reduce
 from itertools import product
 import cProfile
 from time import time
+import uuid
 
 Sx, Sy, Sz = spins(0.5)
 Sx, Sy, Sz = 2*Sx, 2*Sy, 2*Sz
@@ -54,7 +55,7 @@ class fMPS(object):
         :param D: Bond dimension: if not none, will truncate with right
         canonicalisation
         """
-
+        self.id = uuid.uuid4().hex # for memoization
         if data is not None:
             self.L = len(data)
             if d is not None:
@@ -821,12 +822,30 @@ class fMPS(object):
         l, r = self.l, self.r
         prs = [self.left_null_projector(n, l) for n in range(self.L)]
 
+        # these apply l-vL- -r- to something like -A|- to  get something like =x-
+        def ungauge_i(tens, i, conj=False):
+            def co(x): return x if not conj else c(x)
+            k = len(tens.shape[3:])
+            links = [1, 2, -2]+list(range(-3, -3-k, -1))
+            return ncon([ch(l(i-1))@co(vL[i]),
+                        ncon([tens, ch(r(i))], [[-1, -2, 1, -4, -5, -6], [1, -3]])],
+                        [[1, 2, -1], links])
+        def ungauge_j(tens, i, conj=False):
+            def co(x): return x if not conj else c(x)
+            k = len(tens.shape[:-3])
+            links = list(range(-1, -k-1, -1))+[1, 2, -k-2]
+            return ncon([ch(l(i-1))@co(vL[i]), tens@ch(r(i))],
+                    [[1, 2, -k-1], links])
+        def ungauge(tens, i, j, conj=(True, False)):
+            return ungauge_j(ungauge_i(tens, i, conj[0]), j, conj[1])
+
         # Get tensors
         ## unitary rotations: -<d_iψ|(d_t |d_kψ> +iH|d_kψ>) (dA_k)
         #-<d_iψ|d_kd_jψ> dA_j/dt (dA_k) (range(k+1, L))
         #def Γ1(i, k): return sum([td(c(self.christoffel(k, j, i, envs=(l, r))), l(j-1)@dA_dt[j]@r(j), [[3, 4, 5], [0, 1, 2]]) for j in range(L)], axis=0)
         #-i<d_iψ|H|d_kψ> (dA_k)
-        def F1(i, k): return  -1j*self.F1(i, k, H, envs=(l, r), prs=prs, fullH=fullH)
+        id = uuid.uuid4().hex # for memoization
+        def F1(i, k): return  -1j*self.F1(i, k, H, envs=(l, r), prs=prs, fullH=fullH, id=id)
 
         ## non unitary (from projection): -<d_id_kψ|(d_t |ψ> +iH|ψ>) (dA_k*) (should be zero for no projection)
         #-<d_id_kψ|d_jψ> dA_j/dt (dA_k*)
@@ -847,27 +866,9 @@ class fMPS(object):
         nulls = len([1 for (a, b) in sh if a==0 or b==0])
         shapes = list(cs([prod([a, b]) for (a, b) in sh if a!=0 and a!=0]))
         DD = shapes[-1]
-        def ungauge_i(tens, i, conj=False):
-            def co(x): return x if not conj else c(x)
-            k = len(tens.shape[3:])
-            links = [1, 2, -2]+list(range(-3, -3-k, -1))
-            return ncon([ch(l(i-1))@co(vL[i]),
-                        ncon([tens, ch(r(i))], [[-1, -2, 1, -4, -5, -6], [1, -3]])],
-                        [[1, 2, -1], links])
-        def ungauge_j(tens, i, conj=False):
-            def co(x): return x if not conj else c(x)
-            k = len(tens.shape[:-3])
-            links = list(range(-1, -k-1, -1))+[1, 2, -k-2]
-            return ncon([ch(l(i-1))@co(vL[i]), tens@ch(r(i))],
-                    [[1, 2, -k-1], links])
-        def ungauge(tens, i, j, conj=(True, False)):
-            return ungauge_j(ungauge_i(tens, i, conj[0]), j, conj[1])
         def J1(i, j): return ungauge(F1t(i, j), i, j, (True, False))
         def J2(i, j): return ungauge(F2t(i, j), i, j, (True, True))
-        def rect(x):
-            shape = x.shape
-            assert len(shape)%2==0
-            return x.reshape(prod(shape[:len(shape)//2]), -1)
+
         def ind(i):
             slices = [slice(a[0], a[1], 1)
                       for a in [([0]+shapes)[i:i+2] for i in range(len(shapes))]]
@@ -891,8 +892,16 @@ class fMPS(object):
         else:
             return J
 
-    def F1(self, i_, j_, H, envs=None, prs=None, fullH=False, testing=False):
+    def F1(self, i_, j_, H, envs=None, prs=None, fullH=False, testing=False, id=None):
             '''<d_iψ|H|d_jψ>'''
+            # if called with new id, need to recompute everything
+            # otherwise, we should look in the cache for computed values
+            id = id if id is not None else self.id
+            if self.id != id:
+                self.id = id
+                try_cache = False
+            else:
+                try_cache = True
             L, d, A = self.L, self.d, self.data
             l, r = self.get_envs() if envs is None else envs
             prs = [self.left_null_projector(n, l) for n in range(self.L)] if prs is None else prs
@@ -904,15 +913,52 @@ class fMPS(object):
 
                 if not d*Din_1==Di:
                     H = [h.reshape(2, 2, 2, 2) for h in H]
-                    Ru = ncon([pr(j), c(A[j])], [[1, -2, -3, -4], [1, -1, -5]])
-                    Rd = ncon([pr(i), A[i]], [[-3, -4, 1, -2], [1, -1, -5]])
-                    Rb = ncon([pr(j), pr(j), inv(r(j))], [[-3, -4, 1, -1], [1, -2, -6, -7], [-5, -8]])
-                    Lb = ncon([l(i-1)]+[pr(i), pr(i), inv(r(i)), inv(r(i))], [[2, 3], [-1, -2, 1, 2], [1, 3, -4, -5], [-3, -7], [-6, -8]])
+                    if not try_cache:
+                        # initialize the memories 
+                        # we only don't try the cache on the first call from jac
+                        self.F1_i_mem = {}
+                        self.j_mem = {}
+                        print('compute: ', i, j)
 
-                    Lbs = self.right_transfer(Lb, i, L-1)
-                    Rus = self.left_transfer(Ru, 0, j)
-                    Rds = self.left_transfer(Rd, 0, i)
-                    Rbs = self.left_transfer(Rb, 0, j)
+                        Rd = ncon([pr(i), A[i]], [[-3, -4, 1, -2], [1, -1, -5]])
+                        Lb = ncon([l(i-1)]+[pr(i), pr(i), inv(r(i)), inv(r(i))], [[2, 3], [-1, -2, 1, 2], [1, 3, -4, -5], [-3, -7], [-6, -8]])
+                        Lbs = self.right_transfer(Lb, i, L-1)
+                        Rds = self.left_transfer(Rd, 0, i)
+                        # compute i properties, and store in cache
+                        self.F1_i_mem[str(i)] = (Lbs, Rds)
+
+                        Ru = ncon([pr(j), c(A[j])], [[1, -2, -3, -4], [1, -1, -5]])
+                        Rb = ncon([pr(j), pr(j), inv(r(j))], [[-3, -4, 1, -1], [1, -2, -6, -7], [-5, -8]])
+                        Rus = self.left_transfer(Ru, 0, j)
+                        Rbs = self.left_transfer(Rb, 0, j)
+                        # compute j properties, and store in cache
+                        self.j_mem[str(j)] = (Rus, Rbs)
+                    else:
+                        if str(i) not in self.F1_i_mem:
+                            # compute i properties, and store in cache
+                            Rd = ncon([pr(i), A[i]], [[-3, -4, 1, -2], [1, -1, -5]])
+                            Lb = ncon([l(i-1)]+[pr(i), pr(i), inv(r(i)), inv(r(i))], [[2, 3], [-1, -2, 1, 2], [1, 3, -4, -5], [-3, -7], [-6, -8]])
+                            Lbs = self.right_transfer(Lb, i, L-1)
+                            Rds = self.left_transfer(Rd, 0, i)
+                            self.F1_i_mem[str(i)] = (Lbs, Rds)
+                            print('compute i: ', i)
+                        else:
+                            # read i properties from cache
+                            Lbs, Rds = self.F1_i_mem[str(i)]
+                            print('read i: ', i)
+
+                        if str(j) not in self.j_mem:
+                            # compute j properties, and store in cache
+                            Ru = ncon([pr(j), c(A[j])], [[1, -2, -3, -4], [1, -1, -5]])
+                            Rb = ncon([pr(j), pr(j), inv(r(j))], [[-3, -4, 1, -1], [1, -2, -6, -7], [-5, -8]])
+                            Rus = self.left_transfer(Ru, 0, j)
+                            Rbs = self.left_transfer(Rb, 0, j)
+                            self.j_mem[str(j)] = (Rus, Rbs)
+                            print('compute j: ', j)
+                        else:
+                            # read j properties from cache
+                            Rus, Rbs = self.j_mem[str(j)]
+                            print('read j: ', j)
 
                     for m, h in reversed(list(enumerate(H))):
                         if m > i:
@@ -922,10 +968,8 @@ class fMPS(object):
                             else:
                                 #AAHAA
                                 Am, Am_1 = self.data[m:m+2]
-                                C = ncon([h]+[Am, Am_1], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]], [3, 2, 1]) # HAA
-                                Kr = ncon([c(Am), c(Am_1)@r(m+1)]+[C],
-                                         [[1, -2, 4], [2, 4, 3], [1, 2, -1, 3]])
-                                G += tr(Lbs(m)@Kr, 0, -1, -2)
+                                Kr_ = ncon([Am_1@r(m+1), c(Am_1), Am, c(Am), h], [[2,4,1], [3,5,1], [6,-1,4], [7,-2,5], [7,3,6,2]])
+                                G += tr(Lbs(m)@Kr_, 0, -1, -2)
 
                         Am, Am_1 = self.data[m:m+2]
 
