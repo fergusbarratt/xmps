@@ -17,7 +17,7 @@ SxL, SyL, SzL = S_list[m]
 
 Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
 Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
-listH = [Sz12@Sz22+Sx12+Sz12] + [Sz12@Sz22+Sx12+Sz12+Sx22+Sz22 for _ in range(L-3)] + [Sz12@Sz22+Sx22+Sz22]
+listH = [Sz12@Sz22+Sx12] + [Sz12@Sz22+Sx12+Sz12+Sx22 for _ in range(L-3)] + [Sz12@Sz22+Sx22]
 fullH = sum([n_body(a, i, len(listH), d=2) for i, a in enumerate(listH)], axis=0)
 
 def numdiff(F, T):
@@ -31,11 +31,11 @@ T = linspace(0, 50, 200)
 ops = Sz1, SzL
 otocs = Trajectory(mps, fullH, fullH=True).ed_OTOC(T, ops)
 
-fig, ax = plt.subplots(3, 1, sharex=True)
+fig, ax = plt.subplots(2, 1, sharex=True)
 ax[0].set_title('$Sz^{}, Sz^{}, L={}, \lambda={}$'.format(n+1, m+1, L, (log(otocs)[2]-log(otocs)[1])/(T[2]-T[1])), loc='right')
 ax[0].plot(T, otocs)
 ax[1].plot(T, otocs)
 ax[1].set_yscale('log')
 fig.tight_layout()
-#fig.savefig('images/Sz1Sz7.pdf', bbox_inches='tight')
+fig.savefig('images/Sz^{}, Sz^{}, L={}, l={}, int.pdf'.format(n+1, m+1, L, (log(otocs)[2]-log(otocs)[1])/(T[2]-T[1])), bbox_inches='tight')
 plt.show()
