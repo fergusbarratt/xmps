@@ -56,6 +56,7 @@ class fMPS(object):
         canonicalisation
         """
         self.id = uuid.uuid4().hex # for memoization
+        self.id_ = uuid.uuid4().hex # for memoization
         if data is not None:
             self.L = len(data)
             if d is not None:
@@ -844,14 +845,15 @@ class fMPS(object):
         #-<d_iψ|d_kd_jψ> dA_j/dt (dA_k) (range(k+1, L))
         #def Γ1(i, k): return sum([td(c(self.christoffel(k, j, i, envs=(l, r))), l(j-1)@dA_dt[j]@r(j), [[3, 4, 5], [0, 1, 2]]) for j in range(L)], axis=0)
         #-i<d_iψ|H|d_kψ> (dA_k)
-        id = uuid.uuid4().hex # for memoization
-        def F1(i, k): return  -1j*self.F1(i, k, H, envs=(l, r), prs=prs, fullH=fullH, id=id)
+        id1 = uuid.uuid4().hex # for memoization
+        def F1(i, k): return  -1j*self.F1(i, k, H, envs=(l, r), prs=prs, fullH=fullH, id=id1)
 
         ## non unitary (from projection): -<d_id_kψ|(d_t |ψ> +iH|ψ>) (dA_k*) (should be zero for no projection)
         #-<d_id_kψ|d_jψ> dA_j/dt (dA_k*)
         def Γ2(i, k): return td(self.christoffel(i, k, min(i, k), envs=(l, r), prs=prs), l(min(i, k)-1)@dA_dt[min(i, k)]@r(min(i, k)), [[7, 8, 6], [1, 2, 0]])
         #-i<d_id_k ψ|H|ψ> (dA_k*)
-        def F2(i, k): return -1j*self.F2(i, k, H, envs=(l, r), prs=prs, fullH=fullH)
+        id2 = uuid.uuid4().hex # for memoization
+        def F2(i, k): return -1j*self.F2(i, k, H, envs=(l, r), prs=prs, fullH=fullH, id=id2)
 
         def F1t(i, j): return F1(i, j)# + Γ1(i, j)
         if parallel_transport:
@@ -893,15 +895,29 @@ class fMPS(object):
             return J
 
     def F1(self, i_, j_, H, envs=None, prs=None, fullH=False, testing=False, id=None):
-            '''<d_iψ|H|d_jψ>'''
+            '''<d_iψ|H|d_jψ>
+               Does some pretty dicey caching stuff to avoid recalculating anything'''
             # if called with new id, need to recompute everything
             # otherwise, we should look in the cache for computed values
             id = id if id is not None else self.id
             if self.id != id:
                 self.id = id
-                try_cache = False
+                # initialize the memories 
+                # we only don't try the cache on the first call from jac
+                self.F1_i_mem = {}
+                self.F1_j_mem = {}
+                self.F1_tot_ij_mem = {}
             else:
-                try_cache = True
+                # read from cache: 
+                # have we cached this tensor?
+                if str(i_)+str(j_) in self.F1_tot_ij_mem:
+                    return self.F1_tot_ij_mem[str(i_)+str(j_)]
+
+                # have we cached its conjugate?
+                if str(j_)+str(i_) in self.F1_tot_ij_mem:
+                    return c(tra(self.F1_tot_ij_mem[str(j_)+str(i_)], 
+                                 [3, 4, 5, 0, 1, 2]))
+
             L, d, A = self.L, self.d, self.data
             l, r = self.get_envs() if envs is None else envs
             prs = [self.left_null_projector(n, l) for n in range(self.L)] if prs is None else prs
@@ -913,52 +929,27 @@ class fMPS(object):
 
                 if not d*Din_1==Di:
                     H = [h.reshape(2, 2, 2, 2) for h in H]
-                    if not try_cache:
-                        # initialize the memories 
-                        # we only don't try the cache on the first call from jac
-                        self.F1_i_mem = {}
-                        self.j_mem = {}
-                        print('compute: ', i, j)
-
+                    if str(i) not in self.F1_i_mem:
+                        # compute i properties, and store in cache
                         Rd = ncon([pr(i), A[i]], [[-3, -4, 1, -2], [1, -1, -5]])
                         Lb = ncon([l(i-1)]+[pr(i), pr(i), inv(r(i)), inv(r(i))], [[2, 3], [-1, -2, 1, 2], [1, 3, -4, -5], [-3, -7], [-6, -8]])
                         Lbs = self.right_transfer(Lb, i, L-1)
                         Rds = self.left_transfer(Rd, 0, i)
-                        # compute i properties, and store in cache
                         self.F1_i_mem[str(i)] = (Lbs, Rds)
+                    else:
+                        # read i properties from cache
+                        Lbs, Rds = self.F1_i_mem[str(i)]
 
+                    if str(j) not in self.F1_j_mem:
+                        # compute j properties, and store in cache
                         Ru = ncon([pr(j), c(A[j])], [[1, -2, -3, -4], [1, -1, -5]])
                         Rb = ncon([pr(j), pr(j), inv(r(j))], [[-3, -4, 1, -1], [1, -2, -6, -7], [-5, -8]])
                         Rus = self.left_transfer(Ru, 0, j)
                         Rbs = self.left_transfer(Rb, 0, j)
-                        # compute j properties, and store in cache
-                        self.j_mem[str(j)] = (Rus, Rbs)
+                        self.F1_j_mem[str(j)] = (Rus, Rbs)
                     else:
-                        if str(i) not in self.F1_i_mem:
-                            # compute i properties, and store in cache
-                            Rd = ncon([pr(i), A[i]], [[-3, -4, 1, -2], [1, -1, -5]])
-                            Lb = ncon([l(i-1)]+[pr(i), pr(i), inv(r(i)), inv(r(i))], [[2, 3], [-1, -2, 1, 2], [1, 3, -4, -5], [-3, -7], [-6, -8]])
-                            Lbs = self.right_transfer(Lb, i, L-1)
-                            Rds = self.left_transfer(Rd, 0, i)
-                            self.F1_i_mem[str(i)] = (Lbs, Rds)
-                            print('compute i: ', i)
-                        else:
-                            # read i properties from cache
-                            Lbs, Rds = self.F1_i_mem[str(i)]
-                            print('read i: ', i)
-
-                        if str(j) not in self.j_mem:
-                            # compute j properties, and store in cache
-                            Ru = ncon([pr(j), c(A[j])], [[1, -2, -3, -4], [1, -1, -5]])
-                            Rb = ncon([pr(j), pr(j), inv(r(j))], [[-3, -4, 1, -1], [1, -2, -6, -7], [-5, -8]])
-                            Rus = self.left_transfer(Ru, 0, j)
-                            Rbs = self.left_transfer(Rb, 0, j)
-                            self.j_mem[str(j)] = (Rus, Rbs)
-                            print('compute j: ', j)
-                        else:
-                            # read j properties from cache
-                            Rus, Rbs = self.j_mem[str(j)]
-                            print('read j: ', j)
+                        # read j properties from cache
+                        Rus, Rbs = self.F1_j_mem[str(j)]
 
                     for m, h in reversed(list(enumerate(H))):
                         if m > i:
@@ -1065,13 +1056,29 @@ class fMPS(object):
                     G = ed(ed(G, -1), 2)
                 return G
 
-            if j_<i_:
-                return c(tra(G, [3, 4, 5, 0, 1, 2]))
-            else:
-                return G
+            G = c(tra(G, [3, 4, 5, 0, 1, 2])) if j_<i_ else G
+            self.F1_tot_ij_mem[str(i_)+str(j_)] = G
+            return G
 
-    def F2(self, i_, j_, H, envs=None, prs=None, fullH=False):
+    def F2(self, i_, j_, H, envs=None, prs=None, fullH=False, id=None):
         '''<d_id_j ψ|H|ψ>'''
+        id = id if id is not None else self.id_
+        if self.id_ != id:
+            self.id_ = id
+            self.F2_ij_mem = {}
+            self.F2_i_mem = {}
+            self.F1_tot_ij_mem = {}
+        else:
+            # read from cache: 
+            # have we cached this tensor?
+            if str(i_)+str(j_) in self.F1_tot_ij_mem:
+                return self.F1_tot_ij_mem[str(i_)+str(j_)]
+
+            # have we cached its transpose?
+            if str(j_)+str(i_) in self.F1_tot_ij_mem:
+                return tra(self.F1_tot_ij_mem[str(j_)+str(i_)], 
+                           [3, 4, 5, 0, 1, 2])
+
         L, d, A = self.L, self.d, self.data
         l, r = self.get_envs() if envs is None else envs
         prs = [self.left_null_projector(n, l) for n in range(self.L)] if prs is None else prs
@@ -1085,11 +1092,19 @@ class fMPS(object):
             _, Din_1, Di = self[i].shape
             H = [h.reshape(2, 2, 2, 2) for h in H]
             if not d*Din_1==Di:
-                Rj = ncon([pr(j), A[j]], [[-3, -4, 1, -2], [1, -1, -5]])
-                Rjs = self.left_transfer(Rj, i, j)
+                if str(i)+str(j) not in self.F2_ij_mem:
+                    Rj = ncon([pr(j), A[j]], [[-3, -4, 1, -2], [1, -1, -5]])
+                    Rjs = self.left_transfer(Rj, i, j)
+                    self.F2_ij_mem[str(i)+str(j)] = Rjs 
+                else:
+                    Rjs = self.F2_ij_mem[str(i)+str(j)]
 
-                Ri = ncon([pr(i), A[i]], [[-3, -4, 1, -2], [1, -1, -5]])
-                Ris = self.left_transfer(Ri, 0, i)
+                if str(i) not in self.F2_i_mem:
+                    Ri = ncon([pr(i), A[i]], [[-3, -4, 1, -2], [1, -1, -5]])
+                    Ris = self.left_transfer(Ri, 0, i)
+                    self.F2_i_mem[str(i)] = Ris
+                else:
+                    Ris = self.F2_i_mem[str(i)]
 
                 for m, h in reversed(list(enumerate(H))):
                     if m > i:
@@ -1136,10 +1151,9 @@ class fMPS(object):
                     links[j+1][1] = -6
                 G = ncon(bottom+[H]+top, links)
 
-        if j_<i_:
-            return tra(G, [3, 4, 5, 0, 1, 2])
-        else:
-            return G
+        G = tra(G, [3, 4, 5, 0, 1, 2]) if j_<i_ else G
+        self.F1_tot_ij_mem[str(i_)+str(j_)] = G
+        return G
 
     def christoffel(self, i, j, k, envs=None, prs=None, closed=(None, None, None)):
         """christoffel: return the christoffel symbol in basis c(A_i), c(A_j), A_k.
