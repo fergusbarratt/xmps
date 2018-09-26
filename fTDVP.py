@@ -320,7 +320,28 @@ class TestTrajectory(unittest.TestCase):
         self.psi_0_5 = self.mps_0_5.recombine().reshape(-1)
 
     def test_integrators(self):
-        test_2 = True
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
+
+        dt, t_fin = 2e-2, 10
+        T = linspace(0, t_fin, int(t_fin//dt)+1)
+
+        mps_0 = self.mps_0_2.left_canonicalise(1)
+        H = [Sz1@Sz2+Sx1+Sx2]
+        W = mps_0.L*[MPO_TFI(0, 0.25, 0.5, 0)]
+        F = Trajectory(mps_0, H=H, W=W)
+
+        C = F.invfreeint(T).mps_evs([Sx, Sy, Sz], 0)
+        F.clear()
+        D = F.eulerint(T).mps_evs([Sx, Sy, Sz], 0)
+        F.clear()
+
+        plt.plot(T, C)
+        plt.plot(T, D)
+        plt.show()
+        
+
+        test_2 = False
         if test_2:
             Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
             Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
@@ -351,7 +372,7 @@ class TestTrajectory(unittest.TestCase):
                 ax.plot(T, C)
                 plt.show()
 
-        test_3 = True
+        test_3 = False
         if test_3:
             Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
             Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
@@ -386,7 +407,7 @@ class TestTrajectory(unittest.TestCase):
                 ax.plot(T, C)
                 plt.show()
 
-        test_4 = True
+        test_4 = False
         if test_4:
             Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
             Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
@@ -421,7 +442,7 @@ class TestTrajectory(unittest.TestCase):
                 ax.plot(T, C)
                 plt.show()
 
-        test_5 = True
+        test_5 = False
         if test_5:
             Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
             Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)

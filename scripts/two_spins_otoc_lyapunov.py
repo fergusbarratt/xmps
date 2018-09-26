@@ -13,7 +13,7 @@ Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
 Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
 
 dt = 1e-2
-t_fin = 10 
+t_fin = 30 
 T = linspace(0, t_fin, int(t_fin//dt)+1)
 T_ = linspace(0, t_fin, 100)
 
