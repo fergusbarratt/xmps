@@ -828,23 +828,6 @@ class fMPS(object):
         l, r = self.l, self.r
         prs = [self.left_null_projector(n, l) for n in range(self.L)]
 
-        # these apply l-vL- -r- to something like -A|- to  get something like =x-
-        def ungauge_i(tens, i, conj=False):
-            def co(x): return x if not conj else c(x)
-            k = len(tens.shape[3:])
-            links = [1, 2, -2]+list(range(-3, -3-k, -1))
-            return ncon([ch(l(i-1))@co(vL[i]),
-                        ncon([tens, ch(r(i))], [[-1, -2, 1, -4, -5, -6], [1, -3]])],
-                        [[1, 2, -1], links])
-        def ungauge_j(tens, i, conj=False):
-            def co(x): return x if not conj else c(x)
-            k = len(tens.shape[:-3])
-            links = list(range(-1, -k-1, -1))+[1, 2, -k-2]
-            return ncon([ch(l(i-1))@co(vL[i]), tens@ch(r(i))],
-                    [[1, 2, -k-1], links])
-        def ungauge(tens, i, j, conj=(True, False)):
-            return ungauge_j(ungauge_i(tens, i, conj[0]), j, conj[1])
-
         # Get tensors
         ## unitary rotations: -<d_iψ|(d_t |d_kψ> +iH|d_kψ>) (dA_k)
         #-<d_iψ|d_kd_jψ> dA_j/dt (dA_k) (range(k+1, L))
@@ -872,15 +855,32 @@ class fMPS(object):
         nulls = len([1 for (a, b) in sh if a==0 or b==0])
         shapes = list(cs([prod([a, b]) for (a, b) in sh if a!=0 and a!=0]))
         DD = shapes[-1]
-        def J1(i, j): return ungauge(F1t(i, j), i, j, (True, False))
-        def J2(i, j): return ungauge(F2t(i, j), i, j, (True, True))
-
+        # these apply l-vL- -r- to something like -A|- to  get something like =x-
+        def ungauge_i(tens, i, conj=False):
+            def co(x): return x if not conj else c(x)
+            k = len(tens.shape[3:])
+            links = [1, 2, -2]+list(range(-3, -3-k, -1))
+            return ncon([ch(l(i-1))@co(vL[i]),
+                        ncon([tens, ch(r(i))], [[-1, -2, 1, -4, -5, -6], [1, -3]])],
+                        [[1, 2, -1], links])
+        def ungauge_j(tens, j, conj=False):
+            def co(x): return x if not conj else c(x)
+            k = len(tens.shape[:-3])
+            links = list(range(-1, -k-1, -1))+[1, 2, -k-2]
+            return ncon([ch(l(j-1))@co(vL[j]), tens@ch(r(j))],
+                    [[1, 2, -k-1], links])
+        def ungauge(tens, i, j, conj=(True, False)):
+            c1, c2 = conj
+            return ungauge_j(ungauge_i(tens, i, c1), j, c2)
         def ind(i):
             slices = [slice(a[0], a[1], 1)
                       for a in [([0]+shapes)[i:i+2] for i in range(len(shapes))]]
             return slices[i]
+
         J1_ = -1j*zeros((DD, DD))
         J2_ = -1j*zeros((DD, DD))
+        def J1(i, j): return ungauge(F1t(i, j), i, j, (True, False))
+        def J2(i, j): return ungauge(F2t(i, j), i, j, (True, True))
         for i_ in range(len(shapes)):
             for j_ in range(len(shapes)):
                 i, j = i_+nulls, j_+nulls
@@ -891,7 +891,8 @@ class fMPS(object):
 
         if not real_matrix:
             return J1_, J2_
-        J = kron(Sz, re(J2_))+kron(eye(2), re(J1_)) + kron(Sx, im(J2_)) + kron(-1j*Sy, im(J1_))
+
+        J = kron(Sz, re(J2_)) + kron(eye(2), re(J1_)) + kron(Sx, im(J2_)) + kron(-1j*Sy, im(J1_))
         if as_linearoperator:
             return aslinearoperator(J)
         else:

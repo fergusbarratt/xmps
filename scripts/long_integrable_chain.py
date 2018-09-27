@@ -15,7 +15,7 @@ Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
 
 Sx, Sy, Sz = spins(0.5)
 
-L = 11 
+L = 10
 bulkH =Sz12@Sz22+Sx12+Sx22
 H_i = [Sz12@Sz22+Sx12] + [bulkH for _ in range(L-3)] + [Sz12@Sz22+Sx22]
 H = [H_i[0]+Sz12]+[H_i[i]+Sz12+Sz22 for i in range(1, L-2)]+[H_i[-1]+Sz22]
@@ -29,13 +29,13 @@ if L<10:
     psi_0 = load('fixtures/mat{}x{}.npy'.format(L,L))
     mps = fMPS().left_from_state(psi_0).right_canonicalise(1)
 else:
-    mps = fMPS().random(L, 2, 1).load('fixtures/product{}.npy'.format(L))
+    mps = fMPS().load('fixtures/product{}.npy'.format(L))
 
-Ds = [3]
+Ds = [4]
 for D in Ds:
     F = Trajectory(mps, H=H, W=W)
     F.run_name = 'lyapunovs'
-    exps, _ = F.lyapunov(T, D, True, m=1)
+    exps, _ = F.lyapunov(T, D, m=1)
     F.save()
     plt.plot(exps)
 plt.savefig('images/{}.pdf'.format(F.id), bbox_inches='tight')

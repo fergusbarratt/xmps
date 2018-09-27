@@ -184,10 +184,10 @@ class Trajectory(object):
             # otherwise use dynamical expand: less numerically stable
             if has_mpo:
                 self.mps = self.mps.expand(D)
-                self.invfreeint(linspace(0, 0.5, 50))
+                self.invfreeint(linspace(0, 1, 100))
             else:
                 self.mps = self.mps.grow(self.H, 0.1, D).left_canonicalise()
-                self.rk4int(linspace(0, 0.5, 50))
+                self.rk4int(linspace(0, 1, 100))
 
         Q = kron(eye(2), self.mps.tangent_space_basis(type='rand'))
         if just_max:
@@ -294,7 +294,6 @@ class Trajectory(object):
         save(loc+self.id, self.mps_history)
         if clear:
             self.clear()
-
 
 class TestTrajectory(unittest.TestCase):
     """TestF"""
