@@ -189,7 +189,7 @@ class Trajectory(object):
                 self.mps = self.mps.grow(self.H, 0.1, D).left_canonicalise()
                 self.rk4int(linspace(0, 1, 100))
 
-        Q = kron(eye(2), self.mps.tangent_space_basis(type='rand'))
+        Q = kron(eye(2), self.mps.tangent_space_basis(type='eye'))
         if just_max:
             # just evolve top vector, dont bother with QR
             q = Q[0]
