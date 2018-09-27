@@ -42,7 +42,6 @@ Sx, Sy, Sz = 2*Sx, 2*Sy, 2*Sz
 from ncon import ncon as ncon
 #def ncon(*args): return nc(*args, check_indices=False)
 
-
 class fMPS(object):
     """finite MPS:
     lists of numpy arrays (1d) of numpy arrays (2d). Finite"""
@@ -508,7 +507,6 @@ class fMPS(object):
         """transfer an operator (u, d, ...) on aux indices at i to site(s) j
         Returns a function such that R(j) == op at j. No bounds checking.
         """
-        self.calls+=1
         def lt(op, As, j, i):
             Ls = [op]
             for m in reversed(range(j, i)):
@@ -523,7 +521,6 @@ class fMPS(object):
         """transfer an operator (..., u, d) on aux indices at i to site(s) j
         Returns a function such that R(j) == op at j. No bounds checking.
         """
-        self.calls+=1
         Rs = [op]
         oplinks = list(range(-1, -len(op.shape)+1, -1))+[2, 3]
         for m in range(i+1, j+1):
@@ -822,7 +819,6 @@ class fMPS(object):
             parallel_transport=True):
         """jac: calculate the jacobian of the current mps
         """
-        self.calls=0
         L, d, A = self.L, self.d, self.data
         dA_dt = self.dA_dt(H, fullH=fullH)
         l, r = self.l, self.r
@@ -979,7 +975,8 @@ class fMPS(object):
                             elif j==i+1:
                                 # ABHBA
                                 G += ncon([l(m-1)]+[Am, pr(m+1)]+[h]+[pr(m), r(m)@c(Am_1)],
-                                         [[5, 6], [1, 6, 7], [2, 7, -4, -5], [1, 2, 3, 4], [-1, -2, 3, 5], [4, -3, -6]])
+                                         [[5, 6], [1, 6, 7], [2, 7, -4, -5], [1, 2, 3, 4], [-1, -2, 3, 5], [4, -3, -6]],
+                                         [5, 6, 1, 3, 7, 2, 4])
                             else:
                                 # AAHBA
                                 O = ncon([l(m-1)@Am, Am_1]+[h]+[pr(m), inv(r(m))@c(Am_1)],
@@ -989,7 +986,8 @@ class fMPS(object):
                             if j==i:
                                 # ABHAB
                                 G += ncon([l(m-1)@Am, pr(m+1)]+[h]+[c(Am), pr(m+1)]+[inv(r(m+1))],
-                                          [[3, 5, 6], [4, 6, -4, -5], [1, 2, 3, 4], [1, 5, 7], [-1, -2, 2, 7], [-3, -6]]) #AA
+                                          [[3, 5, 6], [4, 6, -4, -5], [1, 2, 3, 4], [1, 5, 7], [-1, -2, 2, 7], [-3, -6]],
+                                          [1, 2, 3, 4, 5, 6, 7]) #AA
                             else:
                                 # AAHAB
                                 Q = ncon([l(m-1)@Am, Am_1]+[h]+[c(Am), pr(m+1)],
