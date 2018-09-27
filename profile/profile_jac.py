@@ -4,8 +4,7 @@ parentdir = os.path.dirname(currentdir)
 sys.path.insert(0,parentdir)
 
 from fMPS import fMPS
-from fTDVP import Trajectory
-from spin import N_body_spins, spins, n_body
+from spin import N_body_spins
 import cProfile
 
 Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)

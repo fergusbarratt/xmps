@@ -19,4 +19,4 @@ l, r = mps.l, mps.r
 T = []
 k = L-3
 mps.F1(k, k, H, envs=(l, r))
-cProfile.runctx('mps.F1(k, k, H, envs=(l, r))', {'mps':mps, 'H':H, 'l':l, 'r':r, 'k':k}, {}, sort='cumtime')
+#cProfile.runctx('mps.F1(k, k, H, envs=(l, r))', {'mps':mps, 'H':H, 'l':l, 'r':r, 'k':k}, {}, sort='cumtime')
