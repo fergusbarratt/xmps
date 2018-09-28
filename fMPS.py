@@ -899,7 +899,7 @@ class fMPS(object):
                Does some pretty dicey caching stuff to avoid recalculating anything'''
             # if called with new id, need to recompute everything
             # otherwise, we should look in the cache for computed values
-            id = id if id is not None else self.id
+            id = id if id is not None else uuid.uuid4().hex
             if self.id != id:
                 self.id = id
                 # initialize the memories 
@@ -1066,21 +1066,21 @@ class fMPS(object):
 
     def F2(self, i_, j_, H, envs=None, prs=None, fullH=False, id=None):
         '''<d_id_j ψ|H|ψ>'''
-        id = id if id is not None else self.id_
+        id = id if id is not None else uuid.uuid4().hex
         if self.id_ != id:
             self.id_ = id
             self.F2_ij_mem = {}
             self.F2_i_mem = {}
-            self.F1_tot_ij_mem = {}
+            self.F2_tot_ij_mem = {}
         else:
             # read from cache: 
             # have we cached this tensor?
-            if str(i_)+str(j_) in self.F1_tot_ij_mem:
-                return self.F1_tot_ij_mem[str(i_)+str(j_)]
+            if str(i_)+str(j_) in self.F2_tot_ij_mem:
+                return self.F2_tot_ij_mem[str(i_)+str(j_)]
 
             # have we cached its transpose?
-            if str(j_)+str(i_) in self.F1_tot_ij_mem:
-                return tra(self.F1_tot_ij_mem[str(j_)+str(i_)], 
+            if str(j_)+str(i_) in self.F2_tot_ij_mem:
+                return tra(self.F2_tot_ij_mem[str(j_)+str(i_)], 
                            [3, 4, 5, 0, 1, 2])
 
         L, d, A = self.L, self.d, self.data
@@ -1104,12 +1104,9 @@ class fMPS(object):
                     Rjs = self.F2_ij_mem[str(i)+str(j)]
 
                 if str(i) not in self.F2_i_mem:
-                    if str(i) not in self.F1_j_mem:
-                        # check the memory - in F1 these things are computed too
-                        Ri = ncon([pr(i), A[i]], [[-3, -4, 1, -2], [1, -1, -5]])
-                        Ris = self.left_transfer(Ri, 0, i)
-                        self.F2_i_mem[str(i)] = Ris
-                    else: Ris = self.F1_j_mem[str(i)]
+                    Ri = ncon([pr(i), A[i]], [[-3, -4, 1, -2], [1, -1, -5]])
+                    Ris = self.left_transfer(Ri, 0, i)
+                    self.F2_i_mem[str(i)] = Ris
                 else:
                     Ris = self.F2_i_mem[str(i)]
 
@@ -1159,7 +1156,7 @@ class fMPS(object):
                 G = ncon(bottom+[H]+top, links)
 
         G = tra(G, [3, 4, 5, 0, 1, 2]) if j_<i_ else G
-        self.F1_tot_ij_mem[str(i_)+str(j_)] = G
+        self.F2_tot_ij_mem[str(i_)+str(j_)] = G
         return G
 
     def christoffel(self, i, j, k, envs=None, prs=None, closed=(None, None, None)):
@@ -1263,61 +1260,6 @@ class fMPS(object):
             return [ct([b1, zeros(d2)]) for b1 in basis1]+\
                    [ct([zeros(d1), b2]) for b2 in basis2]
         return array(reduce(direct_sum, Qs))
-
-    def invfreeH(self, n, H, fullH=False, op=True):
-        """invfreeH: H(n) from the inverse free algorithm. 
-                     Assume current mps is in correct canonical form
-        :param n:orthogonality centre
-        :param H:hamiltonian
-        """
-        A = self.data
-        B = zeros((*self[n].shape, *self[n].shape))*1j
-        IS, IL, IR = eye(self[n].shape[0]), eye(self[n].shape[1]), eye(self[n].shape[2])
-        H = [h.reshape(2, 2, 2, 2) for h in H]
-        for m, h in reversed(list(enumerate(H))):
-            if m<n-1:
-                C = ncon([h]+[A[m], A[m+1]], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
-                K = ncon([A[m].conj(), A[m+1].conj()]+[C], [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]]) #AAHAA
-                L = self.right_transfer(K, m+1, n)
-                x = ncon([L(n), IS, IR], [[-2, -5], [-1, -4], [-3, -6]])
-                B+=x
-            if m==n-1:
-                B += ncon([A[n-1], H[n-1], A[n-1].conj(), IR], [[4, 1, -2], [3, -4, 4, -1], [3, 1, -5], [-3, -6]])
-            if m==n:
-                B += ncon([IL, A[n+1], H[n], A[n+1].conj()], [[-5, -2], [4, -3, 1], [-4, 3, -1, 4], [3, -6, 1]])
-            if m>n:
-                C = ncon([h]+[A[m], A[m+1]], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
-                Kr = ncon([c(A[m]), c(A[m+1])]+[C], [[1, -2, 4], [2, 4, 3], [1, 2, -1, 3]])
-                R = self.left_transfer(Kr, n+1, m)
-                B += ncon([IL, IS, R(n+1)], [[-2, -5], [-1, -4], [-3, -6]])
-        if not op:
-            return B
-
-        def mv(v):
-            v = v.reshape(self[n].shape)
-            v_out = ncon([B, v], [[-1, -2, -3, 1, 2, 3], [1, 2, 3]])
-            return v_out.reshape(-1)
-
-        return LinearOperator(shape=(prod(self[n].shape), prod(self[n].shape)), matvec=mv)
-
-    def invfreeK(self, n, H, fullH=False, op=True):
-        """invfreeK: K(n) from the inverse free algorithm.
-                     Assume current mps is in correct canonical form 
-
-        :param n: orthogonality centre
-        :param H: hamiltonian
-        """
-        H = self.invfreeH(n, H, fullH, op=False) 
-        Ac = self[n]
-        B = ncon([H, Ac, Ac.conj()], [[1, 2, -2, 3, 4, -4], [1, 2, -1], [3, 4, -3]])
-        if not op:
-            return B
-        def mv(v):
-            v = v.reshape(self[n].shape[-1], self[n+1].shape[1])
-            v_out = ncon([B, v], [[-1, -2, 1, 2], [1, 2]])
-            return v_out.reshape(-1)
-
-        return LinearOperator(shape=(self[n].shape[-1]*self[n+1].shape[1], self[n].shape[-1]*self[n+1].shape[1]), matvec=mv)
 
     def extract_tangent_vector(self, dA):
         """extract_tangent_vector from dA:
@@ -2062,65 +2004,9 @@ class TestfMPS(unittest.TestCase):
 
         mps.expand(2)
         l, r = mps.get_envs()
-        print([l(i) for i in range(mps.L)])
-        print([r(i) for i in range(mps.L)])
 
         self.assertTrue(allclose(ls, mps.Es([Sx, Sy, Sz], 0)))
         self.assertTrue(mps.structure()==[(1, 2), (2, 2), (2, 1)])
-
-    def test_invfreeH_K(self):
-        """Hermitian H, K, get energy out if contracted etc."""
-        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
-        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
-
-        mps = self.mps_0_2
-        H = [Sz1@Sz2+Sx1+Sx2]
-        for n in range(mps.L):
-            k = mps.invfreeK(n, H, False)
-            h = mps.invfreeH(n, H, False)
-            self.assertTrue(allclose(mps.energy(H), re(ncon([k], [1, 1, 2, 2]))))
-            self.assertTrue(allclose(k,c(tra(k, [2, 3, 0, 1]))))
-            self.assertTrue(allclose(h,c(tra(h, [3, 4, 5, 0, 1, 2]))))
-
-        mps = self.mps_0_3
-        H = [Sz1@Sz2+Sx1]+ [Sz1@Sz2+Sx1+Sx2]
-        for n in range(mps.L):
-            h = mps.invfreeH(n, H)
-            mps.mixed_canonicalise(n)
-            k = mps.invfreeK(n, H)
-            self.assertTrue(allclose(mps.energy(H), re(ncon([k], [1, 1, 2, 2]))))
-            self.assertTrue(allclose(k,c(tra(k, [2, 3, 0, 1]))))
-            self.assertTrue(allclose(h,c(tra(h, [3, 4, 5, 0, 1, 2]))))
-
-        mps = self.mps_0_4
-        H = [Sz1@Sz2+Sx1]+[Sz1@Sz2+Sx1+Sx2]+[Sz1@Sz2+Sx1+Sx2]
-        for n in range(mps.L):
-            h = mps.invfreeH(n, H)
-            mps.mixed_canonicalise(n)
-            k = mps.invfreeK(n, H)
-            self.assertTrue(allclose(mps.energy(H), re(ncon([k], [1, 1, 2, 2]))))
-            self.assertTrue(allclose(k,c(tra(k, [2, 3, 0, 1]))))
-            self.assertTrue(allclose(h,c(tra(h, [3, 4, 5, 0, 1, 2]))))
-
-        mps = self.mps_0_5
-        H = [Sz1@Sz2+Sx1]+[Sz1@Sz2+Sx1+Sx2]+[Sz1@Sz2+Sx1+Sx2]+[Sz1@Sz2+Sx1+Sx2]
-        for n in range(mps.L):
-            h = mps.invfreeH(n, H)
-            mps.mixed_canonicalise(n)
-            k = mps.invfreeK(n, H)
-            self.assertTrue(allclose(mps.energy(H), re(ncon([k], [1, 1, 2, 2]))))
-            self.assertTrue(allclose(k,c(tra(k, [2, 3, 0, 1]))))
-            self.assertTrue(allclose(h,c(tra(h, [3, 4, 5, 0, 1, 2]))))
-
-        mps = self.mps_0_6
-        H = [Sz1@Sz2+Sx1]+[Sz1@Sz2+Sx1+Sx2]+[Sz1@Sz2+Sx1+Sx2]+[Sz1@Sz2+Sx1+Sx2]+[Sz1@Sz2+Sx1+Sx2]
-        for n in range(mps.L):
-            h = mps.invfreeH(n, H)
-            mps.mixed_canonicalise(n)
-            k = mps.invfreeK(n, H)
-            self.assertTrue(allclose(mps.energy(H), re(ncon([k], [1, 1, 2, 2]))))
-            self.assertTrue(allclose(k,c(tra(k, [2, 3, 0, 1]))))
-            self.assertTrue(allclose(h,c(tra(h, [3, 4, 5, 0, 1, 2]))))
 
 class TestvfMPS(unittest.TestCase):
     """TestvfMPS"""
