@@ -908,16 +908,15 @@ class fMPS(object):
                 self.F1_j_mem = {}
                 self.F1_tot_ij_mem = {}
             else:
-                pass
                 # read from cache: this doesn't work for now
                 # have we cached this tensor?
-                #if str(i_)+str(j_) in self.F1_tot_ij_mem:
-                #    return self.F1_tot_ij_mem[str(i_)+str(j_)]
+                if str(i_)+str(j_) in self.F1_tot_ij_mem:
+                    return self.F1_tot_ij_mem[str(i_)+str(j_)]
 
                 ## have we cached its conjugate?
-                #if str(j_)+str(i_) in self.F1_tot_ij_mem:
-                #    return c(tra(self.F1_tot_ij_mem[str(j_)+str(i_)], 
-                #                 [3, 4, 5, 0, 1, 2]))
+                if str(j_)+str(i_) in self.F1_tot_ij_mem:
+                    return c(tra(self.F1_tot_ij_mem[str(j_)+str(i_)], 
+                                 [3, 4, 5, 0, 1, 2]))
 
             L, d, A = self.L, self.d, self.data
             l, r = self.get_envs() if envs is None else envs
