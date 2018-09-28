@@ -15,7 +15,7 @@ from numpy import real as re, stack as st, concatenate as ct, zeros, empty
 from numpy import split as chop, ones_like, save, load, zeros_like as zl
 from numpy import eye, cumsum as cs, sqrt, expand_dims as ed, imag as im
 from numpy import transpose as tra, trace as tr, tensordot as td, kron
-from numpy import mean, count_nonzero
+from numpy import mean
 
 from scipy.linalg import null_space as null, orth, expm#, sqrtm as ch
 from scipy.sparse.linalg import LinearOperator, aslinearoperator
