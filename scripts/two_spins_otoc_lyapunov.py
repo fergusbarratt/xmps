@@ -13,9 +13,9 @@ Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
 Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
 
 dt = 1e-2
-t_fin = 100 
+t_fin = 200 
 T = linspace(0, t_fin, int(t_fin//dt)+1)
-T_ = linspace(0, t_fin, 100)
+T_ = linspace(0, t_fin, 1000)
 
 tens_0_2 = load('fixtures/mat2x2.npy')
 mps = fMPS().left_from_state(tens_0_2).left_canonicalise(1)
@@ -49,6 +49,6 @@ ax[0][1].set_title('otoc no chaos')
 
 ax[1][1].plot(T_, Ws2)
 ax[1][1].set_title('otoc chaos')
-plt.savefig('images/exps_.pdf')
+plt.savefig('images/exps__.pdf')
 fig.tight_layout()
 plt.show()

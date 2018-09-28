@@ -822,7 +822,8 @@ class fMPS(object):
         L, d, A = self.L, self.d, self.data
         dA_dt = self.dA_dt(H, fullH=fullH)
         l, r = self.l, self.r
-        prs = [self.left_null_projector(n, l) for n in range(self.L)]
+        prs_vLs = [self.left_null_projector(n, l, get_vL=True) for n in range(self.L)]
+        prs = [x[0] for x in prs_vLs]
 
         # Get tensors
         ## unitary rotations: -<d_iψ|(d_t |d_kψ> +iH|d_kψ>) (dA_k)
@@ -830,7 +831,7 @@ class fMPS(object):
         #def Γ1(i, k): return sum([td(c(self.christoffel(k, j, i, envs=(l, r))), l(j-1)@dA_dt[j]@r(j), [[3, 4, 5], [0, 1, 2]]) for j in range(L)], axis=0)
         #-i<d_iψ|H|d_kψ> (dA_k)
         id = uuid.uuid4().hex # for memoization
-        def F1(i, k): return  -1j*self.F1(i, k, H, envs=(l, r), prs=prs, fullH=fullH, id=id)
+        def F1(i, k): return  -1j*self.F1(i, k, H, envs=(l, r), prs_vLs=prs_vLs, fullH=fullH, id=id)
 
         ## non unitary (from projection): -<d_id_kψ|(d_t |ψ> +iH|ψ>) (dA_k*) (should be zero for no projection)
         #-<d_id_kψ|d_jψ> dA_j/dt (dA_k*)
@@ -894,7 +895,7 @@ class fMPS(object):
         else:
             return J
 
-    def F1(self, i_, j_, H, envs=None, prs=None, fullH=False, testing=False, id=None):
+    def F1(self, i_, j_, H, envs=None, prs_vLs=None, fullH=False, testing=False, id=None):
             '''<d_iψ|H|d_jψ>
                Does some pretty dicey caching stuff to avoid recalculating anything'''
             # if called with new id, need to recompute everything
@@ -908,7 +909,7 @@ class fMPS(object):
                 self.F1_j_mem = {}
                 self.F1_tot_ij_mem = {}
             else:
-                # read from cache: this doesn't work for now
+                # read from cache: 
                 # have we cached this tensor?
                 if str(i_)+str(j_) in self.F1_tot_ij_mem:
                     return self.F1_tot_ij_mem[str(i_)+str(j_)]
@@ -920,8 +921,9 @@ class fMPS(object):
 
             L, d, A = self.L, self.d, self.data
             l, r = self.get_envs() if envs is None else envs
-            prs = [self.left_null_projector(n, l) for n in range(self.L)] if prs is None else prs
-            def pr(n): return prs[n]
+            prs_vLs = [self.left_null_projector(n, l, get_vLs=True) for n in range(self.L)] if prs_vLs is None else prs_vLs
+            def pr(n): return prs_vLs[n][0]
+            def vL(n): return prs_vLs[n][1]
             if not fullH:
                 i, j = (j_, i_) if j_<i_ else (i_, j_)
                 G = 1j*zeros((*A[i].shape, *A[j].shape))
