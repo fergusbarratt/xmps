@@ -934,7 +934,16 @@ class fMPS(object):
                     if str(i) not in self.F1_i_mem:
                         # compute i properties, and store in cache
                         Rd = ncon([pr(i), A[i]], [[-3, -4, 1, -2], [1, -1, -5]])
+
+                        # new bits
+                        Rd_ = ncon([vL(i), A[i]], [[1, -2, -3], [1, -1, -5]])
+
                         Lb = ncon([l(i-1)]+[pr(i), pr(i), inv(r(i)), inv(r(i))], [[2, 3], [-1, -2, 1, 2], [1, 3, -4, -5], [-3, -7], [-6, -8]])
+
+                        # new bits
+                        Lbs_ = self.right_transfer(ncon([ch(inv(r(i))), ch(inv(r(i)))], [[-1, -3], [-2, -4]]), i, L-1)
+                        Lbs__ = sum(cT(vL(i))@vL(i), axis=0)
+
                         Lbs = self.right_transfer(Lb, i, L-1)
                         Rds = self.left_transfer(Rd, 0, i)
                         self.F1_i_mem[str(i)] = (Lbs, Rds)
@@ -945,7 +954,16 @@ class fMPS(object):
                     if str(j) not in self.F1_j_mem:
                         # compute j properties, and store in cache
                         Ru = ncon([pr(j), c(A[j])], [[1, -2, -3, -4], [1, -1, -5]])
+
+                        # new bits
+                        Ru_ = ncon([vL(j), c(A[j])], [[1, -1, -3], [1, -2, -4]])
+
                         Rb = ncon([pr(j), pr(j), inv(r(j))], [[-3, -4, 1, -1], [1, -2, -6, -7], [-5, -8]])
+
+                        # new bits
+                        Rb_ = ncon([vL(j), c(vL(j))], [[1, -1, -3], [1, -2, -4]])
+                        Rb__ = eye(*r(j).shape)
+
                         Rus = self.left_transfer(Ru, 0, j)
                         Rbs = self.left_transfer(Rb, 0, j)
                         self.F1_j_mem[str(j)] = (Rus, Rbs)
