@@ -1044,6 +1044,7 @@ class fMPS(object):
 
                                 O_ = ncon([ch(l(m-1))@Am, Am_1]+[h]+[vL(m), inv(ch(r(m)))@c(Am_1)], 
                                           [[3, 1, 2], [4, 2, -3], [3, 4, 5, 6], [5, 1, -1], [6, -2, -4]])
+                                print(O_.shape, O.shape)
                                 G_+= tensordot(O_, Rus_(m+2), [[-1, -2], [0, 1]])
                                 print(norm(ungauge(G, i, j, (True, False))-G_))
                                 raise Exception

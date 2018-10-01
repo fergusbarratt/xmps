@@ -31,11 +31,11 @@ if L<10:
 else:
     mps = fMPS().load('fixtures/product{}.npy'.format(L))
 
-Ds = [1, 2]
+Ds = [3, 4]
 for D in Ds:
     F = Trajectory(mps, H=H, W=W)
     F.run_name = 'spectra/lyapunovs'
-    exps, _ = F.lyapunov(T, D, m=5)
+    exps, _ = F.lyapunov(T, D, m=1)
     F.save()
     plt.plot(exps)
 plt.savefig('images/{}.pdf'.format(F.id), bbox_inches='tight')
