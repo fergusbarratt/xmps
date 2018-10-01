@@ -183,13 +183,13 @@ class Trajectory(object):
             # if MPO supplied - just expand, canonicalise and use inverse free integrator
             # otherwise use dynamical expand: less numerically stable
             if has_mpo:
-                self.mps = self.mps.expand(D)
-                self.invfreeint(linspace(0, 1, 100))
+                self.mps = self.mps.expand(D).left_canonicalise()
+                self.invfreeint(linspace(0, 2, int(2/(5e-3))))
             else:
                 self.mps = self.mps.grow(self.H, 0.1, D).left_canonicalise()
                 self.rk4int(linspace(0, 1, 100))
 
-        Q = kron(eye(2), self.mps.tangent_space_basis(type='eye'))
+        Q = kron(eye(2), self.mps.tangent_space_basis(type='rand'))
         if just_max:
             # just evolve top vector, dont bother with QR
             q = Q[0]
@@ -219,6 +219,8 @@ class Trajectory(object):
             exps = (1/(dt))*cs(array(lys), axis=0)/ar(1, len(lys)+1)
         else:
             exps = (1/(dt))*cs(array(lys), axis=0)/ed(ar(1, len(lys)+1), 1)
+        self.exps = exps
+        self.lys = array(lys)
         return exps, array(lys)
 
     def ed_OTOC(self, T, ops):
@@ -288,10 +290,11 @@ class Trajectory(object):
         self.mps_history = []
         self.mps = self.mps_0.copy()
 
-    def save(self, loc='data/', clear=True):
+    def save(self, loc='data/', exps=True, clear=True):
         assert self.mps_history 
+        assert hasattr(self, 'exps') if exps else True
         self.id = self.run_name+'_L{}_D{}_N{}'.format(self.mps.L, self.mps.D, len(self.mps_history))
-        save(loc+self.id, self.mps_history)
+        save(loc+self.id, self.mps_history if not exps else self.exps)
         if clear:
             self.clear()
 
