@@ -979,7 +979,7 @@ class fMPS(object):
                         # compute j properties, and store in cache
                         Ru = ncon([pr(j), c(A[j])], [[1, -1, -3, -4], [1, -2, -5]])
 
-                        Rb = ncon([pr(j), pr(j), inv(r(j))], [[-3, -4, 1, -1], [1, -2, -6, -7], [-5, -8]])
+                        Rb = ncon([pr(j), pr(j), inv(r(j))], [[1, -1, -3, -4], [-6, -7, 1, -2], [-5, -8]])
 
                         Rus = self.left_transfer(Ru, 0, j)
                         Rbs = self.left_transfer(Rb, 0, j)
@@ -989,7 +989,6 @@ class fMPS(object):
                         # new bits
                         Ru_ = ncon([inv(ch(l(j-1)))@vL(j), c(A[j])@ch(r(j))], [[1, -1, -3], [1, -2, -4]])
                         Rb_ = ncon([inv(ch(l(j-1)))@vL(j), inv(ch(l(j-1)))@c(vL(j))], [[1, -1, -3], [1, -2, -4]])
-                        Rb__ = inv(r(j))
                         Rus_ = self.left_transfer(Ru_, 0, j)
                         Rbs_ = self.left_transfer(Rb_, 0, j)
 
@@ -1008,11 +1007,13 @@ class fMPS(object):
                                 #AAHAA
                                 Am, Am_1 = self.data[m:m+2]
                                 Kr_ = ncon([Am_1@r(m+1), c(Am_1), Am, c(Am), h], [[2,4,1], [3,5,1], [6,-1,4], [7,-2,5], [7,3,6,2]])
+                                print(norm(ungauge(G, i, j)-G_))
                                 G += tr(Lbs(m)@Kr_, 0, -1, -2)
 
                                 # new stuff
                                 Lbs__ = sum(cT(vL(i))@vL(i), axis=0)
                                 G_ += ncon([tr(Lbs_(m)@Kr_, 0, -1, -2), Lbs__], [[-2, -4], [-1, -3]])
+                                print(norm(ungauge(G, i, j)-G_))
 
 
                         Am, Am_1 = self.data[m:m+2]
@@ -1059,7 +1060,6 @@ class fMPS(object):
 
                             else:
                                 # AAHAB
-                                print(norm(ungauge(G, i, j, (True, False))-G_))
                                 Q = ncon([l(m-1)@Am, Am_1]+[h]+[c(Am), pr(m+1)],
                                          [[3, 6, 5], [4, 5, -3], [1, 2, 3, 4], [1, 6, 7], [-1, -2, 2, 7]]) #(A)
                                 G += tensordot(Q, ncon([inv(r(m+1)), Rus(m+2)], [[-2, 1], [-1, 1, -3, -4, -5]]), [-1, 0])
@@ -1068,8 +1068,6 @@ class fMPS(object):
                                           [[4, 1, 2], [5, 2, -2], [4, 5, 6, 7], [6, 1, 3], [7, 3, -1]]) 
 
                                 G_ += tensordot(Q_, ncon([inv(ch(r(m+1))), Rus_(m+2)], [[-2, 1], [-1, 1, -3, -4]]), [-1, 0])
-
-                                print(norm(ungauge(G, i, j, (True, False))-G_))
                         elif m<i:
                             #AAHAA
                             C = ncon([h]+[Am, Am_1], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
@@ -1077,6 +1075,7 @@ class fMPS(object):
                                      [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]])
                             if i==j:
                                 G += tensordot(K, Rbs(m+2), [[0, 1], [0, 1]])
+                                G_ += ncon([tensordot(K, Rbs_(m+2), [[0, 1], [0, 1]]), eye(r(j).shape[0])], [[-1, -3], [-2, -4]])
                             else:
                                 G += tensordot(K, tensordot(Rds(m+2)@inv(r(i)), Rus(i+1), [-1, 0]),
                                                [[0, 1], [0, 1]])
@@ -1290,7 +1289,7 @@ class fMPS(object):
             L_ = sw(cT(self[n])@ch(l(n-1)), 0, 1)
             L = L_.reshape(-1, self.d*L_.shape[-1])
             vL = null(L).reshape((self.d, L.shape[1]//self.d, -1))
-        pr = ncon([inv(ch(l(n-1))), vL, c(vL), inv(ch(l(n-1)))], [[-2, 2], [-1, 2, 1], [-3, 4, 1], [-4, 4]])
+        pr = ncon([inv(ch(l(n-1)))@vL, inv(ch(l(n-1)))@c(vL)], [[-1, -2, 1], [-3, -4, 1]])
         if get_vL:
             return pr, vL
         return pr
