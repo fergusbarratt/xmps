@@ -921,7 +921,7 @@ class fMPS(object):
 
             L, d, A = self.L, self.d, self.data
             l, r = self.get_envs() if envs is None else envs
-            prs_vLs = [self.left_null_projector(n, l, get_vLs=True) for n in range(self.L)] if prs_vLs is None else prs_vLs
+            prs_vLs = [self.left_null_projector(n, l, get_vL=True) for n in range(self.L)] if prs_vLs is None else prs_vLs
             def pr(n): return prs_vLs[n][0]
             def vL(n): return prs_vLs[n][1]
             if not fullH:
