@@ -906,7 +906,9 @@ class fMPS(object):
                 # initialize the memories 
                 # we only don't try the cache on the first call from jac
                 self.F1_i_mem = {}
+                self.F1_i_mem_ = {}
                 self.F1_j_mem = {}
+                self.F1_j_mem_ = {}
                 self.F1_tot_ij_mem = {}
             else:
                 # read from cache: 
@@ -937,7 +939,7 @@ class fMPS(object):
                     k = len(tens.shape[3:])
                     links = [1, 2, -2]+list(range(-3, -3-k, -1))
                     return ncon([ch(l(i-1))@co(vL(i)),
-                                ncon([tens, ch(r(i))], [[-1, -2, 1, -4, -5, -6], [1, -3]])],
+                                ncon([tens, ch(r(i))], [[-1, -2, 1]+list(range(-4, -4-k, -1)), [1, -3]])],
                                 [[1, 2, -1], links])
                 def ungauge_j(tens, j, conj=False):
                     def co(x): return x if not conj else c(x)
@@ -966,34 +968,36 @@ class fMPS(object):
                         Rd_ = ncon([inv(ch(l(i-1)))@vL(i), A[i]@ch(r(i))], [[1, -2, -3], [1, -1, -4]])
                         Lbs_ = self.right_transfer(ncon([ch(inv(r(i))), ch(inv(r(i)))], [[-1, -3], [-2, -4]]), i, L-1)
                         Rds_ = self.left_transfer(Rd_, 0, i)
+
+                        self.F1_i_mem_[str(i)] = (Lbs_, Rds_)
                     else:
                         # read i properties from cache
                         Lbs, Rds = self.F1_i_mem[str(i)]
+                        Lbs_, Rds_ = self.F1_i_mem_[str(i)]
 
                     if str(j) not in self.F1_j_mem:
                         # compute j properties, and store in cache
                         Ru = ncon([pr(j), c(A[j])], [[1, -1, -3, -4], [1, -2, -5]])
 
-                        # new bits
-                        Ru_ = ncon([inv(ch(l(j-1)))@vL(j), c(A[j])@ch(r(j))], [[1, -1, -3], [1, -2, -4]])
-
                         Rb = ncon([pr(j), pr(j), inv(r(j))], [[-3, -4, 1, -1], [1, -2, -6, -7], [-5, -8]])
-
-                        # new bits
-                        Rb_ = ncon([inv(ch(l(j-1)))@vL(j), inv(ch(l(j-1)))@c(vL(j))], [[1, -1, -3], [1, -2, -4]])
-                        Rb__ = inv(r(j))
 
                         Rus = self.left_transfer(Ru, 0, j)
                         Rbs = self.left_transfer(Rb, 0, j)
 
+                        self.F1_j_mem[str(j)] = (Rus, Rbs)
+
                         # new bits
+                        Ru_ = ncon([inv(ch(l(j-1)))@vL(j), c(A[j])@ch(r(j))], [[1, -1, -3], [1, -2, -4]])
+                        Rb_ = ncon([inv(ch(l(j-1)))@vL(j), inv(ch(l(j-1)))@c(vL(j))], [[1, -1, -3], [1, -2, -4]])
+                        Rb__ = inv(r(j))
                         Rus_ = self.left_transfer(Ru_, 0, j)
                         Rbs_ = self.left_transfer(Rb_, 0, j)
 
-                        self.F1_j_mem[str(j)] = (Rus, Rbs)
+                        self.F1_j_mem_[str(j)] = (Rus_, Rbs_)
                     else:
                         # read j properties from cache
                         Rus, Rbs = self.F1_j_mem[str(j)]
+                        Rus_, Rbs_ = self.F1_j_mem_[str(j)]
 
                     for m, h in reversed(list(enumerate(H))):
                         if m > i:
@@ -1024,7 +1028,6 @@ class fMPS(object):
                                            [[5, 1, -3], [6, -4, 2], [5, 6, 3, 4], [3, 1, -1], [4, -2, 2]])
                                 # doing down up for G_ indices
 
-
                             elif j==i+1:
                                 # ABHBA
                                 G += ncon([l(m-1)]+[Am, pr(m+1)]+[h]+[pr(m), inv(r(m))@c(Am_1)],
@@ -1035,30 +1038,38 @@ class fMPS(object):
                                            [[5, 1, 2], [6, 2, -3], [5, 6, 3, 4], [3, 1, -1], [4, -2, -4]])
                             else:
                                 # AAHBA
-                                print(norm(ungauge(G, i, j, (True, False))-G_))
                                 O = ncon([l(m-1)@Am, Am_1]+[h]+[pr(m), inv(r(m))@c(Am_1)],
                                          [[3, 6, 5], [4, 5, -4], [1, 2, 3, 4], [-1, -2, 1, 6], [2, -3, -5]]) #(A)ud
                                 G += tensordot(O, Rus(m+2), [[-1, -2], [0, 1]])
 
-                                print(norm(ungauge_j(Rus(m+2), j, False)-Rus_(m+2)))
-
-                                O_ = ncon([ch(l(m-1))@Am, Am_1]+[h]+[vL(m), inv(ch(r(m)))@c(Am_1)], 
+                                O_ = ncon([ch(l(m-1))@Am, Am_1]+[h]+[c(vL(m)), inv(ch(r(m)))@c(Am_1)], 
                                           [[3, 1, 2], [4, 2, -3], [3, 4, 5, 6], [5, 1, -1], [6, -2, -4]])
-                                print(O_.shape, O.shape)
+
                                 G_+= tensordot(O_, Rus_(m+2), [[-1, -2], [0, 1]])
-                                print(norm(ungauge(G, i, j, (True, False))-G_))
-                                raise Exception
+
                         elif m==i-1:
                             if j==i:
                                 # ABHAB
                                 G += ncon([l(m-1)@Am, pr(m+1)]+[h]+[c(Am), pr(m+1)]+[inv(r(m+1))],
                                           [[3, 5, 6], [4, 6, -4, -5], [1, 2, 3, 4], [1, 5, 7], [-1, -2, 2, 7], [-3, -6]],
                                           [1, 2, 3, 4, 5, 6, 7]) #AA
+
+                                G_ += ncon([l(m-1)@Am, inv(ch(l(m)))@vL(m+1)]+[h]+[c(Am), inv(ch(l(m)))@c(vL(m+1))]+[eye(r(m+1).shape[0])],
+                                           [[7, 1, 2], [8, 2, -3], [5, 6, 7, 8], [5, 1, 3], [6, 3, -1], [-2, -4]])
+
                             else:
                                 # AAHAB
+                                print(norm(ungauge(G, i, j, (True, False))-G_))
                                 Q = ncon([l(m-1)@Am, Am_1]+[h]+[c(Am), pr(m+1)],
                                          [[3, 6, 5], [4, 5, -3], [1, 2, 3, 4], [1, 6, 7], [-1, -2, 2, 7]]) #(A)
-                                G += tensordot(Q, Rus(m+2), [-1, 0])
+                                G += tensordot(Q, ncon([inv(r(m+1)), Rus(m+2)], [[-2, 1], [-1, 1, -3, -4, -5]]), [-1, 0])
+
+                                Q_ = ncon([l(m-1)@Am, Am_1]+[h]+[c(Am), inv(ch(l(m)))@c(vL(m+1))], 
+                                          [[4, 1, 2], [5, 2, -2], [4, 5, 6, 7], [6, 1, 3], [7, 3, -1]]) 
+
+                                G_ += tensordot(Q_, ncon([inv(ch(r(m+1))), Rus_(m+2)], [[-2, 1], [-1, 1, -3, -4]]), [-1, 0])
+
+                                print(norm(ungauge(G, i, j, (True, False))-G_))
                         elif m<i:
                             #AAHAA
                             C = ncon([h]+[Am, Am_1], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
