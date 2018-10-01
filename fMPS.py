@@ -905,9 +905,7 @@ class fMPS(object):
                 self.id = id
                 # initialize the memories 
                 # we only don't try the cache on the first call from jac
-                self.F1_i_mem = {}
                 self.F1_i_mem_ = {}
-                self.F1_j_mem = {}
                 self.F1_j_mem_ = {}
                 self.F1_tot_ij_mem = {}
             else:
@@ -935,7 +933,7 @@ class fMPS(object):
 
                 if not d*Din_1==Di:
                     H = [h.reshape(2, 2, 2, 2) for h in H]
-                    if str(i) not in self.F1_i_mem:
+                    if str(i) not in self.F1_i_mem_:
                         # compute i properties, and store in cache
                         Rd_ = ncon([inv(ch(l(i-1)))@c(vL(i)), A[i]], [[1, -2, -3], [1, -1, -4]])
                         Lbs_ = self.right_transfer(ncon([ch(inv(r(i))), ch(inv(r(i)))], [[-1, -3], [-2, -4]]), i, L-1)
@@ -946,7 +944,7 @@ class fMPS(object):
                         # read i properties from cache
                         Lbs_, Rds_ = self.F1_i_mem_[str(i)]
 
-                    if str(j) not in self.F1_j_mem:
+                    if str(j) not in self.F1_j_mem_:
                         # compute j properties, and store in cache
                         Ru_ = ncon([inv(ch(l(j-1)))@vL(j), c(A[j])@ch(r(j))], [[1, -1, -3], [1, -2, -4]])
                         Rb_ = ncon([inv(ch(l(j-1)))@c(vL(j)), inv(ch(l(j-1)))@vL(j)], [[1, -1, -3], [1, -2, -4]])
