@@ -927,7 +927,27 @@ class fMPS(object):
             if not fullH:
                 i, j = (j_, i_) if j_<i_ else (i_, j_)
                 G = 1j*zeros((*A[i].shape, *A[j].shape))
+                gDi, gDi_1 = vL(i).shape[-1], A[i+1].shape[1] if i != self.L-1 else 1
+                gDj, gDj_1 = vL(j).shape[-1], A[j+1].shape[1] if j != self.L-1 else 1
+                G_ = 1j*zeros((gDi, gDi_1, gDj, gDj_1))
                 d, Din_1, Di = self[i].shape
+
+                def ungauge_i(tens, i, conj=False):
+                    def co(x): return x if not conj else c(x)
+                    k = len(tens.shape[3:])
+                    links = [1, 2, -2]+list(range(-3, -3-k, -1))
+                    return ncon([ch(l(i-1))@co(vL(i)),
+                                ncon([tens, ch(r(i))], [[-1, -2, 1, -4, -5, -6], [1, -3]])],
+                                [[1, 2, -1], links])
+                def ungauge_j(tens, j, conj=False):
+                    def co(x): return x if not conj else c(x)
+                    k = len(tens.shape[:-3])
+                    links = list(range(-1, -k-1, -1))+[1, 2, -k-2]
+                    return ncon([ch(l(j-1))@co(vL(j)), tens@ch(r(j))],
+                            [[1, 2, -k-1], links])
+                def ungauge(tens, i, j, conj=(True, False)):
+                    c1, c2 = conj
+                    return ungauge_j(ungauge_i(tens, i, c1), j, c2)
 
                 if not d*Din_1==Di:
                     H = [h.reshape(2, 2, 2, 2) for h in H]
@@ -935,18 +955,17 @@ class fMPS(object):
                         # compute i properties, and store in cache
                         Rd = ncon([pr(i), A[i]], [[-3, -4, 1, -2], [1, -1, -5]])
 
-                        # new bits
-                        Rd_ = ncon([vL(i), A[i]], [[1, -2, -3], [1, -1, -5]])
-
                         Lb = ncon([l(i-1)]+[pr(i), pr(i), inv(r(i)), inv(r(i))], [[2, 3], [-1, -2, 1, 2], [1, 3, -4, -5], [-3, -7], [-6, -8]])
-
-                        # new bits
-                        Lbs_ = self.right_transfer(ncon([ch(inv(r(i))), ch(inv(r(i)))], [[-1, -3], [-2, -4]]), i, L-1)
-                        Lbs__ = sum(cT(vL(i))@vL(i), axis=0)
 
                         Lbs = self.right_transfer(Lb, i, L-1)
                         Rds = self.left_transfer(Rd, 0, i)
+
                         self.F1_i_mem[str(i)] = (Lbs, Rds)
+
+                        # new bits
+                        Rd_ = ncon([inv(ch(l(i-1)))@vL(i), A[i]@ch(r(i))], [[1, -2, -3], [1, -1, -4]])
+                        Lbs_ = self.right_transfer(ncon([ch(inv(r(i))), ch(inv(r(i)))], [[-1, -3], [-2, -4]]), i, L-1)
+                        Rds_ = self.left_transfer(Rd_, 0, i)
                     else:
                         # read i properties from cache
                         Lbs, Rds = self.F1_i_mem[str(i)]
@@ -956,16 +975,21 @@ class fMPS(object):
                         Ru = ncon([pr(j), c(A[j])], [[1, -2, -3, -4], [1, -1, -5]])
 
                         # new bits
-                        Ru_ = ncon([vL(j), c(A[j])], [[1, -1, -3], [1, -2, -4]])
+                        Ru_ = ncon([inv(ch(l(j-1)))@vL(j), c(A[j])@ch(r(j))], [[1, -1, -3], [1, -2, -4]])
 
                         Rb = ncon([pr(j), pr(j), inv(r(j))], [[-3, -4, 1, -1], [1, -2, -6, -7], [-5, -8]])
 
                         # new bits
-                        Rb_ = ncon([vL(j), c(vL(j))], [[1, -1, -3], [1, -2, -4]])
-                        Rb__ = eye(*r(j).shape)
+                        Rb_ = ncon([inv(ch(l(j-1)))@vL(j), inv(ch(l(j-1)))@c(vL(j))], [[1, -1, -3], [1, -2, -4]])
+                        Rb__ = inv(r(j))
 
                         Rus = self.left_transfer(Ru, 0, j)
                         Rbs = self.left_transfer(Rb, 0, j)
+
+                        # new bits
+                        Rus_ = self.left_transfer(Ru_, 0, j)
+                        Rbs_ = self.left_transfer(Rb_, 0, j)
+
                         self.F1_j_mem[str(j)] = (Rus, Rbs)
                     else:
                         # read j properties from cache
@@ -982,20 +1006,35 @@ class fMPS(object):
                                 Kr_ = ncon([Am_1@r(m+1), c(Am_1), Am, c(Am), h], [[2,4,1], [3,5,1], [6,-1,4], [7,-2,5], [7,3,6,2]])
                                 G += tr(Lbs(m)@Kr_, 0, -1, -2)
 
+                                # new stuff
+                                Lbs__ = sum(cT(vL(i))@vL(i), axis=0)
+                                G_ += ncon([tr(Lbs_(m)@Kr_, 0, -1, -2), Lbs__], [[-2, -4], [-1, -3]])
+
+
                         Am, Am_1 = self.data[m:m+2]
 
                         if m==i:
                             if j==i:
                                 # BAHBA
-                                G += ncon([l(m-1)]+[pr(m), inv(r(m))@Am_1]+[h]+[pr(m), inv(r(m))@c(Am_1)]+[r(m+1)],
-                                          [[5, 6], [1, 5, -4, -5], [2, -6, 7], [1, 2, 3, 4], [-1, -2, 3, 6], [4, -3, 8], [7, 8]],
-                                          [5, 6, 7, 8, 1, 2, 3, 4])
+                                G += ncon([l(m-1)]+[pr(m), inv(r(m))@Am_1@r(m+1)]+[h]+[pr(m), inv(r(m))@c(Am_1)],
+                                          [[5, 6], [1, 5, -4, -5], [2, -6, 7], [1, 2, 3, 4], [-1, -2, 3, 6], [4, -3, 7]],
+                                          [5, 6, 7, 1, 2, 3, 4])
+
+                                G_ += ncon([vL(m), inv(ch(r(m)))@Am_1@r(m+1)]+[h]+[c(vL(m)), inv(ch(r(m)))@c(Am_1)], 
+                                           [[5, 1, -3], [6, -4, 2], [5, 6, 3, 4], [3, 1, -1], [4, -2, 2]])
+                                # doing down up for G_ indices
+
 
                             elif j==i+1:
                                 # ABHBA
-                                G += ncon([l(m-1)]+[Am, pr(m+1)]+[h]+[pr(m), r(m)@c(Am_1)],
+                                print(norm(ungauge(G, i, j, (True, False))-G_))
+                                G += ncon([l(m-1)]+[Am, pr(m+1)]+[h]+[pr(m), inv(r(m))@c(Am_1)],
                                          [[5, 6], [1, 6, 7], [2, 7, -4, -5], [1, 2, 3, 4], [-1, -2, 3, 5], [4, -3, -6]],
                                          [5, 6, 1, 3, 7, 2, 4])
+
+                                G_ += ncon([Am, inv(ch(l(m)))@vL(m+1)]+[h]+[ch(l(m-1))@c(vL(m)), inv(ch(r(m)))@c(Am_1)@ch(r(m+1))], 
+                                           [[5, 1, 2], [6, 2, -3], [5, 6, 3, 4], [3, 1, -1], [4, -2, -4]])
+                                print(norm(ungauge(G, i, j, (True, False))-G_))
                             else:
                                 # AAHBA
                                 O = ncon([l(m-1)@Am, Am_1]+[h]+[pr(m), inv(r(m))@c(Am_1)],
