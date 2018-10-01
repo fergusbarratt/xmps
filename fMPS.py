@@ -972,7 +972,7 @@ class fMPS(object):
 
                     if str(j) not in self.F1_j_mem:
                         # compute j properties, and store in cache
-                        Ru = ncon([pr(j), c(A[j])], [[1, -2, -3, -4], [1, -1, -5]])
+                        Ru = ncon([pr(j), c(A[j])], [[1, -1, -3, -4], [1, -2, -5]])
 
                         # new bits
                         Ru_ = ncon([inv(ch(l(j-1)))@vL(j), c(A[j])@ch(r(j))], [[1, -1, -3], [1, -2, -4]])
@@ -1027,19 +1027,26 @@ class fMPS(object):
 
                             elif j==i+1:
                                 # ABHBA
-                                print(norm(ungauge(G, i, j, (True, False))-G_))
                                 G += ncon([l(m-1)]+[Am, pr(m+1)]+[h]+[pr(m), inv(r(m))@c(Am_1)],
                                          [[5, 6], [1, 6, 7], [2, 7, -4, -5], [1, 2, 3, 4], [-1, -2, 3, 5], [4, -3, -6]],
                                          [5, 6, 1, 3, 7, 2, 4])
 
                                 G_ += ncon([Am, inv(ch(l(m)))@vL(m+1)]+[h]+[ch(l(m-1))@c(vL(m)), inv(ch(r(m)))@c(Am_1)@ch(r(m+1))], 
                                            [[5, 1, 2], [6, 2, -3], [5, 6, 3, 4], [3, 1, -1], [4, -2, -4]])
-                                print(norm(ungauge(G, i, j, (True, False))-G_))
                             else:
                                 # AAHBA
+                                print(norm(ungauge(G, i, j, (True, False))-G_))
                                 O = ncon([l(m-1)@Am, Am_1]+[h]+[pr(m), inv(r(m))@c(Am_1)],
                                          [[3, 6, 5], [4, 5, -4], [1, 2, 3, 4], [-1, -2, 1, 6], [2, -3, -5]]) #(A)ud
                                 G += tensordot(O, Rus(m+2), [[-1, -2], [0, 1]])
+
+                                print(norm(ungauge_j(Rus(m+2), j, False)-Rus_(m+2)))
+
+                                O_ = ncon([ch(l(m-1))@Am, Am_1]+[h]+[vL(m), inv(ch(r(m)))@c(Am_1)], 
+                                          [[3, 1, 2], [4, 2, -3], [3, 4, 5, 6], [5, 1, -1], [6, -2, -4]])
+                                G_+= tensordot(O_, Rus_(m+2), [[-1, -2], [0, 1]])
+                                print(norm(ungauge(G, i, j, (True, False))-G_))
+                                raise Exception
                         elif m==i-1:
                             if j==i:
                                 # ABHAB
