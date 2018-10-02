@@ -176,7 +176,7 @@ class Trajectory(object):
         self.psi = self.ed_history[-1]
         return self
 
-    def lyapunov(self, T, D=None, just_max=False, m=1, par_trans=True):
+    def lyapunov(self, T, D=None, just_max=False, m=1, t_burn=2):
         H = self.H
         has_mpo = self.W is not None
         if D is not None:
@@ -184,7 +184,7 @@ class Trajectory(object):
             # otherwise use dynamical expand: less numerically stable
             if has_mpo:
                 self.mps = self.mps.left_canonicalise().expand(D)
-                self.invfreeint(linspace(0, 2, 400))
+                self.invfreeint(linspace(0, t_burn, 200*t_burn))
             else:
                 self.mps = self.mps.grow(self.H, 0.1, D).left_canonicalise()
                 self.rk4int(linspace(0, 1, 100))
@@ -199,7 +199,7 @@ class Trajectory(object):
         calc = False
         for t in tqdm(range(1, len(T)+1)):
             if t%m == 0:
-                J = self.mps.jac(H, parallel_transport=par_trans)
+                J = self.mps.jac(H)
                 if just_max:
                     q = expm_multiply(J*dt, q)
                     lys.append(log(abs(norm(q))))
@@ -277,10 +277,18 @@ class Trajectory(object):
         return Ws
 
     def mps_evs(self, ops, site):
-        assert hasattr(self, "mps_history")
+        assert self.mps_history
         L, d, D = self.mps.L, self.mps.d, self.mps.D
         return array([mps.Es(ops, site)
                     for mps in map(lambda x: fMPS().deserialize(x, L, d, D, real=True), self.mps_history)])
+
+    def schmidts(self):
+        assert self.mps_history
+        L, d, D = self.mps.L, self.mps.d, self.mps.D
+        sch = []
+        for mps in map(lambda x: fMPS().deserialize(x, L, d, D, real=True), self.mps_history):
+            sch.append([diag(x) for x in mps.left_canonicalise().Ls])
+        return sch[1:]
 
     def ed_evs(self, ops):
         assert hasattr(self, "ed_history")

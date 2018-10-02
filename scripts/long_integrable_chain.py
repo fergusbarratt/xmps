@@ -22,7 +22,7 @@ H = [H_i[0]+Sz12]+[H_i[i]+Sz12+Sz22 for i in range(1, L-2)]+[H_i[-1]+Sz22]
 W = L*[MPO_TFI(0, 0.25, 0.5, 0.5)]
 
 dt = 5e-3
-t_fin = 100 
+t_fin = 100
 T = linspace(0, t_fin, int(t_fin//dt)+1)
 
 if L<10:
@@ -31,24 +31,9 @@ if L<10:
 else:
     mps = fMPS().load('fixtures/product{}.npy'.format(L))
 
-Ds = [7, 8]
+Ds = [8]
 for D in Ds:
     F = Trajectory(mps, H=H, W=W)
     F.run_name = 'spectra/lyapunovs'
-    exps, _ = F.lyapunov(T, D, m=1)
+    exps, _ = F.lyapunov(T, D, m=1, t_burn=5)
     F.save(exps=True)
-
-
-#Ds = [1, 2, 3, 4]
-#exps_D = []
-#fig, ax = plt.subplots(4, 1, sharex=True, sharey=True)
-#for m, D in enumerate(Ds):
-#    exps = load('../data/lyapunovs_L{}_D{}_N{}.npy'.format(L, D, N))
-#    ax[m].plot(exps)
-#    #exps_D.append(sum(abs(exps[-1])))
-
-#plt.plot(exps_D)
-#fig.tight_layout()
-#plt.show()
-
-

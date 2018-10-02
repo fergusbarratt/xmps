@@ -1,4 +1,4 @@
-from numpy import load
+from numpy import load, save
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 mpl.style.use('ggplot')
