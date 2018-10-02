@@ -4,3 +4,4 @@ Features:
  - Canonicalisation, evs, etc.
  - Finite and infinite chain
  - Time evolution via TDVP
+ - MPS lyapunov spectra
