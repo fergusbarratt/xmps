@@ -931,12 +931,17 @@ class fMPS(object):
                 G_ = 1j*zeros((gDi, gDi_1, gDj, gDj_1))
                 d, Din_1, Di = self[i].shape
 
+                def inv_ch_r(n): return [inv(ch(r(i))) for i in range(self.L)][n]
+                def inv_ch_l(n): return [inv(ch(l(i))) for i in range(self.L)][n]
+                def ch_r(n): return [ch(r(i)) for i in range(self.L)][n]
+                def ch_l(n): return [ch(l(i)) for i in range(self.L)][n]
+
                 if not d*Din_1==Di:
                     H = [h.reshape(2, 2, 2, 2) for h in H]
                     if str(i) not in self.F1_i_mem_:
                         # compute i properties, and store in cache
                         Rd_ = ncon([inv(ch(l(i-1)))@c(vL(i)), A[i]], [[1, -2, -3], [1, -1, -4]])
-                        Lbs_ = self.right_transfer(ncon([ch(inv(r(i))), ch(inv(r(i)))], [[-1, -3], [-2, -4]]), i, L-1)
+                        Lbs_ = self.right_transfer(ncon([inv_ch_r(i), inv_ch_r(i)], [[-1, -3], [-2, -4]]), i, L-1)
                         Rds_ = self.left_transfer(Rd_, 0, i)
 
                         self.F1_i_mem_[str(i)] = (Lbs_, Rds_)
@@ -946,8 +951,8 @@ class fMPS(object):
 
                     if str(j) not in self.F1_j_mem_:
                         # compute j properties, and store in cache
-                        Ru_ = ncon([inv(ch(l(j-1)))@vL(j), c(A[j])@ch(r(j))], [[1, -1, -3], [1, -2, -4]])
-                        Rb_ = ncon([inv(ch(l(j-1)))@c(vL(j)), inv(ch(l(j-1)))@vL(j)], [[1, -1, -3], [1, -2, -4]])
+                        Ru_ = ncon([inv_ch_l(j-1)@vL(j), c(A[j])@ch_r(j)], [[1, -1, -3], [1, -2, -4]])
+                        Rb_ = ncon([inv_ch_l(j-1)@c(vL(j)), inv_ch_l(j-1)@vL(j)], [[1, -1, -3], [1, -2, -4]])
                         Rus_ = self.left_transfer(Ru_, 0, j)
                         Rbs_ = self.left_transfer(Rb_, 0, j)
 
@@ -971,31 +976,31 @@ class fMPS(object):
                         if m==i:
                             if j==i:
                                 # BAHBA
-                                G_ += ncon([vL(m), inv(ch(r(m)))@Am_1@r(m+1)]+[h]+[c(vL(m)), inv(ch(r(m)))@c(Am_1)], 
+                                G_ += ncon([vL(m), inv_ch_r(m)@Am_1@r(m+1)]+[h]+[c(vL(m)), inv_ch_r(m)@c(Am_1)], 
                                            [[5, 1, -3], [6, -4, 2], [5, 6, 3, 4], [3, 1, -1], [4, -2, 2]])
 
                             elif j==i+1:
                                 # ABHBA
-                                G_ += ncon([Am, inv(ch(l(m)))@vL(m+1)]+[h]+[ch(l(m-1))@c(vL(m)), inv(ch(r(m)))@c(Am_1)@ch(r(m+1))], 
+                                G_ += ncon([Am, inv_ch_l(m)@vL(m+1)]+[h]+[ch_l(m-1)@c(vL(m)), inv_ch_r(m)@c(Am_1)@ch_r(m+1)], 
                                            [[5, 1, 2], [6, 2, -3], [5, 6, 3, 4], [3, 1, -1], [4, -2, -4]])
                             else:
                                 # AAHBA
-                                O_ = ncon([ch(l(m-1))@Am, Am_1]+[h]+[c(vL(m)), inv(ch(r(m)))@c(Am_1)], 
+                                O_ = ncon([ch(l(m-1))@Am, Am_1]+[h]+[c(vL(m)), inv_ch_r(m)@c(Am_1)], 
                                           [[3, 1, 2], [4, 2, -3], [3, 4, 5, 6], [5, 1, -1], [6, -2, -4]])
 
                                 G_+= tensordot(O_, Rus_(m+2), [[-1, -2], [0, 1]])
                         elif m==i-1:
                             if j==i:
                                 # ABHAB
-                                G_ += ncon([l(m-1)@Am, inv(ch(l(m)))@vL(m+1)]+[h]+[c(Am), inv(ch(l(m)))@c(vL(m+1))]+[eye(r(m+1).shape[0])],
+                                G_ += ncon([l(m-1)@Am, inv_ch_l(m)@vL(m+1)]+[h]+[c(Am), inv_ch_l(m)@c(vL(m+1))]+[eye(r(m+1).shape[0])],
                                            [[7, 1, 2], [8, 2, -3], [5, 6, 7, 8], [5, 1, 3], [6, 3, -1], [-2, -4]])
 
                             else:
                                 # AAHAB
-                                Q_ = ncon([l(m-1)@Am, Am_1]+[h]+[c(Am), inv(ch(l(m)))@c(vL(m+1))], 
+                                Q_ = ncon([l(m-1)@Am, Am_1]+[h]+[c(Am), inv_ch_l(m)@c(vL(m+1))], 
                                           [[4, 1, 2], [5, 2, -2], [4, 5, 6, 7], [6, 1, 3], [7, 3, -1]]) 
 
-                                G_ += tensordot(Q_, ncon([inv(ch(r(m+1))), Rus_(m+2)], [[-2, 1], [-1, 1, -3, -4]]), [-1, 0])
+                                G_ += tensordot(Q_, ncon([inv_ch_r(m+1), Rus_(m+2)], [[-2, 1], [-1, 1, -3, -4]]), [-1, 0])
                         elif m<i:
                             C = ncon([h]+[Am, Am_1], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
                             K = ncon([l(m-1)@c(Am), c(Am_1)]+[C],
@@ -1005,7 +1010,7 @@ class fMPS(object):
                                 G_ += ncon([tensordot(K, Rbs_(m+2), [[0, 1], [0, 1]]), eye(r(j).shape[0])], [[-1, -3], [-2, -4]])
                             else:
                                 G_ += tensordot(tensordot(K, Rds_(m+2), [[0, 1], [0, 1]]), 
-                                                ncon([Rus_(i+1), ch(inv(r(i)))], [[-1, 2, -3, -4], [2, -2]]), [-1, 0])
+                                                ncon([Rus_(i+1), inv_ch_r(i)], [[-1, 2, -3, -4], [2, -2]]), [-1, 0])
 
                 if testing:
                     G = 1j*zeros((*A[i].shape, *A[j].shape))

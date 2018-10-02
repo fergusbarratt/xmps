@@ -13,5 +13,5 @@ Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
 L = 8 
 mps = fMPS().left_from_state(load('fixtures/mat8x8.npy')).left_canonicalise(3)
 H = [Sz12@Sz22+Sx12] +[Sz12@Sz22+Sx12+Sx22 for _ in range(L-3)]+[Sz12@Sz22+Sx22]
-mps.jac(H)
-#cProfile.runctx('mps.jac(H)', {'mps':mps, 'H':H}, {}, sort='cumtime')
+#mps.jac(H)
+cProfile.runctx('mps.jac(H)', {'mps':mps, 'H':H}, {}, sort='cumtime')
