@@ -31,9 +31,9 @@ if L<10:
 else:
     mps = fMPS().load('fixtures/product{}.npy'.format(L))
 
-Ds = [8]
+Ds = [9, 10, 11, 12]
 for D in Ds:
     F = Trajectory(mps, H=H, W=W)
     F.run_name = 'spectra/lyapunovs'
-    exps, _ = F.lyapunov(T, D, m=1, t_burn=5)
+    exps, _ = F.lyapunov(T, D, m=1, t_burn=8)
     F.save(exps=True)

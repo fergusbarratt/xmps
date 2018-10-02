@@ -839,7 +839,7 @@ class fMPS(object):
         #-<d_id_kψ|d_jψ> dA_j/dt (dA_k*)
         def Γ2(i, k): return td(self.christoffel(i, k, min(i, k), envs=(l, r), prs=prs), l(min(i, k)-1)@dA_dt[min(i, k)]@r(min(i, k)), [[7, 8, 6], [1, 2, 0]])
         #-i<d_id_k ψ|H|ψ> (dA_k*)
-        def F2(i, k): return -1j*self.F2(i, k, H, envs=(l, r), prs=prs, fullH=fullH, id=id)
+        def F2(i, k): return -1j*self.F2(i, k, H, envs=(l, r), prs_vLs=prs_vLs, fullH=fullH, id=id)
 
         def F2t(i, j): return F2(i, j) + Γ2(i, j) #F2, Γ2 act on dA*j
 
@@ -1156,13 +1156,15 @@ class fMPS(object):
             self.F1_tot_ij_mem[str(i_)+str(j_)] = G_
             return G_
 
-    def F2(self, i_, j_, H, envs=None, prs=None, fullH=False, id=None):
+    def F2(self, i_, j_, H, envs=None, prs_vLs=None, fullH=False, id=None):
         '''<d_id_j ψ|H|ψ>'''
         id = id if id is not None else uuid.uuid4().hex
         if self.id_ != id:
             self.id_ = id
             self.F2_ij_mem = {}
             self.F2_i_mem = {}
+            self.F2_ij_mem_ = {}
+            self.F2_i_mem_ = {}
             self.F2_tot_ij_mem = {}
         else:
             # read from cache: 
@@ -1177,30 +1179,61 @@ class fMPS(object):
 
         L, d, A = self.L, self.d, self.data
         l, r = self.get_envs() if envs is None else envs
-        prs = [self.left_null_projector(n, l) for n in range(self.L)] if prs is None else prs
-        def pr(n): return prs[n]
+        prs_vLs = [self.left_null_projector(n, l, get_vL=True) for n in range(self.L)] if prs_vLs is None else prs_vLs
+        def pr(n): return prs_vLs[n][0]
+        def vL(n): return prs_vLs[n][1]
 
         i, j = (j_, i_) if j_<i_ else (i_, j_)
         if i==j:
             G = 1j*zeros((*A[i].shape, *A[j].shape))
+
+            gDi, gDi_1 = vL(i).shape[-1], A[i+1].shape[1] if i != self.L-1 else 1
+            gDj, gDj_1 = vL(j).shape[-1], A[j+1].shape[1] if j != self.L-1 else 1
+            G_ = 1j*zeros((gDi, gDi_1, gDj, gDj_1))
         elif not fullH:
             G = 1j*zeros((*A[i].shape, *A[j].shape))
             _, Din_1, Di = self[i].shape
             H = [h.reshape(2, 2, 2, 2) for h in H]
+
+            # new stuff
+            gDi, gDi_1 = vL(i).shape[-1], A[i+1].shape[1] if i != self.L-1 else 1
+            gDj, gDj_1 = vL(j).shape[-1], A[j+1].shape[1] if j != self.L-1 else 1
+            G_ = 1j*zeros((gDi, gDi_1, gDj, gDj_1))
+
+            d, Din_1, Di = self[i].shape
+            icr, icl = [inv(ch(r(i))) for i in range(self.L)], [inv(ch(l(i))) for i in range(self.L)]
+            cr, cl = [ch(r(i)) for i in range(self.L)], [ch(l(i)) for i in range(self.L)]
+            def inv_ch_r(n): return icr[n]
+            def inv_ch_l(n): return icl[n]
+            def ch_r(n): return cr[n]
+            def ch_l(n): return cl[n]
+
             if not d*Din_1==Di:
                 if str(i)+str(j) not in self.F2_ij_mem:
                     Rj = ncon([pr(j), A[j]], [[-3, -4, 1, -2], [1, -1, -5]])
                     Rjs = self.left_transfer(Rj, i, j)
                     self.F2_ij_mem[str(i)+str(j)] = Rjs 
+
+                    # new stuff
+                    Rj_ = ncon([inv_ch_l(j-1)@c(vL(j)), A[j]@ch_r(j)], [[1, -2, -3], [1, -1, -4]])
+                    Rjs_ = self.left_transfer(Rj_, i, j)
+                    self.F2_ij_mem_[str(i)+str(j)] = Rjs_
                 else:
                     Rjs = self.F2_ij_mem[str(i)+str(j)]
+                    Rjs_ = self.F2_ij_mem_[str(i)+str(j)]
 
                 if str(i) not in self.F2_i_mem:
                     Ri = ncon([pr(i), A[i]], [[-3, -4, 1, -2], [1, -1, -5]])
                     Ris = self.left_transfer(Ri, 0, i)
                     self.F2_i_mem[str(i)] = Ris
+
+                    # new stuff
+                    Ri_ = ncon([inv_ch_l(i-1)@c(vL(i)), A[i]], [[1, -2, -3], [1, -1, -4]])
+                    Ris_ = self.left_transfer(Ri_, 0, i)
+                    self.F2_i_mem_[str(i)] = Ris_
                 else:
                     Ris = self.F2_i_mem[str(i)]
+                    Ris_ = self.F2_i_mem_[str(i)]
 
                 for m, h in reversed(list(enumerate(H))):
                     if m > i:
@@ -1208,23 +1241,35 @@ class fMPS(object):
                         continue
                     Am, Am_1 = self.data[m:m+2]
                     C = ncon([h]+[Am, Am_1], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
-                    K = ncon([c(l(m-1))@Am.conj(), Am_1.conj()]+[C], [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]]) #AAHAA
-                    e = tr(K@r(m+1))
 
                     if m==i:
                         if j==i+1:
-                            G += ncon([l(m-1)@C, pr(i), dot(pr(j), inv(r(i)))],   [[1, 2, 3, -6], [-1, -2, 1, 3], [-4, -5, 2, -3]])
+                            G += ncon([l(m-1)@C, pr(i), dot(pr(j), inv(r(i)))], 
+                                      [[1, 2, 3, -6], [-1, -2, 1, 3], [-4, -5, 2, -3]])
+                            G_+= ncon([ch_l(i-1)@C@ch_r(j), c(vL(i)), inv_ch_r(i)@c(vL(j))],
+                                      [[1, 2, 3, -4], [1, 3, -1], [2, -2, -3]])
                         else:
                             L =  ncon([l(m-1)@C, pr(i), inv(r(i))@c(Am_1)], [[1, 2, 3, -4], [-1, -2, 1, 3], [2, -3, -5]]) # ud
                             G += ncon([L, Rjs(m+2)], [[-1, -2, -3, 1, 2], [1, 2, -4, -5, -6]])
+
+                            L_=  ncon([ch_l(i-1)@C, c(vL(i)), inv_ch_r(i)@c(Am_1)], [[3,4,1,-3], [3,1,-1], [4, -2, -4]])
+                            G_+= tensordot(L_, Rjs_(m+2), [[2, 3], [0, 1]])
                     elif m==i-1:
                         L = ncon([l(m-1)@C, c(Am), pr(i)], [[1, 2, 3, -3], [1, 3, 4], [-1, -2, 2, 4]])
                         G += ncon([L, ncon([Rjs(m+2), inv(r(i))], [[-1, 2, -3, -4, -5], [2, -2]])], [[-1, -2, 1], [1, -3, -4, -5, -6]])
+
+                        L_ = ncon([l(m-1)@C, c(Am), c(vL(i))], [[2, 4, 1, -2], [2, 1, 3], [4, 3, -1]])
+                        G_+= tensordot(L_, ncon([inv_ch_r(i), Rjs_(m+2)], [[-2, 1], [-1, 1, -3, -4]]), [[-1], [0]])
                     else:
+                        K = ncon([l(m-1)@Am.conj(), Am_1.conj()]+[C], [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]]) #AAHAA
+
                         L = ncon([K, Ris(m+2)], [[1, 2], [1, 2, -1, -2, -3]])
                         G += ncon([ncon([L, Rjs(i+1)], [[-1, -2, 1], [1, -3, -4, -5, -6]]),
                                    inv(r(i))],
                                    [[-1, -2, 1, -4, -5, -6], [1, -3]])
+
+                        L_ = tensordot(K, Ris_(m+2), [[0, 1], [0, 1]])
+                        G_+= ncon([tensordot(L_, Rjs_(i+1), [1, 0]), inv_ch_r(i)], [[-1, 1, -3, -4], [1, -2]])
         elif fullH:
             H = H.reshape([self.d, self.d]*self.L)
             if i==j:
@@ -1246,6 +1291,10 @@ class fMPS(object):
                     links[j+1][1] = -6
                 G = ncon(bottom+[H]+top, links)
 
+        def gauge(G, i, j):
+            return ncon([G, inv(ch(l(i-1)))@vL(i), inv(ch(l(j-1)))@vL(j), inv(ch(r(i))), inv(ch(r(j)))], 
+                        [[1, 3, 2, 4], [-1, -2, 1], [-4, -5, 2], [-3, 3], [-6, 4]])
+        print(norm(G-gauge(G_, i, j)))
         G = tra(G, [3, 4, 5, 0, 1, 2]) if j_<i_ else G
         self.F2_tot_ij_mem[str(i_)+str(j_)] = G
         return G
