@@ -790,6 +790,26 @@ class fMPS(object):
             self.dynamical_expand(H, dt, min(self.d*self.D, D_), None)
         return self
 
+    def ddA_dt(self, v, H, fullH=False):
+        """d(dA)_dt: find ddA_dt - in 2nd tangent space:
+           for time evolution of v in tangent space
+
+        :param H: hamiltonian
+        :param fullH: is the hamiltonian full
+        """
+        L, d, A = self.L, self.d, self.data
+        dA = self.import_tangent_vector(v)
+        dA_dt = self.dA_dt(H, store_energy=True, fullH=fullH)
+        l, r, e = self.l, self.r, self.e
+        # down are the tensors acting on c(Aj), up act on Aj
+        up, down = self.jac(H, False)
+
+        ddA = [sum([td(down(i, j), c(dA[j]), [[3, 4, 5], [0, 1, 2]]) +
+                    td(up(i, j),     dA[j],  [[3, 4, 5], [0, 1, 2]]) for j in range(L)], axis=0)
+               for i in range(L)]
+
+        return self.extract_tangent_vector(ddA)
+
     def jac(self, H,
             as_matrix=True,
             real_matrix=True,
@@ -824,10 +844,14 @@ class fMPS(object):
         else:
             def F2t(i, j): return F2(i, j)
 
+        vLs, sh = self.tangent_space_dims(l, True)
+        def vL(i): return vLs[i]
         if not as_matrix:
-            return F1, F2t
+            def gauge(G, i, j):
+                return ncon([G, inv(ch(l(i-1)))@vL(i), inv(ch(l(j-1)))@c(vL(j)), inv(ch(r(i))), inv(ch(r(j)))], 
+                            [[1, 3, 2, 4], [-1, -2, 1], [-4, -5, 2], [-3, 3], [-6, 4]])
+            return (lambda i, j: gauge(F1(i, j), i, j)), F2t
 
-        vL, sh = self.tangent_space_dims(l, True)
         nulls = len([1 for (a, b) in sh if a==0 or b==0])
         shapes = list(cs([prod([a, b]) for (a, b) in sh if a!=0 and a!=0]))
         DD = shapes[-1]
@@ -836,14 +860,14 @@ class fMPS(object):
             def co(x): return x if not conj else c(x)
             k = len(tens.shape[3:])
             links = [1, 2, -2]+list(range(-3, -3-k, -1))
-            return ncon([ch(l(i-1))@co(vL[i]),
+            return ncon([ch(l(i-1))@co(vL(i)),
                         ncon([tens, ch(r(i))], [[-1, -2, 1, -4, -5, -6], [1, -3]])],
                         [[1, 2, -1], links])
         def ungauge_j(tens, j, conj=False):
             def co(x): return x if not conj else c(x)
             k = len(tens.shape[:-3])
             links = list(range(-1, -k-1, -1))+[1, 2, -k-2]
-            return ncon([ch(l(j-1))@co(vL[j]), tens@ch(r(j))],
+            return ncon([ch(l(j-1))@co(vL(j)), tens@ch(r(j))],
                     [[1, 2, -k-1], links])
         def ungauge(tens, i, j, conj=(True, False)):
             c1, c2 = conj
@@ -1952,6 +1976,18 @@ class TestfMPS(unittest.TestCase):
             self.assertTrue(allclose(mps.christoffel(i, j, k), 0))
             mps.left_canonicalise(2)
             self.assertTrue(not allclose(mps.christoffel(i, j, k), 0))
+
+    def test_ddA_dt(self):
+        Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
+        Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
+
+        mps = self.mps_0_2
+        eyeH = [eye(4)]
+        dt = 0.1
+        Z = [randn(3)+1j*randn(3) for _ in range(10)]
+
+        for z in Z:
+            self.assertTrue(allclose(mps.ddA_dt(z, eyeH), -1j*z))
 
     def test_null_projectors(self):
         mps = self.mps_0_4.right_canonicalise()
