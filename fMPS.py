@@ -824,6 +824,8 @@ class fMPS(object):
         l, r = self.l, self.r
         prs_vLs = [self.left_null_projector(n, l, get_vL=True) for n in range(self.L)]
         prs = [x[0] for x in prs_vLs]
+        vLs = [x[1] for x in prs_vLs]
+        def vL(i): return vLs[i]
 
         # Get tensors
         ## unitary rotations: -<d_iψ|(d_t |d_kψ> +iH|d_kψ>) (dA_k)
@@ -839,19 +841,14 @@ class fMPS(object):
         #-i<d_id_k ψ|H|ψ> (dA_k*)
         def F2(i, k): return -1j*self.F2(i, k, H, envs=(l, r), prs=prs, fullH=fullH, id=id)
 
-        if parallel_transport:
-            def F2t(i, j): return F2(i, j) + Γ2(i, j) #F2, Γ2 act on dA*j
-        else:
-            def F2t(i, j): return F2(i, j)
+        def F2t(i, j): return F2(i, j) + Γ2(i, j) #F2, Γ2 act on dA*j
 
         vLs, sh = self.tangent_space_dims(l, True)
-        def vL(i): return vLs[i]
         if not as_matrix:
             def gauge(G, i, j):
                 return ncon([G, inv(ch(l(i-1)))@vL(i), inv(ch(l(j-1)))@c(vL(j)), inv(ch(r(i))), inv(ch(r(j)))], 
                             [[1, 3, 2, 4], [-1, -2, 1], [-4, -5, 2], [-3, 3], [-6, 4]])
             return (lambda i, j: gauge(F1(i, j), i, j)), F2t
-
         nulls = len([1 for (a, b) in sh if a==0 or b==0])
         shapes = list(cs([prod([a, b]) for (a, b) in sh if a!=0 and a!=0]))
         DD = shapes[-1]
