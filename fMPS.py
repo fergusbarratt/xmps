@@ -930,11 +930,12 @@ class fMPS(object):
                 gDj, gDj_1 = vL(j).shape[-1], A[j+1].shape[1] if j != self.L-1 else 1
                 G_ = 1j*zeros((gDi, gDi_1, gDj, gDj_1))
                 d, Din_1, Di = self[i].shape
-
-                def inv_ch_r(n): return [inv(ch(r(i))) for i in range(self.L)][n]
-                def inv_ch_l(n): return [inv(ch(l(i))) for i in range(self.L)][n]
-                def ch_r(n): return [ch(r(i)) for i in range(self.L)][n]
-                def ch_l(n): return [ch(l(i)) for i in range(self.L)][n]
+                icr, icl = [inv(ch(r(i))) for i in range(self.L)], [inv(ch(l(i))) for i in range(self.L)]
+                cr, cl = [ch(r(i)) for i in range(self.L)], [ch(l(i)) for i in range(self.L)]
+                def inv_ch_r(n): return icr[n]
+                def inv_ch_l(n): return icl[n]
+                def ch_r(n): return cr[n]
+                def ch_l(n): return cl[n]
 
                 if not d*Din_1==Di:
                     H = [h.reshape(2, 2, 2, 2) for h in H]

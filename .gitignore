@@ -2,6 +2,8 @@ old/
 data/
 tdvp/
 *.npy
+notebooks/
+images/
 
 # Byte-compiled / optimized / DLL files
 *.swp
