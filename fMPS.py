@@ -790,26 +790,6 @@ class fMPS(object):
             self.dynamical_expand(H, dt, min(self.d*self.D, D_), None)
         return self
 
-    def ddA_dt(self, v, H, fullH=False):
-        """d(dA)_dt: find ddA_dt - in 2nd tangent space:
-           for time evolution of v in tangent space
-
-        :param H: hamiltonian
-        :param fullH: is the hamiltonian full
-        """
-        L, d, A = self.L, self.d, self.data
-        dA = self.import_tangent_vector(v)
-        dA_dt = self.dA_dt(H, store_energy=True, fullH=fullH)
-        l, r, e = self.l, self.r, self.e
-        # down are the tensors acting on c(Aj), up act on Aj
-        up, down = self.jac(H, False)
-
-        ddA = [sum([td(down(i, j), c(dA[j]), [[3, 4, 5], [0, 1, 2]]) +
-                    td(up(i, j),     dA[j],  [[3, 4, 5], [0, 1, 2]]) for j in range(L)], axis=0)
-               for i in range(L)]
-
-        return self.extract_tangent_vector(ddA)
-
     def jac(self, H,
             as_matrix=True,
             real_matrix=True,
@@ -839,14 +819,13 @@ class fMPS(object):
         #-i<d_id_k ψ|H|ψ> (dA_k*)
         def F2(i, k): return -1j*self.F2(i, k, H, envs=(l, r), prs=prs, fullH=fullH, id=id)
 
-        def F1t(i, j): return F1(i, j)# + Γ1(i, j)
         if parallel_transport:
             def F2t(i, j): return F2(i, j) + Γ2(i, j) #F2, Γ2 act on dA*j
         else:
             def F2t(i, j): return F2(i, j)
 
         if not as_matrix:
-            return F1t, F2t
+            return F1, F2t
 
         vL, sh = self.tangent_space_dims(l, True)
         nulls = len([1 for (a, b) in sh if a==0 or b==0])
@@ -876,7 +855,7 @@ class fMPS(object):
 
         J1_ = -1j*zeros((DD, DD))
         J2_ = -1j*zeros((DD, DD))
-        def J1(i, j): return ungauge(F1t(i, j), i, j, (True, False))
+        def J1(i, j): return F1(i, j)
         def J2(i, j): return ungauge(F2t(i, j), i, j, (True, True))
         for i_ in range(len(shapes)):
             for j_ in range(len(shapes)):
@@ -917,13 +896,14 @@ class fMPS(object):
                 ## have we cached its conjugate?
                 if str(j_)+str(i_) in self.F1_tot_ij_mem:
                     return c(tra(self.F1_tot_ij_mem[str(j_)+str(i_)], 
-                                 [3, 4, 5, 0, 1, 2]))
+                                 [2, 3, 0, 1]))
 
             L, d, A = self.L, self.d, self.data
             l, r = self.get_envs() if envs is None else envs
             prs_vLs = [self.left_null_projector(n, l, get_vL=True) for n in range(self.L)] if prs_vLs is None else prs_vLs
             def pr(n): return prs_vLs[n][0]
             def vL(n): return prs_vLs[n][1]
+
             if not fullH:
                 i, j = (j_, i_) if j_<i_ else (i_, j_)
                 gDi, gDi_1 = vL(i).shape[-1], A[i+1].shape[1] if i != self.L-1 else 1
@@ -1139,20 +1119,21 @@ class fMPS(object):
                     G = ed(ed(G, -1), 2)
                 return G
 
-            def gauge(G, i, j):
-                return ncon([G, inv(ch(l(i-1)))@vL(i), inv(ch(l(j-1)))@c(vL(j)), inv(ch(r(i))), inv(ch(r(j)))], 
-                            [[1, 3, 2, 4], [-1, -2, 1], [-4, -5, 2], [-3, 3], [-6, 4]])
 
             if testing:
                 # if testing is on, we compute the whole thing
                 # with more checks and in a different way
+                def gauge(G, i, j):
+                    return ncon([G, inv(ch(l(i-1)))@vL(i), inv(ch(l(j-1)))@c(vL(j)), inv(ch(r(i))), inv(ch(r(j)))], 
+                                [[1, 3, 2, 4], [-1, -2, 1], [-4, -5, 2], [-3, 3], [-6, 4]])
                 assert allclose(G, gauge(G_, i, j))
+                G = gauge(G_, i, j)
+                G = c(tra(G, [3, 4, 5, 0, 1, 2])) if j_<i_ else G
+                return G
 
-            G = gauge(G_, i, j)
-            G = c(tra(G, [3, 4, 5, 0, 1, 2])) if j_<i_ else G
-
-            self.F1_tot_ij_mem[str(i_)+str(j_)] = G
-            return G
+            G_ = c(tra(G_, [2, 3, 0, 1])) if j_<i_ else G_
+            self.F1_tot_ij_mem[str(i_)+str(j_)] = G_
+            return G_
 
     def F2(self, i_, j_, H, envs=None, prs=None, fullH=False, id=None):
         '''<d_id_j ψ|H|ψ>'''
@@ -1971,18 +1952,6 @@ class TestfMPS(unittest.TestCase):
             self.assertTrue(allclose(mps.christoffel(i, j, k), 0))
             mps.left_canonicalise(2)
             self.assertTrue(not allclose(mps.christoffel(i, j, k), 0))
-
-    def test_ddA_dt(self):
-        Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
-        Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
-
-        mps = self.mps_0_2
-        eyeH = [eye(4)]
-        dt = 0.1
-        Z = [randn(3)+1j*randn(3) for _ in range(10)]
-
-        for z in Z:
-            self.assertTrue(allclose(mps.ddA_dt(z, eyeH), -1j*z))
 
     def test_null_projectors(self):
         mps = self.mps_0_4.right_canonicalise()
