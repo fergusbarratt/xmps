@@ -183,8 +183,8 @@ class Trajectory(object):
             # if MPO supplied - just expand, canonicalise and use inverse free integrator
             # otherwise use dynamical expand: less numerically stable
             if has_mpo:
-                self.mps = self.mps.expand(D).left_canonicalise()
-                self.invfreeint(linspace(0, 2, int(2/(5e-3))))
+                self.mps = self.mps.left_canonicalise().expand(D)
+                self.invfreeint(linspace(0, 2, 400))
             else:
                 self.mps = self.mps.grow(self.H, 0.1, D).left_canonicalise()
                 self.rk4int(linspace(0, 1, 100))
