@@ -836,24 +836,6 @@ class fMPS(object):
         id = uuid.uuid4().hex # for memoization
         def F1(i, k): return  -1j*self.F1(i, k, H, envs=(l, r), prs_vLs=prs_vLs, fullH=fullH, id=id)
 
-        ## non unitary (from projection): -<d_id_kψ|(d_t |ψ> +iH|ψ>) (dA_k*) (should be zero for no projection)
-        #-<d_id_kψ|d_jψ> dA_j/dt (dA_k*)
-        def Γ2(i, k): return td(self.christoffel(i, k, min(i, k), envs=(l, r), prs_vLs=prs_vLs, id=id), l(min(i, k)-1)@dA_dt[min(i, k)]@r(min(i, k)), [[7, 8, 6], [1, 2, 0]])
-        #-i<d_id_k ψ|H|ψ> (dA_k*)
-        def F2(i, k): return -1j*self.F2(i, k, H, envs=(l, r), prs_vLs=prs_vLs, fullH=fullH, id=id)
-
-        def F2t(i, j): return F2(i, j) + Γ2(i, j) #F2, Γ2 act on dA*j
-
-        vLs, sh = self.tangent_space_dims(l, True)
-        if not as_matrix:
-            def gauge(G, i, j):
-                return ncon([G, inv(ch(l(i-1)))@vL(i), inv(ch(l(j-1)))@c(vL(j)), inv(ch(r(i))), inv(ch(r(j)))], 
-                            [[1, 3, 2, 4], [-1, -2, 1], [-4, -5, 2], [-3, 3], [-6, 4]])
-            return (lambda i, j: gauge(F1(i, j), i, j)), F2t
-        nulls = len([1 for (a, b) in sh if a==0 or b==0])
-        shapes = list(cs([prod([a, b]) for (a, b) in sh if a!=0 and a!=0]))
-        DD = shapes[-1]
-        # these apply l-vL- -r- to something like -A|- to  get something like =x-
         def ungauge_i(tens, i, conj=False):
             def co(x): return x if not conj else c(x)
             k = len(tens.shape[3:])
@@ -870,6 +852,32 @@ class fMPS(object):
         def ungauge(tens, i, j, conj=(True, False)):
             c1, c2 = conj
             return ungauge_j(ungauge_i(tens, i, c1), j, c2)
+
+        ## non unitary (from projection): -<d_id_kψ|(d_t |ψ> +iH|ψ>) (dA_k*) (should be zero for no projection)
+        #-<d_id_kψ|d_jψ> dA_j/dt (dA_k*)
+        def Γ2(i, k): return ungauge(self.christoffel(i, k, min(i, k), envs=(l, r), prs_vLs=prs_vLs, closed=(None, None, l(min(i, k)-1)@dA_dt[min(i, k)]@r(min(i, k)))),
+                                     i, k, conj=(True, True))
+        #-i<d_id_k ψ|H|ψ> (dA_k*)
+        def F2(i, k): return -1j*ungauge(self.F2(i, k, H, envs=(l, r), prs_vLs=prs_vLs, fullH=fullH, id=id),
+                                         i, k, conj=(True, True))
+
+        def F2t(i, j): return F2(i, j) + Γ2(i, j) #F2, Γ2 act on dA*j
+
+        vLs, sh = self.tangent_space_dims(l, True)
+        if not as_matrix:
+            def gauge(G, i, j):
+                return ncon([G, inv(ch(l(i-1)))@vL(i), inv(ch(l(j-1)))@c(vL(j)), inv(ch(r(i))), inv(ch(r(j)))], 
+                            [[1, 3, 2, 4], [-1, -2, 1], [-4, -5, 2], [-3, 3], [-6, 4]])
+            def gauge_(G, i, j):
+                return ncon([G, inv(ch(l(i-1)))@vL(i), inv(ch(l(j-1)))@vL(j), inv(ch(r(i))), inv(ch(r(j)))], 
+                            [[1, 3, 2, 4], [-1, -2, 1], [-4, -5, 2], [-3, 3], [-6, 4]])
+
+            return (lambda i, j: gauge(F1(i, j), i, j)), (lambda i, j: gauge_(F2t(i, j), i, j))
+
+        nulls = len([1 for (a, b) in sh if a==0 or b==0])
+        shapes = list(cs([prod([a, b]) for (a, b) in sh if a!=0 and a!=0]))
+        DD = shapes[-1]
+        # these apply l-vL- -r- to something like -A|- to  get something like =x-
         def ind(i):
             slices = [slice(a[0], a[1], 1)
                       for a in [([0]+shapes)[i:i+2] for i in range(len(shapes))]]
@@ -877,13 +885,11 @@ class fMPS(object):
 
         J1_ = -1j*zeros((DD, DD))
         J2_ = -1j*zeros((DD, DD))
-        def J1(i, j): return F1(i, j)
-        def J2(i, j): return ungauge(F2t(i, j), i, j, (True, True))
         for i_ in range(len(shapes)):
             for j_ in range(len(shapes)):
                 i, j = i_+nulls, j_+nulls
-                J1_ij = J1(i,j)
-                J2_ij = J2(i,j)
+                J1_ij = F1(i,j)
+                J2_ij = F2t(i,j)
                 J1_[ind(i_), ind(j_)] = J1_ij.reshape(prod(J1_ij.shape[:2]), -1)
                 J2_[ind(i_), ind(j_)] = J2_ij.reshape(prod(J2_ij.shape[:2]), -1)
 
@@ -943,7 +949,7 @@ class fMPS(object):
                     H = [h.reshape(2, 2, 2, 2) for h in H]
                     if str(i) not in self.F1_i_mem_:
                         # compute i properties, and store in cache
-                        Rd_ = ncon([inv(ch(l(i-1)))@c(vL(i)), A[i]], [[1, -2, -3], [1, -1, -4]])
+                        Rd_ = ncon([inv_ch_l(i-1)@c(vL(i)), A[i]], [[1, -2, -3], [1, -1, -4]])
                         Lbs_ = self.right_transfer(ncon([inv_ch_r(i), inv_ch_r(i)], [[-1, -3], [-2, -4]]), i, L-1)
                         Rds_ = self.left_transfer(Rd_, 0, i)
 
@@ -1318,7 +1324,7 @@ class fMPS(object):
         self.F2_tot_ij_mem[str(i_)+str(j_)] = G
         return G
 
-    def christoffel(self, i, j, k, envs=None, prs_vLs=None, id=None, testing=False, closed=(None, None, None)):
+    def christoffel(self, i, j, k, envs=None, prs_vLs=None, id=None, testing=True, closed=(None, None, None)):
         """christoffel: return the christoffel symbol in basis c(A_i), c(A_j), A_k.
            Close indices i, j, k, with elements of closed tuple: i.e. (B_i, B_j, B_k).
            Will leave any indices marked none open :-<d_id_jψ|d_kψ>"""
@@ -1327,31 +1333,27 @@ class fMPS(object):
             self.id__ = id
             # initialize the memories 
             # we only don't try the cache on the first call from jac
-            self.christ_i_mem_ = {}
-            self.christ_j_mem_ = {}
-            self.christ_tot_ijk_mem = {}
+            self.christ_tot_ij_mem = {}
         else:
             # read from cache: 
             # have we cached this tensor?
-            if str(i)+str(j)+str(k) in self.christ_tot_ijk_mem:
-                return self.christ_tot_ijk_mem[str(i)+str(j)+str(k)]
+            if str(i)+str(j)+str(k) in self.christ_tot_ij_mem:
+                return self.christ_tot_ij_mem[str(i)+str(j)+str(k)]
 
             ## have we cached its conjugate?
-            if str(j)+str(i)+str(k) in self.christ_tot_ijk_mem:
-                return tra(self.christ_tot_ijk_mem[str(j)+str(i)+str(k)], 
-                           [3, 4, 5, 0, 1, 2, 6, 7, 8])
+            if str(j)+str(i)+str(k) in self.christ_tot_ij_mem:
+                return tra(self.christ_tot_ij_mem[str(j)+str(i)+str(k)], 
+                           [3, 4, 5, 0, 1, 2])
 
         L, d, A = self.L, self.d, self.data
         l, r = self.get_envs() if envs is None else envs
         prs_vLs = [self.left_null_projector(n, l, get_vL=True) for n in range(self.L)] if prs_vLs is None else prs_vLs
         def pr(n): return prs_vLs[n][0]
         def vL(n): return prs_vLs[n][1]
-
         def Γ(i_, j_, k):
                 """Γ: Christoffel symbol: does take advantage of gauge"""
                 #j always greater than i (Γ symmetric in i, j)
                 i, j = (j_, i_) if j_<i_ else (i_, j_)
-
                 _, Din_1, Di = self[i].shape
 
                 if j==i or i!=k or (d*Din_1==Di):
@@ -1363,7 +1365,6 @@ class fMPS(object):
 
                 G = -tra(G, [3, 4, 5, 0, 1, 2, 6, 7, 8]) if j_<i_ else -G
 
-                self.christ_tot_ijk_mem[str(i_)+str(j_)+str(k)] = G
                 return G
 
         if any([c is not None for c in closed]):
@@ -1377,6 +1378,7 @@ class fMPS(object):
         else:
             Γ_c = Γ(i, j, k)
 
+        self.christ_tot_ij_mem[str(i)+str(j)+str(k)] = Γ_c
         return Γ_c
 
     def left_null_projector(self, n, l=None, get_vL=False, store_envs=False, vL=None):
