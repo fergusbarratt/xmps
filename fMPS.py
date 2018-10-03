@@ -1324,6 +1324,7 @@ class fMPS(object):
             self.id__ = id
             # initialize the memories 
             # we only don't try the cache on the first call from jac
+            self.christ_ij_mem = {}
             self.christ_tot_ij_mem = {}
         else:
             # read from cache: 
@@ -1359,8 +1360,16 @@ class fMPS(object):
                     G = 1j*zeros((*A[i].shape, *A[j].shape, *A[k].shape))
             else:
                 if contracted:
-                    R = ncon([pr(j), A[j]], [[-3, -4, 1, -2], [1, -1, -5]])
-                    Rs = self.left_transfer(R, i, j)
+                    if str(i)+str(j) not in self.christ_ij_mem:
+                        if str(j) not in self.dA_cache:
+                            R = ncon([pr(j), A[j]], [[-3, -4, 1, -2], [1, -1, -5]])
+                            Rs = self.left_transfer(R, i, j)
+                            self.christ_ij_mem[str(i)+str(j)] = Rs
+                        else:
+                            Rs = self.dA_cache[str(j)]
+                    else:
+                        Rs = self.christ_ij_mem[str(i)+str(j)]
+
                     G = ncon([pr(i), Rs(i+1), inv(r(i)), inv(r(i))], [[-1, -2, -7, -8], [1, 2, -4, -5, -6], [1, -9], [2, -3]])
 
                     G = td(G, closed[-1], [[-3, -2, -1], [0, 1, 2]])
