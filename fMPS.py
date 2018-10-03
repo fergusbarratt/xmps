@@ -858,8 +858,7 @@ class fMPS(object):
         def Γ2(i, k): return ungauge(self.christoffel(i, k, min(i, k), envs=(l, r), prs_vLs=prs_vLs, closed=(None, None, l(min(i, k)-1)@dA_dt[min(i, k)]@r(min(i, k)))),
                                      i, k, conj=(True, True))
         #-i<d_id_k ψ|H|ψ> (dA_k*)
-        def F2(i, k): return -1j*ungauge(self.F2(i, k, H, envs=(l, r), prs_vLs=prs_vLs, fullH=fullH, id=id),
-                                         i, k, conj=(True, True))
+        def F2(i, k): return -1j*self.F2(i, k, H, envs=(l, r), prs_vLs=prs_vLs, fullH=fullH, id=id)
 
         def F2t(i, j): return F2(i, j) + Γ2(i, j) #F2, Γ2 act on dA*j
 
@@ -1182,7 +1181,7 @@ class fMPS(object):
             # have we cached its transpose?
             if str(j_)+str(i_) in self.F2_tot_ij_mem:
                 return tra(self.F2_tot_ij_mem[str(j_)+str(i_)], 
-                           [3, 4, 5, 0, 1, 2])
+                           [2, 3, 0, 1])
 
         L, d, A = self.L, self.d, self.data
         l, r = self.get_envs() if envs is None else envs
@@ -1203,41 +1202,6 @@ class fMPS(object):
         elif not fullH:
             H = [h.reshape(2, 2, 2, 2) for h in H]
             d, Din_1, Di = self[i].shape
-
-            if testing:
-                G = 1j*zeros((*A[i].shape, *A[j].shape))
-                _, Din_1, Di = self[i].shape
-                if not d*Din_1==Di:
-                    Rj = ncon([pr(j), A[j]], [[-3, -4, 1, -2], [1, -1, -5]])
-                    Rjs = self.left_transfer(Rj, i, j)
-
-                    Ri = ncon([pr(i), A[i]], [[-3, -4, 1, -2], [1, -1, -5]])
-                    Ris = self.left_transfer(Ri, 0, i)
-
-                    for m, h in reversed(list(enumerate(H))):
-                        if m > i:
-                            # from gauge symmetry
-                            continue
-                        Am, Am_1 = self.data[m:m+2]
-                        C = ncon([h]+[Am, Am_1], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
-
-                        if m==i:
-                            if j==i+1:
-                                G += ncon([l(m-1)@C, pr(i), dot(pr(j), inv(r(i)))], 
-                                          [[1, 2, 3, -6], [-1, -2, 1, 3], [-4, -5, 2, -3]])
-                            else:
-                                L =  ncon([l(m-1)@C, pr(i), inv(r(i))@c(Am_1)], [[1, 2, 3, -4], [-1, -2, 1, 3], [2, -3, -5]]) # ud
-                                G += ncon([L, Rjs(m+2)], [[-1, -2, -3, 1, 2], [1, 2, -4, -5, -6]])
-                        elif m==i-1:
-                            L = ncon([l(m-1)@C, c(Am), pr(i)], [[1, 2, 3, -3], [1, 3, 4], [-1, -2, 2, 4]])
-                            G += ncon([L, ncon([Rjs(m+2), inv(r(i))], [[-1, 2, -3, -4, -5], [2, -2]])], [[-1, -2, 1], [1, -3, -4, -5, -6]])
-                        else:
-                            K = ncon([l(m-1)@Am.conj(), Am_1.conj()]+[C], [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]]) #AAHAA
-
-                            L = ncon([K, Ris(m+2)], [[1, 2], [1, 2, -1, -2, -3]])
-                            G += ncon([ncon([L, Rjs(i+1)], [[-1, -2, 1], [1, -3, -4, -5, -6]]),
-                                       inv(r(i))],
-                                       [[-1, -2, 1, -4, -5, -6], [1, -3]])
 
             # new stuff
             gDi, gDi_1 = vL(i).shape[-1], A[i+1].shape[1] if i != self.L-1 else 1
@@ -1291,6 +1255,41 @@ class fMPS(object):
                         L_ = tensordot(K, Ris_(m+2), [[0, 1], [0, 1]])
                         G_+= ncon([tensordot(L_, Rjs_(i+1), [1, 0]), inv_ch_r(i)], [[-1, 1, -3, -4], [1, -2]])
 
+            if testing:
+                G = 1j*zeros((*A[i].shape, *A[j].shape))
+                _, Din_1, Di = self[i].shape
+                if not d*Din_1==Di:
+                    Rj = ncon([pr(j), A[j]], [[-3, -4, 1, -2], [1, -1, -5]])
+                    Rjs = self.left_transfer(Rj, i, j)
+
+                    Ri = ncon([pr(i), A[i]], [[-3, -4, 1, -2], [1, -1, -5]])
+                    Ris = self.left_transfer(Ri, 0, i)
+
+                    for m, h in reversed(list(enumerate(H))):
+                        if m > i:
+                            # from gauge symmetry
+                            continue
+                        Am, Am_1 = self.data[m:m+2]
+                        C = ncon([h]+[Am, Am_1], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
+
+                        if m==i:
+                            if j==i+1:
+                                G += ncon([l(m-1)@C, pr(i), dot(pr(j), inv(r(i)))], 
+                                          [[1, 2, 3, -6], [-1, -2, 1, 3], [-4, -5, 2, -3]])
+                            else:
+                                L =  ncon([l(m-1)@C, pr(i), inv(r(i))@c(Am_1)], [[1, 2, 3, -4], [-1, -2, 1, 3], [2, -3, -5]]) # ud
+                                G += ncon([L, Rjs(m+2)], [[-1, -2, -3, 1, 2], [1, 2, -4, -5, -6]])
+                        elif m==i-1:
+                            L = ncon([l(m-1)@C, c(Am), pr(i)], [[1, 2, 3, -3], [1, 3, 4], [-1, -2, 2, 4]])
+                            G += ncon([L, ncon([Rjs(m+2), inv(r(i))], [[-1, 2, -3, -4, -5], [2, -2]])], [[-1, -2, 1], [1, -3, -4, -5, -6]])
+                        else:
+                            K = ncon([l(m-1)@Am.conj(), Am_1.conj()]+[C], [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]]) #AAHAA
+
+                            L = ncon([K, Ris(m+2)], [[1, 2], [1, 2, -1, -2, -3]])
+                            G += ncon([ncon([L, Rjs(i+1)], [[-1, -2, 1], [1, -3, -4, -5, -6]]),
+                                       inv(r(i))],
+                                       [[-1, -2, 1, -4, -5, -6], [1, -3]])
+
         elif fullH:
             H = H.reshape([self.d, self.d]*self.L)
             if i==j:
@@ -1318,11 +1317,12 @@ class fMPS(object):
 
         if testing:
             assert allclose(gauge(G_, i, j), G)
+            G = tra(G, [3, 4, 5, 0, 1, 2]) if j_<i_ else G
+            return G
 
-        G = gauge(G_, i, j)
-        G = tra(G, [3, 4, 5, 0, 1, 2]) if j_<i_ else G
-        self.F2_tot_ij_mem[str(i_)+str(j_)] = G
-        return G
+        G_ = tra(G_, [2, 3, 0, 1]) if j_<i_ else G_
+        self.F2_tot_ij_mem[str(i_)+str(j_)] = G_
+        return G_
 
     def christoffel(self, i, j, k, envs=None, prs_vLs=None, id=None, testing=True, closed=(None, None, None)):
         """christoffel: return the christoffel symbol in basis c(A_i), c(A_j), A_k.
