@@ -10,11 +10,12 @@ D = load('data/spectra/lyapunovs_L8_D4_N20400.npy')[-1000:]
 E = load('data/spectra/lyapunovs_L8_D5_N20400.npy')[-1000:]
 F = load('data/spectra/lyapunovs_L8_D6_N20400.npy')[-1000:]
 G = load('data/spectra/lyapunovs_L8_D7_N20400.npy')[-1000:]
-#H = load('data/spectra/lyapunovs_L8_D8_N20400.npy')[-1000:]
+H = load('data/spectra/lyapunovs_L8_D8_N21000.npy')[-1000:]
+I = load('data/spectra/lyapunovs_L8_D9_N21000.npy')[-1000:]
 
-data = [A, B, C, D, E, F, G]
-Ds = [1, 2, 3, 4, 5, 6, 7]
-fig, ax = plt.subplots(7, 1, sharex=True, sharey=True, figsize=(4, 10))
+data = [A, B, C, D, E, F, G, H, I]
+Ds = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+fig, ax = plt.subplots(9, 1, sharex=True, sharey=True, figsize=(4, 10))
 for m, x in enumerate(data):
     ax[m].plot(x)
     ax[m].set_title('D='+str(Ds[m]), loc='right')
