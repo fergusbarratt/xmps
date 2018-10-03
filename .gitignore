@@ -8,6 +8,7 @@ images/
 # Byte-compiled / optimized / DLL files
 *.swp
 *.swo
+*.swn
 __pycache__/
 *.py[cod]
 *$py.class
