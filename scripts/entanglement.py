@@ -11,6 +11,7 @@ from numpy import ceil, real as re, cumsum as cs, arange as ar
 import matplotlib.pyplot as plt
 from tdvp.tdvp_fast import MPO_TFI
 from scipy.interpolate import interp1d
+from scipy.optimize import curve_fit
 
 Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
 Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
@@ -31,21 +32,16 @@ psi_0 = load('fixtures/mat{}x{}.npy'.format(L,L))
 
 mps = fMPS().left_from_state(psi_0).left_canonicalise(1).expand(D)
 
-ls = load('data/spectra/maxs.npy')
-f = interp1d([1, 2, 3, 4, 5, 6, 7], ls)
-
 F = Trajectory(mps, H=H, W=W)
 F.run_name = 'spectra/entanglement'
 F.invfreeint(T)
 sch = F.schmidts()
-evs = F.mps_evs((Sx,), 0)
+λ = array([exp(max([-re(s[i//2]@log(s[i//2])) for i in range(len(sch[0]))])) for s in sch])
+save('data/spectra/Dt', λ)
 
-fig, ax = plt.subplots(2, 1, sharex=True)
-ax[0].plot(T, evs)
-λ = array([f(exp(max([-re(s[i//2]@log(s[i//2])) for i in range(len(sch[0]))]))) for s in sch])
-save('data/spectra/lambda(D(t))', λ)
-ax[1].plot(T[1:], λ)
-ax[1].set_title('$\lambda(D(t))$', loc='right')
+fig, ax = plt.subplots(1, 1, sharex=True)
+ax.plot(T[1:], λ)
+ax.set_title('$D(t)$', loc='right')
+
 fig.tight_layout()
-
 plt.show()
