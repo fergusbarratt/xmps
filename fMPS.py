@@ -813,29 +813,18 @@ class fMPS(object):
 
     def jac(self, H,
             as_matrix=True,
-            real_matrix=True,
-            as_linearoperator=False,
-            fullH=False,
-            testing=False,
-            parallel_transport=True):
+            real_matrix=True):
         """jac: calculate the jacobian of the current mps
         """
         L, d, A = self.L, self.d, self.data
-        dA_dt = self.dA_dt(H, fullH=fullH)
+        dA_dt = self.dA_dt(H)
         l, r = self.l, self.r
         prs_vLs = [self.left_null_projector(n, l, get_vL=True) for n in range(self.L)]
         prs = [x[0] for x in prs_vLs]
         vLs = [x[1] for x in prs_vLs]
         def vL(i): return vLs[i]
 
-        # Get tensors
-        ## unitary rotations: -<d_iψ|(d_t |d_kψ> +iH|d_kψ>) (dA_k)
-        #-<d_iψ|d_kd_jψ> dA_j/dt (dA_k) (range(k+1, L))
-        #def Γ1(i, k): return sum([td(c(self.christoffel(k, j, i, envs=(l, r))), l(j-1)@dA_dt[j]@r(j), [[3, 4, 5], [0, 1, 2]]) for j in range(L)], axis=0)
-        #-i<d_iψ|H|d_kψ> (dA_k)
-        id = uuid.uuid4().hex # for memoization
-        def F1(i, k): return  -1j*self.F1(i, k, H, envs=(l, r), prs_vLs=prs_vLs, fullH=fullH, id=id)
-
+        # these apply l-vL- -r- to something like -A|- to  get something like =x-
         def ungauge_i(tens, i, conj=False):
             def co(x): return x if not conj else c(x)
             k = len(tens.shape[3:])
@@ -853,30 +842,27 @@ class fMPS(object):
             c1, c2 = conj
             return ungauge_j(ungauge_i(tens, i, c1), j, c2)
 
+        # Get tensors
+        ## unitary rotations: -<d_iψ|(d_t |d_kψ> +iH|d_kψ>) (dA_k)
+        #-<d_iψ|d_kd_jψ> dA_j/dt (dA_k) (range(k+1, L))
+        #def Γ1(i, k): return sum([td(c(self.christoffel(k, j, i, envs=(l, r))), l(j-1)@dA_dt[j]@r(j), [[3, 4, 5], [0, 1, 2]]) for j in range(L)], axis=0)
+        #-i<d_iψ|H|d_kψ> (dA_k)
+        id = uuid.uuid4().hex # for memoization
+        def F1(i, k): return  -1j*self.F1(i, k, H, envs=(l, r), prs_vLs=prs_vLs, id=id)
+
         ## non unitary (from projection): -<d_id_kψ|(d_t |ψ> +iH|ψ>) (dA_k*) (should be zero for no projection)
         #-<d_id_kψ|d_jψ> dA_j/dt (dA_k*)
         def Γ2(i, k): return ungauge(self.christoffel(i, k, min(i, k), envs=(l, r), prs_vLs=prs_vLs, closed=(None, None, l(min(i, k)-1)@dA_dt[min(i, k)]@r(min(i, k)))),
                                      i, k, conj=(True, True))
         #-i<d_id_k ψ|H|ψ> (dA_k*)
-        def F2(i, k): return -1j*self.F2(i, k, H, envs=(l, r), prs_vLs=prs_vLs, fullH=fullH, id=id)
+        def F2(i, k): return -1j*self.F2(i, k, H, envs=(l, r), prs_vLs=prs_vLs, id=id)
 
         def F2t(i, j): return F2(i, j) + Γ2(i, j) #F2, Γ2 act on dA*j
 
-        vLs, sh = self.tangent_space_dims(l, True)
-        if not as_matrix:
-            def gauge(G, i, j):
-                return ncon([G, inv(ch(l(i-1)))@vL(i), inv(ch(l(j-1)))@c(vL(j)), inv(ch(r(i))), inv(ch(r(j)))], 
-                            [[1, 3, 2, 4], [-1, -2, 1], [-4, -5, 2], [-3, 3], [-6, 4]])
-            def gauge_(G, i, j):
-                return ncon([G, inv(ch(l(i-1)))@vL(i), inv(ch(l(j-1)))@vL(j), inv(ch(r(i))), inv(ch(r(j)))], 
-                            [[1, 3, 2, 4], [-1, -2, 1], [-4, -5, 2], [-3, 3], [-6, 4]])
-
-            return (lambda i, j: gauge(F1(i, j), i, j)), (lambda i, j: gauge_(F2t(i, j), i, j))
-
+        _, sh = self.tangent_space_dims(l, True)
         nulls = len([1 for (a, b) in sh if a==0 or b==0])
         shapes = list(cs([prod([a, b]) for (a, b) in sh if a!=0 and a!=0]))
         DD = shapes[-1]
-        # these apply l-vL- -r- to something like -A|- to  get something like =x-
         def ind(i):
             slices = [slice(a[0], a[1], 1)
                       for a in [([0]+shapes)[i:i+2] for i in range(len(shapes))]]
@@ -894,12 +880,17 @@ class fMPS(object):
 
         if not real_matrix:
             return J1_, J2_
+        if not as_matrix:
+            def gauge(G, i, j):
+                return ncon([G, inv(ch(l(i-1)))@vL(i), inv(ch(l(j-1)))@c(vL(j)), inv(ch(r(i))), inv(ch(r(j)))], 
+                            [[1, 3, 2, 4], [-1, -2, 1], [-4, -5, 2], [-3, 3], [-6, 4]])
+            def gauge_(G, i, j):
+                return ncon([G, inv(ch(l(i-1)))@vL(i), inv(ch(l(j-1)))@vL(j), inv(ch(r(i))), inv(ch(r(j)))], 
+                            [[1, 3, 2, 4], [-1, -2, 1], [-4, -5, 2], [-3, 3], [-6, 4]])
 
+            return (lambda i, j: gauge(F1(i, j), i, j)), (lambda i, j: gauge_(F2t(i, j), i, j))
         J = kron(Sz, re(J2_)) + kron(eye(2), re(J1_)) + kron(Sx, im(J2_)) + kron(-1j*Sy, im(J1_))
-        if as_linearoperator:
-            return aslinearoperator(J)
-        else:
-            return J
+        return J
 
     def F1(self, i_, j_, H, envs=None, prs_vLs=None, fullH=False, testing=False, id=None):
             '''<d_iψ|H|d_jψ>
