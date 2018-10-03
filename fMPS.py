@@ -1341,24 +1341,44 @@ class fMPS(object):
         prs_vLs = [self.left_null_projector(n, l, get_vL=True) for n in range(self.L)] if prs_vLs is None else prs_vLs
         def pr(n): return prs_vLs[n][0]
         def vL(n): return prs_vLs[n][1]
-        def Γ(i_, j_, k):
-                """Γ: Christoffel symbol: does take advantage of gauge"""
-                #j always greater than i (Γ symmetric in i, j)
-                i, j = (j_, i_) if j_<i_ else (i_, j_)
-                _, Din_1, Di = self[i].shape
 
-                if j==i or i!=k or (d*Din_1==Di):
+        contracted = False
+        if closed[-1] is not None and closed[0] is None and closed[1] is None:
+            contracted = True
+
+        def Γ(i_, j_, k):
+            """Γ: Christoffel symbol: does take advantage of gauge"""
+            #j always greater than i (Γ symmetric in i, j)
+            i, j = (j_, i_) if j_<i_ else (i_, j_)
+            _, Din_1, Di = self[i].shape
+
+            if j==i or i!=k or (d*Din_1==Di):
+                if contracted:
+                    G = 1j*zeros((*A[i].shape, *A[j].shape))
+                else:
                     G = 1j*zeros((*A[i].shape, *A[j].shape, *A[k].shape))
+            else:
+                if contracted:
+                    R = ncon([pr(j), A[j]], [[-3, -4, 1, -2], [1, -1, -5]])
+                    Rs = self.left_transfer(R, i, j)
+                    G = ncon([pr(i), Rs(i+1), inv(r(i)), inv(r(i))], [[-1, -2, -7, -8], [1, 2, -4, -5, -6], [1, -9], [2, -3]])
+
+                    G = td(G, closed[-1], [[-3, -2, -1], [0, 1, 2]])
+
                 else:
                     R = ncon([pr(j), A[j]], [[-3, -4, 1, -2], [1, -1, -5]])
                     Rs = self.left_transfer(R, i, j)
                     G = ncon([pr(i), Rs(i+1), inv(r(i)), inv(r(i))], [[-1, -2, -7, -8], [1, 2, -4, -5, -6], [1, -9], [2, -3]])
 
+            if not contracted:
                 G = -tra(G, [3, 4, 5, 0, 1, 2, 6, 7, 8]) if j_<i_ else -G
+            else:
+                G = -tra(G, [3, 4, 5, 0, 1, 2]) if j_<i_ else -G
 
-                return G
+            return G
 
-        if any([c is not None for c in closed]):
+        # contracted = True if we've already done the contractions in Γ
+        if not contracted and any([c is not None for c in closed]):
             c_ind = [m for m, A in enumerate(closed) if A is not None]
             o_ind = [m for m, A in enumerate(closed) if A is None]
             links = [reduce(lambda x, y: x+y,
