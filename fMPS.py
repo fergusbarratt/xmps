@@ -631,68 +631,6 @@ class fMPS(object):
         self.L, self.d, self.D = map(lambda x: int(re(x)), params)
         return self.deserialize(arr, self.L, self.d, self.D)
 
-    def dA_dt(self, H, store_energy=False, fullH=False, prs=None):
-        """dA_dt: Finds A_dot (from TDVP) [B(n) for n in range(n)], energy. Uses inverses.
-        Indexing is A[0], A[1]...A[L-1]
-
-        :param self: matrix product state @ current time
-        :param H: Hamiltonian
-        """
-        self.dA_cache = {}
-        L, d, A = self.L, self.d, self.data
-        l, r = self.get_envs(True)
-        prs = [self.left_null_projector(n, l) for n in range(self.L)] if prs is None else prs
-        def pr(n): return prs[n]
-
-        if not fullH:
-            def B(i, H=H):
-                e = []
-                B = -1j*zl(A[i])
-                _, Dn, Dn_1 = A[i].shape
-                H = [h.reshape(2, 2, 2, 2) for h in H]
-
-                if d*Dn==Dn_1:
-                    # Projector is full of zeros
-                    return -1j*B
-
-                R = ncon([pr(i), A[i]], [[-3, -4, 1, -2], [1, -1, -5]])
-                Rs = self.left_transfer(R, 0, i) # list of E**k @ R - see left_transfer docs
-                self.dA_cache[str(i)] = Rs
-
-                for m, h in reversed(list(enumerate(H))):
-                    if m > i:
-                        # from gauge symmetry
-                        continue
-
-                    Am, Am_1 = self.data[m:m+2]
-                    C = ncon([h]+[Am, Am_1], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
-                    K = ncon([l(m-1)@Am.conj(), Am_1.conj()]+[C], [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]]) #AAHAA
-                    e.append(trace(K@r(m+1)))
-                    #C -= trace(K@r(m+1))
-                    #K -= trace(K@r(m+1))
-
-                    if m==i:
-                        B += -1j *ncon([l(m-1)@C@r(m+1), pr(m), inv(r(m))@Am_1.conj()], [[3, 4, 1, 2], [-1, -2, 3, 1], [4, -3, 2]])
-                    if m==i-1:
-                        B += -1j *ncon([l(m-1)@Am.conj(), pr(m+1)]+[C], [[1, 3, 4], [-1, -2, 2, 4], [1, 2, 3, -3]])
-                    if m < i-1:
-                        B += -1j *ncon([K, Rs(m+2)], [[1, 2], [1, 2, -1, -2, -3]])
-                self.e = e
-                return B
-        else:
-            def B(n, H=H):
-                H = H.reshape([self.d, self.d]*self.L)
-                links = self.links()
-                # open up links for projector
-                links[n] = [-1, -2]+links[n][:2]
-                if n == L-1:
-                    links[-1] = links[-1][:2]+[-3]
-                else:
-                    links[n+1] = [links[n+1][0], -3, links[n+1][2]]
-                return -1j *ncon([pr(m) if m==n else c(inv(r(n)))@a.conj() if m==n+1 else a.conj() for m, a in enumerate(A)]+[H]+A, links)
-
-        return fMPS([B(i) for i in range(L)])
-
     def projection_error(self, H, dt):
         """projection_error: error in projection to mps manifold
 
@@ -791,6 +729,68 @@ class fMPS(object):
             self.dynamical_expand(H, dt, min(self.d*self.D, D_), None)
         return self
 
+    def dA_dt(self, H, store_energy=False, fullH=False, prs=None):
+        """dA_dt: Finds A_dot (from TDVP) [B(n) for n in range(n)], energy. Uses inverses.
+        Indexing is A[0], A[1]...A[L-1]
+
+        :param self: matrix product state @ current time
+        :param H: Hamiltonian
+        """
+        self.dA_cache = {}
+        L, d, A = self.L, self.d, self.data
+        l, r = self.get_envs(True)
+        prs = [self.left_null_projector(n, l) for n in range(self.L)] if prs is None else prs
+        def pr(n): return prs[n]
+
+        if not fullH:
+            def B(i, H=H):
+                e = []
+                B = -1j*zl(A[i])
+                _, Dn, Dn_1 = A[i].shape
+                H = [h.reshape(2, 2, 2, 2) for h in H]
+
+                if d*Dn==Dn_1:
+                    # Projector is full of zeros
+                    return -1j*B
+
+                R = ncon([pr(i), A[i]], [[-3, -4, 1, -2], [1, -1, -5]])
+                Rs = self.left_transfer(R, 0, i) # list of E**k @ R - see left_transfer docs
+                self.dA_cache[str(i)] = Rs
+
+                for m, h in reversed(list(enumerate(H))):
+                    if m > i:
+                        # from gauge symmetry
+                        continue
+
+                    Am, Am_1 = self.data[m:m+2]
+                    C = ncon([h]+[Am, Am_1], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
+                    K = ncon([l(m-1)@Am.conj(), Am_1.conj()]+[C], [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]]) #AAHAA
+                    e.append(trace(K@r(m+1)))
+                    #C -= trace(K@r(m+1))
+                    #K -= trace(K@r(m+1))
+
+                    if m==i:
+                        B += -1j *ncon([l(m-1)@C@r(m+1), pr(m), inv(r(m))@Am_1.conj()], [[3, 4, 1, 2], [-1, -2, 3, 1], [4, -3, 2]])
+                    if m==i-1:
+                        B += -1j *ncon([l(m-1)@Am.conj(), pr(m+1)]+[C], [[1, 3, 4], [-1, -2, 2, 4], [1, 2, 3, -3]])
+                    if m < i-1:
+                        B += -1j *ncon([K, Rs(m+2)], [[1, 2], [1, 2, -1, -2, -3]])
+                self.e = e
+                return B
+        else:
+            def B(n, H=H):
+                H = H.reshape([self.d, self.d]*self.L)
+                links = self.links()
+                # open up links for projector
+                links[n] = [-1, -2]+links[n][:2]
+                if n == L-1:
+                    links[-1] = links[-1][:2]+[-3]
+                else:
+                    links[n+1] = [links[n+1][0], -3, links[n+1][2]]
+                return -1j *ncon([pr(m) if m==n else c(inv(r(n)))@a.conj() if m==n+1 else a.conj() for m, a in enumerate(A)]+[H]+A, links)
+
+        return fMPS([B(i) for i in range(L)])
+
     def ddA_dt(self, v, H, fullH=False):
         """d(dA)_dt: find ddA_dt - in 2nd tangent space:
            for time evolution of v in tangent space
@@ -823,6 +823,9 @@ class fMPS(object):
         prs = [x[0] for x in prs_vLs]
         vLs = [x[1] for x in prs_vLs]
         def vL(i): return vLs[i]
+        cr, cl = [ch(r(i)) for i in range(self.L)], [ch(l(i)) for i in range(self.L)]
+        icr, icl = [inv(cr[i]) for i in range(self.L)], [inv(cl[i]) for i in range(self.L)]
+        inv_envs= (icr, icl, cr, cl)
 
         # these apply l-vL- -r- to something like -A|- to  get something like =x-
         def ungauge_i(tens, i, conj=False):
@@ -848,14 +851,14 @@ class fMPS(object):
         #def Γ1(i, k): return sum([td(c(self.christoffel(k, j, i, envs=(l, r))), l(j-1)@dA_dt[j]@r(j), [[3, 4, 5], [0, 1, 2]]) for j in range(L)], axis=0)
         #-i<d_iψ|H|d_kψ> (dA_k)
         id = uuid.uuid4().hex # for memoization
-        def F1(i, k): return  -1j*self.F1(i, k, H, envs=(l, r), prs_vLs=prs_vLs, id=id)
+        def F1(i, k): return  -1j*self.F1(i, k, H, envs=(l, r), inv_envs=inv_envs, prs_vLs=prs_vLs, id=id)
 
         ## non unitary (from projection): -<d_id_kψ|(d_t |ψ> +iH|ψ>) (dA_k*) (should be zero for no projection)
         #-<d_id_kψ|d_jψ> dA_j/dt (dA_k*)
         def Γ2(i, k): return ungauge(self.christoffel(i, k, min(i, k), envs=(l, r), prs_vLs=prs_vLs, closed=(None, None, l(min(i, k)-1)@dA_dt[min(i, k)]@r(min(i, k)))),
                                      i, k, conj=(True, True))
         #-i<d_id_k ψ|H|ψ> (dA_k*)
-        def F2(i, k): return -1j*self.F2(i, k, H, envs=(l, r), prs_vLs=prs_vLs, id=id)
+        def F2(i, k): return -1j*self.F2(i, k, H, envs=(l, r), inv_envs=inv_envs, prs_vLs=prs_vLs, id=id)
 
         def F2t(i, j): return F2(i, j) + Γ2(i, j) #F2, Γ2 act on dA*j
 
@@ -892,7 +895,7 @@ class fMPS(object):
         J = kron(Sz, re(J2_)) + kron(eye(2), re(J1_)) + kron(Sx, im(J2_)) + kron(-1j*Sy, im(J1_))
         return J
 
-    def F1(self, i_, j_, H, envs=None, prs_vLs=None, fullH=False, testing=False, id=None):
+    def F1(self, i_, j_, H, envs=None, inv_envs=None, prs_vLs=None, fullH=False, testing=False, id=None):
             '''<d_iψ|H|d_jψ>
                Does some pretty dicey caching stuff to avoid recalculating anything'''
             # if called with new id, need to recompute everything
@@ -922,18 +925,23 @@ class fMPS(object):
             def pr(n): return prs_vLs[n][0]
             def vL(n): return prs_vLs[n][1]
 
+            if inv_envs is not None:
+                icr, icl, cr, cl = inv_envs
+            else:
+                icr, icl = [inv(ch(r(i))) for i in range(self.L)], [inv(ch(l(i))) for i in range(self.L)]
+                cr, cl = [ch(r(i)) for i in range(self.L)], [ch(l(i)) for i in range(self.L)]
+
+            def inv_ch_r(n): return icr[n]
+            def inv_ch_l(n): return icl[n]
+            def ch_r(n): return cr[n]
+            def ch_l(n): return cl[n]
+
             if not fullH:
                 i, j = (j_, i_) if j_<i_ else (i_, j_)
                 gDi, gDi_1 = vL(i).shape[-1], A[i+1].shape[1] if i != self.L-1 else 1
                 gDj, gDj_1 = vL(j).shape[-1], A[j+1].shape[1] if j != self.L-1 else 1
                 G_ = 1j*zeros((gDi, gDi_1, gDj, gDj_1))
                 d, Din_1, Di = self[i].shape
-                icr, icl = [inv(ch(r(i))) for i in range(self.L)], [inv(ch(l(i))) for i in range(self.L)]
-                cr, cl = [ch(r(i)) for i in range(self.L)], [ch(l(i)) for i in range(self.L)]
-                def inv_ch_r(n): return icr[n]
-                def inv_ch_l(n): return icl[n]
-                def ch_r(n): return cr[n]
-                def ch_l(n): return cl[n]
 
                 if not d*Din_1==Di:
                     H = [h.reshape(2, 2, 2, 2) for h in H]
@@ -984,7 +992,7 @@ class fMPS(object):
                                            [[5, 1, 2], [6, 2, -3], [5, 6, 3, 4], [3, 1, -1], [4, -2, -4]])
                             else:
                                 # AAHBA
-                                O_ = ncon([ch(l(m-1))@Am, Am_1]+[h]+[c(vL(m)), inv_ch_r(m)@c(Am_1)], 
+                                O_ = ncon([ch_l(m-1)@Am, Am_1]+[h]+[c(vL(m)), inv_ch_r(m)@c(Am_1)], 
                                           [[3, 1, 2], [4, 2, -3], [3, 4, 5, 6], [5, 1, -1], [6, -2, -4]])
 
                                 G_+= tensordot(O_, Rus_(m+2), [[-1, -2], [0, 1]])
@@ -1153,7 +1161,7 @@ class fMPS(object):
             self.F1_tot_ij_mem[str(i_)+str(j_)] = G_
             return G_
 
-    def F2(self, i_, j_, H, envs=None, prs_vLs=None, fullH=False, testing=False, id=None):
+    def F2(self, i_, j_, H, envs=None, inv_envs=None, prs_vLs=None, fullH=False, testing=False, id=None):
         '''<d_id_j ψ|H|ψ>'''
         id = id if id is not None else uuid.uuid4().hex
         if self.id_ != id:
@@ -1179,6 +1187,16 @@ class fMPS(object):
         prs_vLs = [self.left_null_projector(n, l, get_vL=True) for n in range(self.L)] if prs_vLs is None else prs_vLs
         def pr(n): return prs_vLs[n][0]
         def vL(n): return prs_vLs[n][1]
+        if inv_envs is not None:
+            icr, icl, cr, cl = inv_envs
+        else:
+            icr, icl = [inv(ch(r(i))) for i in range(self.L)], [inv(ch(l(i))) for i in range(self.L)]
+            cr, cl = [ch(r(i)) for i in range(self.L)], [ch(l(i)) for i in range(self.L)]
+
+        def inv_ch_r(n): return icr[n]
+        def inv_ch_l(n): return icl[n]
+        def ch_r(n): return cr[n]
+        def ch_l(n): return cl[n]
 
         i, j = (j_, i_) if j_<i_ else (i_, j_)
         
@@ -1192,20 +1210,12 @@ class fMPS(object):
             G_ = 1j*zeros((gDi, gDi_1, gDj, gDj_1))
         elif not fullH:
             H = [h.reshape(2, 2, 2, 2) for h in H]
-            d, Din_1, Di = self[i].shape
-
             # new stuff
             gDi, gDi_1 = vL(i).shape[-1], A[i+1].shape[1] if i != self.L-1 else 1
             gDj, gDj_1 = vL(j).shape[-1], A[j+1].shape[1] if j != self.L-1 else 1
             G_ = 1j*zeros((gDi, gDi_1, gDj, gDj_1))
 
-            icr, icl = [inv(ch(r(i))) for i in range(self.L)], [inv(ch(l(i))) for i in range(self.L)]
-            cr, cl = [ch(r(i)) for i in range(self.L)], [ch(l(i)) for i in range(self.L)]
-            def inv_ch_r(n): return icr[n]
-            def inv_ch_l(n): return icl[n]
-            def ch_r(n): return cr[n]
-            def ch_l(n): return cl[n]
-
+            d, Din_1, Di = self[i].shape
             if not d*Din_1==Di:
                 if str(i)+str(j) not in self.F2_ij_mem:
                     # new stuff
@@ -1324,6 +1334,7 @@ class fMPS(object):
             self.id__ = id
             # initialize the memories 
             # we only don't try the cache on the first call from jac
+            self.christ_ij_mem = {}
             self.christ_tot_ij_mem = {}
         else:
             # read from cache: 
@@ -1341,24 +1352,51 @@ class fMPS(object):
         prs_vLs = [self.left_null_projector(n, l, get_vL=True) for n in range(self.L)] if prs_vLs is None else prs_vLs
         def pr(n): return prs_vLs[n][0]
         def vL(n): return prs_vLs[n][1]
-        def Γ(i_, j_, k):
-                """Γ: Christoffel symbol: does take advantage of gauge"""
-                #j always greater than i (Γ symmetric in i, j)
-                i, j = (j_, i_) if j_<i_ else (i_, j_)
-                _, Din_1, Di = self[i].shape
 
-                if j==i or i!=k or (d*Din_1==Di):
+        contracted = False
+        if closed[-1] is not None and closed[0] is None and closed[1] is None:
+            contracted = True
+
+        def Γ(i_, j_, k):
+            """Γ: Christoffel symbol: does take advantage of gauge"""
+            #j always greater than i (Γ symmetric in i, j)
+            i, j = (j_, i_) if j_<i_ else (i_, j_)
+            _, Din_1, Di = self[i].shape
+
+            if j==i or i!=k or (d*Din_1==Di):
+                if contracted:
+                    G = 1j*zeros((*A[i].shape, *A[j].shape))
+                else:
                     G = 1j*zeros((*A[i].shape, *A[j].shape, *A[k].shape))
+            else:
+                if contracted:
+                    if str(i)+str(j) not in self.christ_ij_mem:
+                        if hasattr(self, 'dA_cache') and str(j) in self.dA_cache:
+                            Rs = self.dA_cache[str(j)]
+                        else:
+                            R = ncon([pr(j), A[j]], [[-3, -4, 1, -2], [1, -1, -5]])
+                            Rs = self.left_transfer(R, i, j)
+                            self.christ_ij_mem[str(i)+str(j)] = Rs
+                    else:
+                        Rs = self.christ_ij_mem[str(i)+str(j)]
+
+                    G = ncon([pr(i), Rs(i+1), inv(r(i)), inv(r(i))], [[-1, -2, -7, -8], [1, 2, -4, -5, -6], [1, -9], [2, -3]])
+
+                    G = td(G, closed[-1], [[-2, -3, -1], [1, 0, 2]])
                 else:
                     R = ncon([pr(j), A[j]], [[-3, -4, 1, -2], [1, -1, -5]])
                     Rs = self.left_transfer(R, i, j)
                     G = ncon([pr(i), Rs(i+1), inv(r(i)), inv(r(i))], [[-1, -2, -7, -8], [1, 2, -4, -5, -6], [1, -9], [2, -3]])
 
+            if not contracted:
                 G = -tra(G, [3, 4, 5, 0, 1, 2, 6, 7, 8]) if j_<i_ else -G
+            else:
+                G = -tra(G, [3, 4, 5, 0, 1, 2]) if j_<i_ else -G
 
-                return G
+            return G
 
-        if any([c is not None for c in closed]):
+        # contracted = True if we've already done the contractions in Γ
+        if not contracted and any([c is not None for c in closed]):
             c_ind = [m for m, A in enumerate(closed) if A is not None]
             o_ind = [m for m, A in enumerate(closed) if A is None]
             links = [reduce(lambda x, y: x+y,
