@@ -834,11 +834,11 @@ class fMPS(object):
         #def Γ1(i, k): return sum([td(c(self.christoffel(k, j, i, envs=(l, r))), l(j-1)@dA_dt[j]@r(j), [[3, 4, 5], [0, 1, 2]]) for j in range(L)], axis=0)
         #-i<d_iψ|H|d_kψ> (dA_k)
         id = uuid.uuid4().hex # for memoization
-        def F1(i, k): return  -1j*self.F1(i, k, H, envs=(l, r), prs_vLs=prs_vLs, fullH=fullH, id=id, testing=testing)
+        def F1(i, k): return  -1j*self.F1(i, k, H, envs=(l, r), prs_vLs=prs_vLs, fullH=fullH, id=id)
 
         ## non unitary (from projection): -<d_id_kψ|(d_t |ψ> +iH|ψ>) (dA_k*) (should be zero for no projection)
         #-<d_id_kψ|d_jψ> dA_j/dt (dA_k*)
-        def Γ2(i, k): return td(self.christoffel(i, k, min(i, k), envs=(l, r), prs_vLs=prs_vLs), l(min(i, k)-1)@dA_dt[min(i, k)]@r(min(i, k)), [[7, 8, 6], [1, 2, 0]])
+        def Γ2(i, k): return td(self.christoffel(i, k, min(i, k), envs=(l, r), prs_vLs=prs_vLs, id=id), l(min(i, k)-1)@dA_dt[min(i, k)]@r(min(i, k)), [[7, 8, 6], [1, 2, 0]])
         #-i<d_id_k ψ|H|ψ> (dA_k*)
         def F2(i, k): return -1j*self.F2(i, k, H, envs=(l, r), prs_vLs=prs_vLs, fullH=fullH, id=id)
 
@@ -1318,13 +1318,13 @@ class fMPS(object):
         self.F2_tot_ij_mem[str(i_)+str(j_)] = G
         return G
 
-    def christoffel(self, i, j, k, envs=None, prs_vLs=None, id=None, closed=(None, None, None)):
+    def christoffel(self, i, j, k, envs=None, prs_vLs=None, id=None, testing=False, closed=(None, None, None)):
         """christoffel: return the christoffel symbol in basis c(A_i), c(A_j), A_k.
            Close indices i, j, k, with elements of closed tuple: i.e. (B_i, B_j, B_k).
            Will leave any indices marked none open :-<d_id_jψ|d_kψ>"""
         id = id if id is not None else uuid.uuid4().hex
-        if self.id != id:
-            self.id = id
+        if self.id__ != id:
+            self.id__ = id
             # initialize the memories 
             # we only don't try the cache on the first call from jac
             self.christ_i_mem_ = {}
@@ -1333,12 +1333,12 @@ class fMPS(object):
         else:
             # read from cache: 
             # have we cached this tensor?
-            if str(i)+str(j)+str(k) in self.christ_tot_ij_mem:
+            if str(i)+str(j)+str(k) in self.christ_tot_ijk_mem:
                 return self.christ_tot_ijk_mem[str(i)+str(j)+str(k)]
 
             ## have we cached its conjugate?
-            if str(j)+str(i)+str(k) in self.F1_tot_ij_mem:
-                return tra(self.christ_tot_ijk_mem[str(i)+str(j)+str(k)], 
+            if str(j)+str(i)+str(k) in self.christ_tot_ijk_mem:
+                return tra(self.christ_tot_ijk_mem[str(j)+str(i)+str(k)], 
                            [3, 4, 5, 0, 1, 2, 6, 7, 8])
 
         L, d, A = self.L, self.d, self.data
