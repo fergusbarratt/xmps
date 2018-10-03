@@ -1323,6 +1323,24 @@ class fMPS(object):
            Close indices i, j, k, with elements of closed tuple: i.e. (B_i, B_j, B_k).
            Will leave any indices marked none open :-<d_id_jψ|d_kψ>"""
         id = id if id is not None else uuid.uuid4().hex
+        if self.id != id:
+            self.id = id
+            # initialize the memories 
+            # we only don't try the cache on the first call from jac
+            self.christ_i_mem_ = {}
+            self.christ_j_mem_ = {}
+            self.christ_tot_ijk_mem = {}
+        else:
+            # read from cache: 
+            # have we cached this tensor?
+            if str(i)+str(j)+str(k) in self.christ_tot_ij_mem:
+                return self.christ_tot_ijk_mem[str(i)+str(j)+str(k)]
+
+            ## have we cached its conjugate?
+            if str(j)+str(i)+str(k) in self.F1_tot_ij_mem:
+                return tra(self.christ_tot_ijk_mem[str(i)+str(j)+str(k)], 
+                           [3, 4, 5, 0, 1, 2, 6, 7, 8])
+
         L, d, A = self.L, self.d, self.data
         l, r = self.get_envs() if envs is None else envs
         prs_vLs = [self.left_null_projector(n, l, get_vL=True) for n in range(self.L)] if prs_vLs is None else prs_vLs
@@ -1342,10 +1360,11 @@ class fMPS(object):
                     R = ncon([pr(j), A[j]], [[-3, -4, 1, -2], [1, -1, -5]])
                     Rs = self.left_transfer(R, i, j)
                     G = ncon([pr(i), Rs(i+1), inv(r(i)), inv(r(i))], [[-1, -2, -7, -8], [1, 2, -4, -5, -6], [1, -9], [2, -3]])
-                if j_<i_:
-                    return -tra(G, [3, 4, 5, 0, 1, 2, 6, 7, 8])
-                else:
-                    return -G
+
+                G = -tra(G, [3, 4, 5, 0, 1, 2, 6, 7, 8]) if j_<i_ else -G
+
+                self.christ_tot_ijk_mem[str(i_)+str(j_)+str(k)] = G
+                return G
 
         if any([c is not None for c in closed]):
             c_ind = [m for m, A in enumerate(closed) if A is not None]
