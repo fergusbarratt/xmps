@@ -25,7 +25,7 @@ H = [H_i[0]+Sz12+Sz22]+[H_i[i]+Sz22 for i in range(1, L-1)]
 W = L*[MPO_TFI(0, 0.25, 0.5, 0.5)]
 
 dt = 5e-3
-t_fin = 30 
+t_fin = 200
 D = 16 
 T = linspace(0, t_fin, int(t_fin//dt)+1)
 psi_0 = load('fixtures/mat{}x{}.npy'.format(L,L))

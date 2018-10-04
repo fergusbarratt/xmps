@@ -216,8 +216,10 @@ class Trajectory(object):
             else:
                 self.mps = self.rk4(self.mps, dt, H).left_canonicalise()
         if just_max:
+            self.q = q
             exps = (1/(dt))*cs(array(lys), axis=0)/ar(1, len(lys)+1)
         else:
+            self.Q = Q
             exps = (1/(dt))*cs(array(lys), axis=0)/ed(ar(1, len(lys)+1), 1)
         self.exps = exps
         self.lys = array(lys)
@@ -303,6 +305,11 @@ class Trajectory(object):
         assert hasattr(self, 'exps') if exps else True
         self.id = self.run_name+'_L{}_D{}_N{}'.format(self.mps.L, self.mps.D, len(self.mps_history))
         save(loc+self.id, self.mps_history if not exps else self.exps)
+        if exps:
+            if hasattr(self, 'q'):
+                save(loc+'bases/'+self.id, self.q)
+            elif hasattr(self, 'Q'):
+                save(loc+'bases/'+self.id, self.Q)
         if clear:
             self.clear()
 
