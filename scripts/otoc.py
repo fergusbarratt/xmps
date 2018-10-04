@@ -21,7 +21,7 @@ Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
 Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
 
 ent = Sz1@Sz2
-loc = Sx1+Sz1, Sx2+Sz2
+loc = Sx1, Sx2
 
 listH = [ent+loc[0]+loc[1]] + [ent+loc[1] for _ in range(L-2)]
 fullH = sum([n_body(a, i, len(listH), d=2) for i, a in enumerate(listH)], axis=0)

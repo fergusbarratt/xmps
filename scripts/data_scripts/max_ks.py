@@ -12,8 +12,9 @@ F = abs(load('data/spectra/lyapunovs_L8_D6_N20400.npy')[-1])
 G = abs(load('data/spectra/lyapunovs_L8_D7_N20400.npy')[-1])
 H = abs(load('data/spectra/lyapunovs_L8_D8_N21000.npy')[-1])
 I = abs(load('data/spectra/lyapunovs_L8_D9_N21000.npy')[-1])
-data = [A, B, C, D, E, F, G, H, I]
-Ds = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+J = abs(load('data/spectra/lyapunovs_L8_D10_N21000.npy')[-1])
+data = [A, B, C, D, E, F, G, H, I, J]
+Ds = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 fig, ax = plt.subplots(2, 1, sharex=True)
 ax[0].scatter(Ds, list(map(sum, data)), marker='x')
 ax[0].set_title('KS', loc='right')
