@@ -36,7 +36,7 @@ F = Trajectory(mps, H=H, W=W)
 F.run_name = 'spectra/entanglement'
 F.invfreeint(T)
 sch = F.schmidts()
-λ = array([exp(max([-re(s[i//2]@log(s[i//2])) for i in range(len(sch[0]))])) for s in sch])
+λ = array([exp(max([-re(s[i//2]**2@log(s[i//2]**2)) for i in range(len(sch[0]))])) for s in sch])
 save('data/spectra/Dt', λ)
 
 fig, ax = plt.subplots(1, 1, sharex=True)

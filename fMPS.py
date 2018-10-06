@@ -15,9 +15,11 @@ from numpy import real as re, stack as st, concatenate as ct, zeros, empty
 from numpy import split as chop, ones_like, save, load, zeros_like as zl
 from numpy import eye, cumsum as cs, sqrt, expand_dims as ed, imag as im
 from numpy import transpose as tra, trace as tr, tensordot as td, kron
-from numpy import mean
+from numpy import mean, sign, angle, unwrap, exp, diff, pi, squeeze as sq
+from numpy import round
 
 from scipy.linalg import null_space as null, orth, expm#, sqrtm as ch
+from scipy.linalg import polar
 from scipy.sparse.linalg import LinearOperator, aslinearoperator
 
 from tests import is_right_canonical, is_right_env_canonical, is_full_rank
@@ -819,10 +821,41 @@ class fMPS(object):
         L, d, A = self.L, self.d, self.data
         dA_dt = self.dA_dt(H)
         l, r = self.l, self.r
+        if hasattr(self, 'old_A'):
+            stop=False
+            for m in reversed(range(len(self.data))):
+                B, B_ = self[m], self.old_A[m]
+                S = sum(B@cT(B_), axis=0)
+                U, P = polar(S)
+                self.data[m] = cT(U)@B
+
+                if 0 < m:
+                    self.data[m-1] = self.data[m-1]@U
+
+                if norm(sum(self.data[m]@cT(B_), axis=0)-eye(B.shape[-2])) > 1:
+                    print(m, sum(self.data[m]@cT(B_), axis=0))
+                    stop=True
+            if stop:
+                raise Exception
         prs_vLs = [self.left_null_projector(n, l, get_vL=True) for n in range(self.L)]
         prs = [x[0] for x in prs_vLs]
         vLs = [x[1] for x in prs_vLs]
         def vL(i): return vLs[i]
+        self.new_vL = vL
+        if hasattr(self, 'old_vL'):
+            self.vs = array([])
+            new_vL = []
+            for i in range(self.L):
+                if prod(A[i].shape[:-1])!=A[i].shape[-1]:
+                    S = sum(cT(self.new_vL(i))@self.old_vL(i), axis=0)
+                    U, P = polar(S)
+                    new_vL.append(self.new_vL(i)@U)
+                    ide = sum(cT(new_vL[i])@self.old_vL(i), axis=0)
+                    self.vs = ct([self.vs, ide.real.reshape(-1), ide.imag.reshape(-1)])
+                else:
+                    new_vL.append(self.new_vL(i))
+            self.new_vL = lambda n: new_vL[n]
+
         cr, cl = [ch(r(i)) for i in range(self.L)], [ch(l(i)) for i in range(self.L)]
         icr, icl = [inv(cr[i]) for i in range(self.L)], [inv(cl[i]) for i in range(self.L)]
         inv_envs= (icr, icl, cr, cl)

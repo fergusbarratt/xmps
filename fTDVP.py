@@ -179,14 +179,16 @@ class Trajectory(object):
     def lyapunov(self, T, D=None, just_max=False, m=1, t_burn=2):
         H = self.H
         has_mpo = self.W is not None
+        self.vs = []
         if D is not None:
             # if MPO supplied - just expand, canonicalise and use inverse free integrator
             # otherwise use dynamical expand: less numerically stable
             if has_mpo:
-                self.mps = self.mps.left_canonicalise().expand(D)
-                self.invfreeint(linspace(0, t_burn, 200*t_burn))
+                self.mps = self.mps.right_canonicalise().expand(D)
+                self.invfreeint(linspace(0, t_burn, int(200*t_burn)))
+                self.burn_len = int(200*t_burn)
             else:
-                self.mps = self.mps.grow(self.H, 0.1, D).left_canonicalise()
+                self.mps = self.mps.grow(self.H, 0.1, D).right_canonicalise()
                 self.rk4int(linspace(0, 1, 100))
 
         Q = kron(eye(2), self.mps.tangent_space_basis(type='rand'))
@@ -200,6 +202,8 @@ class Trajectory(object):
         for t in tqdm(range(1, len(T)+1)):
             if t%m == 0:
                 J = self.mps.jac(H)
+                if hasattr(self.mps, 'vs'):
+                    self.vs.append(self.mps.vs)
                 if just_max:
                     q = expm_multiply(J*dt, q)
                     lys.append(log(abs(norm(q))))
@@ -212,7 +216,11 @@ class Trajectory(object):
                     lys.append(log(abs(diag(R))))
 
             if has_mpo:
+                vL = self.mps.new_vL
+                old_A = self.mps.copy()
                 self.mps = self.invfree(self.mps, dt, H)
+                self.mps.old_vL = vL
+                self.mps.old_A = old_A
             else:
                 self.mps = self.rk4(self.mps, dt, H).left_canonicalise()
         if just_max:
