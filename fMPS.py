@@ -814,6 +814,21 @@ class fMPS(object):
 
         return self.extract_tangent_vector(ddA)
 
+    def match_gauge_to(self, mps):
+        """match gauge with another matrix product state
+           canonical matrix product state is unique up to diagonal matrices
+           in the svds, and unitary freedom in the tangent spaces.
+           match from one timestep to the next makes trajectories continuous.
+        """
+        for i in reversed(range(self.L)):
+            B, B_ = self[i], mps[i]
+            S = sum(B@cT(B_), axis=0)
+            U, P = polar(S)
+            self[i] = cT(U)@B
+
+            if 0 < i:
+                self.data[i-1] = self[i-1]@U
+
     def jac(self, H,
             as_matrix=True,
             real_matrix=True):
@@ -822,15 +837,6 @@ class fMPS(object):
         L, d, A = self.L, self.d, self.data
         dA_dt = self.dA_dt(H)
         l, r = self.l, self.r
-        if hasattr(self, 'old_A'):
-            for m in reversed(range(len(self.data))):
-                B, B_ = self[m], self.old_A[m]
-                S = sum(B@cT(B_), axis=0)
-                U, P = polar(S)
-                self.data[m] = cT(U)@B
-
-                if 0 < m:
-                    self.data[m-1] = self.data[m-1]@U
         prs_vLs = [self.left_null_projector(n, l, get_vL=True) for n in range(self.L)]
         prs = [x[0] for x in prs_vLs]
         vLs = [x[1] for x in prs_vLs]

@@ -41,6 +41,6 @@ for D in Ds:
     ax[0].plot(F.mps_history)
     ax[1].plot(F.vs)
     ax[2].plot(lys)
-    ax[3].hist(exps[-1])
+    ax[3].plot(exps)
     plt.show()
     #F.save(exps=True)

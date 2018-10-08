@@ -218,16 +218,20 @@ class Trajectory(object):
 
             if has_mpo:
                 vL = self.mps.new_vL
-                old_A = self.mps.copy()
+
+                old_mps = self.mps.copy()
                 self.mps = self.invfree(self.mps, dt, H)
+                self.mps.match_gauge_to(old_mps)
+
                 self.mps.old_vL = vL
-                self.mps.old_A = old_A
             else:
                 vL = self.mps.new_vL
-                old_A = self.mps.copy()
-                self.mps = self.rk4(self.mps, dt, H).left_canonicalise()
+
+                old_mps = self.mps.copy()
+                self.mps = self.rk4(self.mps, dt, H).right_canonicalise()
+                self.mps.match_gauge_to(old_mps)
+
                 self.mps.old_vL = vL
-                self.mps.old_A = old_A
         if just_max:
             self.q = q
             exps = (1/(dt))*cs(array(lys), axis=0)/ar(1, len(lys)+1)
