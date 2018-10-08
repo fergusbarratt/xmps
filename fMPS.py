@@ -1417,9 +1417,8 @@ class fMPS(object):
                     else:
                         Rs = self.christ_ij_mem[str(i)+str(j)]
 
-                    G = ncon([pr(i), Rs(i+1), inv(r(i)), inv(r(i))], [[-1, -2, -7, -8], [1, 2, -4, -5, -6], [1, -9], [2, -3]])
-
-                    G = td(G, closed[-1], [[-2, -3, -1], [1, 0, 2]])
+                    G = ncon([pr(i), closed[-1]@inv(r(i)), Rs(i+1), inv(r(i))], [[-1, -2, 1, 2], [1, 2, 3], [3, 4, -4, -5, -6], [4, -3]],
+                             [1, 2, 3, 4])
                 else:
                     R = ncon([pr(j), A[j]], [[-3, -4, 1, -2], [1, -1, -5]])
                     Rs = self.left_transfer(R, i, j)
