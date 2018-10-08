@@ -20,8 +20,6 @@ import numpy as np
 
 from scipy.linalg import sqrtm, expm, norm, null_space as null, cholesky as ch
 from scipy.sparse.linalg import expm_multiply, expm
-from scipy.integrate import odeint, complex_ode as c_ode
-from scipy.integrate import ode, solve_ivp
 
 from matplotlib import pyplot as plt
 from functools import reduce

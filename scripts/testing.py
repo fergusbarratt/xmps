@@ -22,8 +22,8 @@ H_i = [Sz12@Sz22+Sx12] + [bulkH for _ in range(L-3)] + [Sz12@Sz22+Sx22]
 H = [H_i[0]+Sz12]+[H_i[i]+Sz12+Sz22 for i in range(1, L-2)]+[H_i[-1]+Sz22]
 W = L*[MPO_TFI(0, 0.25, 0.5, 0.5)]
 
-dt = 5e-3
-t_fin = 4 
+dt = 5e-2
+t_fin = 2 
 T = linspace(0, t_fin, int(t_fin//dt)+1)
 
 if L<10:

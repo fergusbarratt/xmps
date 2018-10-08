@@ -16,5 +16,5 @@ L = 8
 D = 8
 mps = fMPS().left_from_state(load('fixtures/mat8x8.npy')).right_canonicalise(D)
 H = [Sz12@Sz22+Sx12+Sx12] +[Sz12@Sz22+Sx22 for _ in range(L-2)]
-mps.jac(H)
-#cProfile.runctx('mps.jac(H)', {'mps':mps, 'H':H}, {}, sort='cumtime')
+#mps.jac(H)
+cProfile.runctx('mps.jac(H)', {'mps':mps, 'H':H}, {}, sort='cumtime')

@@ -841,21 +841,20 @@ class fMPS(object):
         prs = [x[0] for x in prs_vLs]
         vLs = [x[1] for x in prs_vLs]
 
-        def vL(i): return vLs[i]
-        self.new_vL = vL
+        #def vL(i): return vLs[i]
+        self.new_vL = vLs
         if hasattr(self, 'old_vL'):
             self.v = array([])
             new_vL = []
             for i in range(self.L):
                 if prod(A[i].shape[:-1])!=A[i].shape[-1]:
-                    S = sum(cT(self.new_vL(i))@self.old_vL(i), axis=0)
+                    S = sum(cT(self.new_vL[i])@self.old_vL[i], axis=0)
                     U, P = polar(S)
-                    new_vL.append(self.new_vL(i)@U)
-                    ide = sum(cT(new_vL[i])@self.old_vL(i), axis=0)
+                    new_vL.append(self.new_vL[i]@U)
                     self.v = ct([self.v, new_vL[i].real.reshape(-1), new_vL[i].imag.reshape(-1)])
                 else:
-                    new_vL.append(self.new_vL(i))
-            self.new_vL = lambda n: new_vL[n]
+                    new_vL.append(self.new_vL[i])
+            self.new_vL = new_vL
             vLs = new_vL
 
         prs_vLs = list(zip(prs, vLs))
