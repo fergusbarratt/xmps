@@ -829,7 +829,7 @@ class fMPS(object):
 
             if 0 < i:
                 self.data[i-1] = self[i-1]@U
-    
+
     def jac(self, H,
             as_matrix=True,
             real_matrix=True):
@@ -845,17 +845,16 @@ class fMPS(object):
         self.new_vL = vLs
         if hasattr(self, 'old_vL'):
             self.v = array([])
-            new_vL = []
+            vLs = []
             for i in range(self.L):
                 if prod(A[i].shape[:-1])!=A[i].shape[-1]:
                     S = sum(cT(self.new_vL[i])@self.old_vL[i], axis=0)
                     U, P = polar(S)
-                    new_vL.append(self.new_vL[i]@U)
-                    self.v = ct([self.v, new_vL[i].real.reshape(-1), new_vL[i].imag.reshape(-1)])
+                    vLs.append(self.new_vL[i]@U)
+                    self.v = ct([self.v, vLs[i].real.reshape(-1), vLs[i].imag.reshape(-1)])
                 else:
-                    new_vL.append(self.new_vL[i])
-            self.new_vL = new_vL
-            vLs = new_vL
+                    vLs.append(self.new_vL[i])
+            self.new_vL = vLs
 
         prs_vLs = list(zip(prs, vLs))
         def vL(i): return vLs[i]
@@ -910,7 +909,7 @@ class fMPS(object):
                 return ncon([G, inv(ch(l(i-1)))@vL(i), inv(ch(l(j-1)))@vL(j), inv(ch(r(i))), inv(ch(r(j)))], 
                             [[1, 3, 2, 4], [-1, -2, 1], [-4, -5, 2], [-3, 3], [-6, 4]])
 
-            return (lambda i, j: gauge(F1(i, j), i, j)), (lambda i, j: gauge_(F2t(i, j), i, j))
+            return (lambda i, j: gauge(F1(i, j), i, j)), (lambda i, j: gauge_(F2(i, j)+Γ2(i, j), i, j))
         J = kron(Sz, re(J2_)) + kron(eye(2), re(J1_)) + kron(Sx, im(J2_)) + kron(-1j*Sy, im(J1_))
         return J
 

@@ -10,9 +10,7 @@ from scipy.sparse.linalg import eigsh as lanczos, LinearOperator
 import matplotlib.pyplot as plt
 from tests import is_left_canonical, is_right_canonical
 
-
 class effH(object):
-
     def __init__(self, W, A, k, L, R):
         self.W = W
         self.A = A
@@ -94,7 +92,6 @@ class effH(object):
         v0 = self.A[self.k].reshape(self.shape[-1])
         e, v = lanczos(self.aslinearoperator(), k=1, which='SA', v0=v0)
         return e, v.reshape(self.A[self.k].shape)
-
 
 class fMPO(object):
     """finite MPO"""
@@ -230,9 +227,7 @@ class fMPO(object):
 
         return es, fMPS(A, self.d)
 
-
 class TesteffH(unittest.TestCase):
-
     def setUp(self):
         """setUp"""
         self.L = 2 
@@ -260,11 +255,6 @@ class TestfMPO(unittest.TestCase):
         self.Jz = 1
 
         self.s182 = fMPO().anisotropic_heisenberg(self.L, self.h, self.J, self.Jz)
-
-    #def testDMRG(self):
-    #    gs_e, gs = self.s182.DMRG(10, 4)
-    #    plt.plot(gs_e)
-    #    plt.show()
 
 if __name__ == '__main__':
     unittest.main(verbosity=1)

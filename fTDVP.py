@@ -178,7 +178,7 @@ class Trajectory(object):
         self.psi = self.ed_history[-1]
         return self
 
-    def lyapunov(self, T, D=None, just_max=False, m=1, t_burn=2, av_start=100 , basis=None):
+    def lyapunov(self, T, D=None, just_max=False, m=1, t_burn=2 , basis=None):
         H = self.H
         has_mpo = self.W is not None
         if D is not None:
@@ -203,6 +203,8 @@ class Trajectory(object):
         for t in tqdm(range(len(T))):
             if t%m == 0:
                 J = self.mps.jac(H)
+                if hasattr(self.mps, 'old_vL'):
+                    self.vs.append(self.mps.v)
                 if just_max:
                     q = expm_multiply(J*m*dt, q)
                     lys.append(log(abs(norm(q))))
@@ -231,10 +233,10 @@ class Trajectory(object):
                 self.mps.old_vL = vL
         if just_max:
             self.q = q
-            exps = (1/(dt))*cs(array(lys)[av_start:], axis=0)/ar(1, len(lys)+1)[:-av_start]
+            exps = (1/(dt))*cs(array(lys), axis=0)/ar(1, len(lys)+1)
         else:
             self.Q = Q
-            exps = (1/(dt))*cs(array(lys)[av_start:], axis=0)/ed(ar(1, len(lys)+1), 1)[:-av_start]
+            exps = (1/(dt))*cs(array(lys), axis=0)/ed(ar(1, len(lys)+1), 1)
         self.exps = exps
         self.lys = array(lys)
         return exps, array(lys)
