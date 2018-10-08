@@ -200,12 +200,13 @@ class Trajectory(object):
             # just evolve top vector, dont bother with QR
             q = Q[0]
         dt = T[1]-T[0]
-        e = []
         lys = []
-        calc = False
+        self.vs = []
         for t in tqdm(range(1, len(T)+1)):
             if t%m == 0:
                 J = self.mps.jac(H)
+                if hasattr(self.mps, 'v'):
+                    self.vs.append(self.mps.v)
                 if just_max:
                     q = expm_multiply(J*dt, q)
                     lys.append(log(abs(norm(q))))
@@ -213,7 +214,6 @@ class Trajectory(object):
                 else:
                     M = expm_multiply(J*dt, Q)
                     Q, R = qr(M)
-                    Q = Q@diag(sign(diag(R)))
                     lys.append(log(abs(diag(R))))
 
             if has_mpo:
@@ -223,7 +223,11 @@ class Trajectory(object):
                 self.mps.old_vL = vL
                 self.mps.old_A = old_A
             else:
+                vL = self.mps.new_vL
+                old_A = self.mps.copy()
                 self.mps = self.rk4(self.mps, dt, H).left_canonicalise()
+                self.mps.old_vL = vL
+                self.mps.old_A = old_A
         if just_max:
             self.q = q
             exps = (1/(dt))*cs(array(lys), axis=0)/ar(1, len(lys)+1)

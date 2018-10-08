@@ -834,10 +834,11 @@ class fMPS(object):
         prs_vLs = [self.left_null_projector(n, l, get_vL=True) for n in range(self.L)]
         prs = [x[0] for x in prs_vLs]
         vLs = [x[1] for x in prs_vLs]
+
         def vL(i): return vLs[i]
         self.new_vL = vL
         if hasattr(self, 'old_vL'):
-            self.vs = array([])
+            self.v = array([])
             new_vL = []
             for i in range(self.L):
                 if prod(A[i].shape[:-1])!=A[i].shape[-1]:
@@ -845,10 +846,14 @@ class fMPS(object):
                     U, P = polar(S)
                     new_vL.append(self.new_vL(i)@U)
                     ide = sum(cT(new_vL[i])@self.old_vL(i), axis=0)
-                    self.vs = ct([self.vs, ide.real.reshape(-1), ide.imag.reshape(-1)])
+                    self.v = ct([self.v, new_vL[i].real.reshape(-1), new_vL[i].imag.reshape(-1)])
                 else:
                     new_vL.append(self.new_vL(i))
             self.new_vL = lambda n: new_vL[n]
+            vLs = new_vL
+
+        prs_vLs = list(zip(prs, vLs))
+        def vL(i): return vLs[i]
 
         cr, cl = [ch(r(i)) for i in range(self.L)], [ch(l(i)) for i in range(self.L)]
         icr, icl = [inv(cr[i]) for i in range(self.L)], [inv(cl[i]) for i in range(self.L)]
