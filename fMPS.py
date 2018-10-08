@@ -8,6 +8,7 @@ import unittest
 
 from numpy.random import rand, randint, randn
 from numpy.linalg import svd, inv, norm, cholesky as ch, qr
+from numpy.linalg import eig
 
 from numpy import array, concatenate, diag, dot, allclose, isclose, swapaxes as sw
 from numpy import identity, swapaxes, trace, tensordot, sum, prod, ones
@@ -16,7 +17,7 @@ from numpy import split as chop, ones_like, save, load, zeros_like as zl
 from numpy import eye, cumsum as cs, sqrt, expand_dims as ed, imag as im
 from numpy import transpose as tra, trace as tr, tensordot as td, kron
 from numpy import mean, sign, angle, unwrap, exp, diff, pi, squeeze as sq
-from numpy import round
+from numpy import round, flipud
 
 from scipy.linalg import null_space as null, orth, expm#, sqrtm as ch
 from scipy.linalg import polar
@@ -822,7 +823,6 @@ class fMPS(object):
         dA_dt = self.dA_dt(H)
         l, r = self.l, self.r
         if hasattr(self, 'old_A'):
-            stop=False
             for m in reversed(range(len(self.data))):
                 B, B_ = self[m], self.old_A[m]
                 S = sum(B@cT(B_), axis=0)
@@ -831,12 +831,6 @@ class fMPS(object):
 
                 if 0 < m:
                     self.data[m-1] = self.data[m-1]@U
-
-                if norm(sum(self.data[m]@cT(B_), axis=0)-eye(B.shape[-2])) > 1:
-                    print(m, sum(self.data[m]@cT(B_), axis=0))
-                    stop=True
-            if stop:
-                raise Exception
         prs_vLs = [self.left_null_projector(n, l, get_vL=True) for n in range(self.L)]
         prs = [x[0] for x in prs_vLs]
         vLs = [x[1] for x in prs_vLs]
@@ -1489,21 +1483,31 @@ class fMPS(object):
         else:
             return shapes
 
-    def tangent_space_basis(self, type='eye'):
+    def tangent_space_basis(self, type='F2', H=None):
         """ return a tangent space basis
         """
-        if type=='rand':
-            Qs = [qr(randn(d1*d2, d1*d2)+1j*randn(d1*d2, d1*d2))[0]
-                  for d1, d2 in self.tangent_space_dims() if d1*d2 != 0]
-        elif type=='eye':
-            Qs = [eye(d1*d2)+1j*0
-                  for d1, d2 in self.tangent_space_dims() if d1*d2 != 0]
-        def direct_sum(basis1, basis2):
-            d1 = len(basis1[0])
-            d2 = len(basis2[0])
-            return [ct([b1, zeros(d2)]) for b1 in basis1]+\
-                   [ct([zeros(d1), b2]) for b2 in basis2]
-        return array(reduce(direct_sum, Qs))
+        if type=='eye' or type=='rand':
+            if type=='rand':
+                Qs = [qr(randn(d1*d2, d1*d2)+1j*randn(d1*d2, d1*d2))[0]
+                      for d1, d2 in self.tangent_space_dims() if d1*d2 != 0]
+            elif type=='eye':
+                Qs = [eye(d1*d2)+1j*0
+                      for d1, d2 in self.tangent_space_dims() if d1*d2 != 0]
+            def direct_sum(basis1, basis2):
+                d1 = len(basis1[0])
+                d2 = len(basis2[0])
+                return [ct([b1, zeros(d2)]) for b1 in basis1]+\
+                       [ct([zeros(d1), b2]) for b2 in basis2]
+            return array(reduce(direct_sum, Qs))
+        elif type=='F1':
+            if H is None:
+                raise Exception
+            J1, J2 = self.jac(H, real_matrix=False)
+            J1 = kron(eye(2), re(J1))+kron(-1j*Sy, im(J1))
+            J2 = kron(Sz, re(J2)) + kron(Sx, im(J2))
+            l, V = eig(J2)
+            idx = l.argsort()
+            return V[:, idx]
 
     def extract_tangent_vector(self, dA):
         """extract_tangent_vector from dA:

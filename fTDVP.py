@@ -1,8 +1,10 @@
 import unittest
 from time import time
 from fMPS import fMPS
+from tensor import get_null_space, H as cT, C as c
 from ncon import ncon
-from numpy.linalg import det, qr
+from tdvp.tdvp_fast import tdvp, MPO_TFI
+
 from spin import N_body_spins, spins, comm, n_body
 from numpy import array, linspace, real as re, reshape, sum, swapaxes as sw
 from numpy import tensordot as td, squeeze, trace as tr, expand_dims as ed
@@ -10,19 +12,21 @@ from numpy import load, isclose, allclose, zeros_like as zl, prod, imag as im
 from numpy import log, abs, diag, cumsum as cs, arange as ar, eye, kron as kr
 from numpy import cross, dot, kron, split, concatenate as ct, isnan, isinf
 from numpy import trace as tr, zeros, printoptions, tensordot, trace, save
+from numpy import sign
 from numpy.random import randn
+from numpy.linalg import inv, svd
+from numpy.linalg import det, qr
+import numpy as np
+
 from scipy.linalg import sqrtm, expm, norm, null_space as null, cholesky as ch
 from scipy.sparse.linalg import expm_multiply, expm
 from scipy.integrate import odeint, complex_ode as c_ode
 from scipy.integrate import ode, solve_ivp
-from numpy.linalg import inv, svd
-import numpy as np
-from tensor import get_null_space, H as cT, C as c
+
 from matplotlib import pyplot as plt
 from functools import reduce
 from copy import copy, deepcopy
 from tqdm import tqdm
-from tdvp.tdvp_fast import tdvp, MPO_TFI
 Sx, Sy, Sz = spins(0.5)
 Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
 Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
@@ -179,7 +183,6 @@ class Trajectory(object):
     def lyapunov(self, T, D=None, just_max=False, m=1, t_burn=2):
         H = self.H
         has_mpo = self.W is not None
-        self.vs = []
         if D is not None:
             # if MPO supplied - just expand, canonicalise and use inverse free integrator
             # otherwise use dynamical expand: less numerically stable
@@ -191,7 +194,8 @@ class Trajectory(object):
                 self.mps = self.mps.grow(self.H, 0.1, D).right_canonicalise()
                 self.rk4int(linspace(0, 1, 100))
 
-        Q = kron(eye(2), self.mps.tangent_space_basis(type='rand'))
+        #Q = kron(eye(2), self.mps.tangent_space_basis(H=H, type='F1'))
+        Q = self.mps.tangent_space_basis(H=H, type='F1')
         if just_max:
             # just evolve top vector, dont bother with QR
             q = Q[0]
@@ -202,17 +206,14 @@ class Trajectory(object):
         for t in tqdm(range(1, len(T)+1)):
             if t%m == 0:
                 J = self.mps.jac(H)
-                if hasattr(self.mps, 'vs'):
-                    self.vs.append(self.mps.vs)
                 if just_max:
                     q = expm_multiply(J*dt, q)
                     lys.append(log(abs(norm(q))))
                     q /= norm(q)
                 else:
                     M = expm_multiply(J*dt, Q)
-                    if(sum(isnan(M))>0):
-                        raise Exception
                     Q, R = qr(M)
+                    Q = Q@diag(sign(diag(R)))
                     lys.append(log(abs(diag(R))))
 
             if has_mpo:
@@ -315,9 +316,11 @@ class Trajectory(object):
         save(loc+self.id, self.mps_history if not exps else self.exps)
         if exps:
             if hasattr(self, 'q'):
-                save(loc+'bases/'+self.id, self.q)
+                save(loc+'bases/basis'+self.id, self.q)
+                save(loc+'bases/state'+self.id, self.mps_history[-1])
             elif hasattr(self, 'Q'):
-                save(loc+'bases/'+self.id, self.Q)
+                save(loc+'bases/'+self.id+'_basis', self.Q)
+                save(loc+'bases/'+self.id+'_state', self.mps_history[-1])
         if clear:
             self.clear()
 
