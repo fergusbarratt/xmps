@@ -2,7 +2,7 @@ import unittest
 from time import time
 from fMPS import fMPS
 from tensor import get_null_space, H as cT, C as c
-from ncon import ncon
+from ncon import ncon 
 from tdvp.tdvp_fast import tdvp, MPO_TFI
 
 from spin import N_body_spins, spins, comm, n_body
@@ -178,7 +178,7 @@ class Trajectory(object):
         self.psi = self.ed_history[-1]
         return self
 
-    def lyapunov(self, T, D=None, just_max=False, m=1, t_burn=2):
+    def lyapunov(self, T, D=None, just_max=False, m=1, t_burn=2, av_start=100 , basis=None):
         H = self.H
         has_mpo = self.W is not None
         if D is not None:
@@ -188,34 +188,33 @@ class Trajectory(object):
                 self.mps = self.mps.right_canonicalise().expand(D)
                 self.invfreeint(linspace(0, t_burn, int(200*t_burn)))
                 self.burn_len = int(200*t_burn)
+                self.mps_history = []
             else:
                 self.mps = self.mps.grow(self.H, 0.1, D).right_canonicalise()
                 self.rk4int(linspace(0, 1, 100))
 
-        #Q = kron(eye(2), self.mps.tangent_space_basis(H=H, type='F1'))
-        Q = self.mps.tangent_space_basis(H=H, type='F1')
+        Q = self.mps.tangent_space_basis(H=H, type='F1') if basis is None else basis
         if just_max:
             # just evolve top vector, dont bother with QR
             q = Q[0]
         dt = T[1]-T[0]
         lys = []
         self.vs = []
-        for t in tqdm(range(1, len(T)+1)):
+        for t in tqdm(range(len(T))):
             if t%m == 0:
                 J = self.mps.jac(H)
-                if hasattr(self.mps, 'v'):
-                    self.vs.append(self.mps.v)
                 if just_max:
-                    q = expm_multiply(J*dt, q)
+                    q = expm_multiply(J*m*dt, q)
                     lys.append(log(abs(norm(q))))
                     q /= norm(q)
                 else:
-                    M = expm_multiply(J*dt, Q)
+                    M = expm_multiply(J*m*dt, Q)
                     Q, R = qr(M)
                     lys.append(log(abs(diag(R))))
 
             if has_mpo:
-                vL = self.mps.new_vL
+                if t%m==0:
+                    vL = self.mps.new_vL
 
                 old_mps = self.mps.copy()
                 self.mps = self.invfree(self.mps, dt, H)
@@ -232,10 +231,10 @@ class Trajectory(object):
                 self.mps.old_vL = vL
         if just_max:
             self.q = q
-            exps = (1/(dt))*cs(array(lys), axis=0)/ar(1, len(lys)+1)
+            exps = (1/(dt))*cs(array(lys)[av_start:], axis=0)/ar(1, len(lys)+1)[:-av_start]
         else:
             self.Q = Q
-            exps = (1/(dt))*cs(array(lys), axis=0)/ed(ar(1, len(lys)+1), 1)
+            exps = (1/(dt))*cs(array(lys)[av_start:], axis=0)/ed(ar(1, len(lys)+1), 1)[:-av_start]
         self.exps = exps
         self.lys = array(lys)
         return exps, array(lys)
@@ -319,14 +318,14 @@ class Trajectory(object):
         assert self.mps_history 
         assert hasattr(self, 'exps') if exps else True
         self.id = self.run_name+'_L{}_D{}_N{}'.format(self.mps.L, self.mps.D, len(self.mps_history))
-        save(loc+self.id, self.mps_history if not exps else self.exps)
+        save(loc+self.id, self.mps_history if not exps else self.lys)
         if exps:
             if hasattr(self, 'q'):
-                save(loc+'bases/basis'+self.id, self.q)
-                save(loc+'bases/state'+self.id, self.mps_history[-1])
+                save(loc+'bases/'+self.id+'_basis', self.q)
+                self.mps.store('loc'+'bases/'+self.id+'_state')
             elif hasattr(self, 'Q'):
                 save(loc+'bases/'+self.id+'_basis', self.Q)
-                save(loc+'bases/'+self.id+'_state', self.mps_history[-1])
+                self.mps.store(loc+'bases/'+self.id+'_state')
         if clear:
             self.clear()
 

@@ -742,8 +742,9 @@ class fMPS(object):
         self.dA_cache = {}
         L, d, A = self.L, self.d, self.data
         l, r = self.get_envs(True)
-        prs = [self.left_null_projector(n, l) for n in range(self.L)] if prs is None else prs
-        def pr(n): return prs[n]
+        prs_vLs = [self.left_null_projector(n, l, get_vL=True) for n in range(self.L)] if prs is None else prs
+        def pr(n): return prs_vLs[n][0]
+        def vL(n): return prs_vLs[n][1]
 
         if not fullH:
             def B(i, H=H):
@@ -828,7 +829,7 @@ class fMPS(object):
 
             if 0 < i:
                 self.data[i-1] = self[i-1]@U
-
+    
     def jac(self, H,
             as_matrix=True,
             real_matrix=True):
@@ -841,7 +842,6 @@ class fMPS(object):
         prs = [x[0] for x in prs_vLs]
         vLs = [x[1] for x in prs_vLs]
 
-        #def vL(i): return vLs[i]
         self.new_vL = vLs
         if hasattr(self, 'old_vL'):
             self.v = array([])
@@ -864,24 +864,6 @@ class fMPS(object):
         icr, icl = [inv(cr[i]) for i in range(self.L)], [inv(cl[i]) for i in range(self.L)]
         inv_envs= (icr, icl, cr, cl)
 
-        # these apply l-vL- -r- to something like -A|- to  get something like =x-
-        def ungauge_i(tens, i, conj=False):
-            def co(x): return x if not conj else c(x)
-            k = len(tens.shape[3:])
-            links = [1, 2, -2]+list(range(-3, -3-k, -1))
-            return ncon([ch(l(i-1))@co(vL(i)),
-                        ncon([tens, ch(r(i))], [[-1, -2, 1, -4, -5, -6], [1, -3]])],
-                        [[1, 2, -1], links])
-        def ungauge_j(tens, j, conj=False):
-            def co(x): return x if not conj else c(x)
-            k = len(tens.shape[:-3])
-            links = list(range(-1, -k-1, -1))+[1, 2, -k-2]
-            return ncon([ch(l(j-1))@co(vL(j)), tens@ch(r(j))],
-                    [[1, 2, -k-1], links])
-        def ungauge(tens, i, j, conj=(True, False)):
-            c1, c2 = conj
-            return ungauge_j(ungauge_i(tens, i, c1), j, c2)
-
         # Get tensors
         ## unitary rotations: -<d_iψ|(d_t |d_kψ> +iH|d_kψ>) (dA_k)
         #-<d_iψ|d_kd_jψ> dA_j/dt (dA_k) (range(k+1, L))
@@ -892,14 +874,12 @@ class fMPS(object):
 
         ## non unitary (from projection): -<d_id_kψ|(d_t |ψ> +iH|ψ>) (dA_k*) (should be zero for no projection)
         #-<d_id_kψ|d_jψ> dA_j/dt (dA_k*)
-        def Γ2(i, k): return ungauge(self.christoffel(i, k, min(i, k), envs=(l, r), prs_vLs=prs_vLs, closed=(None, None, l(min(i, k)-1)@dA_dt[min(i, k)]@r(min(i, k)))),
-                                     i, k, conj=(True, True))
+        def Γ2(i, k): return self.christoffel(i, k, min(i, k), envs=(l, r), prs_vLs=prs_vLs, closed=(None, None, l(min(i, k)-1)@dA_dt[min(i, k)]@r(min(i, k))))
+
         #-i<d_id_k ψ|H|ψ> (dA_k*)
         def F2(i, k): return -1j*self.F2(i, k, H, envs=(l, r), inv_envs=inv_envs, prs_vLs=prs_vLs, id=id)
 
-        def F2t(i, j): return F2(i, j) + Γ2(i, j) #F2, Γ2 act on dA*j
-
-        _, sh = self.tangent_space_dims(l, True)
+        sh = self.tangent_space_dims(l, vLs=vLs)
         nulls = len([1 for (a, b) in sh if a==0 or b==0])
         shapes = list(cs([prod([a, b]) for (a, b) in sh if a!=0 and a!=0]))
         DD = shapes[-1]
@@ -913,8 +893,10 @@ class fMPS(object):
         for i_ in range(len(shapes)):
             for j_ in range(len(shapes)):
                 i, j = i_+nulls, j_+nulls
+
                 J1_ij = F1(i,j)
-                J2_ij = F2t(i,j)
+                J2_ij = F2(i, j) + Γ2(i, j)
+
                 J1_[ind(i_), ind(j_)] = J1_ij.reshape(prod(J1_ij.shape[:2]), -1)
                 J2_[ind(i_), ind(j_)] = J2_ij.reshape(prod(J2_ij.shape[:2]), -1)
 
@@ -1390,6 +1372,23 @@ class fMPS(object):
         def pr(n): return prs_vLs[n][0]
         def vL(n): return prs_vLs[n][1]
 
+        def ungauge_i(tens, i, conj=False):
+            def co(x): return x if not conj else c(x)
+            k = len(tens.shape[3:])
+            links = [1, 2, -2]+list(range(-3, -3-k, -1))
+            return ncon([ch(l(i-1))@co(vL(i)),
+                        ncon([tens, ch(r(i))], [[-1, -2, 1, -4, -5, -6], [1, -3]])],
+                        [[1, 2, -1], links])
+        def ungauge_j(tens, j, conj=False):
+            def co(x): return x if not conj else c(x)
+            k = len(tens.shape[:-3])
+            links = list(range(-1, -k-1, -1))+[1, 2, -k-2]
+            return ncon([ch(l(j-1))@co(vL(j)), tens@ch(r(j))],
+                    [[1, 2, -k-1], links])
+        def ungauge(tens, i, j, conj=(True, False)):
+            c1, c2 = conj
+            return ungauge_j(ungauge_i(tens, i, c1), j, c2)
+
         contracted = False
         if closed[-1] is not None and closed[0] is None and closed[1] is None:
             contracted = True
@@ -1444,7 +1443,10 @@ class fMPS(object):
             Γ_c = Γ(i, j, k)
 
         self.christ_tot_ij_mem[str(i)+str(j)+str(k)] = Γ_c
-        return Γ_c
+        if contracted:
+            return ungauge(Γ_c, i, j, (True, True))
+        else:
+            return Γ_c
 
     def left_null_projector(self, n, l=None, get_vL=False, store_envs=False, vL=None):
         """left_null_projector:           |
@@ -1482,9 +1484,9 @@ class fMPS(object):
         _, vL = self.left_null_projector(n, l, get_vL=True) if vL is None else 1, vL
         return fMPS([inv(ch(l(n-1)))@vL@x if m==n else inv(ch(r(n)))@A if m==n+1 else A for m, A in enumerate(self.data)])
 
-    def tangent_space_dims(self, l=None, get_vLs=False):
+    def tangent_space_dims(self, l=None, get_vLs=False, vLs=None):
         l, _ = self.get_envs() if l is None else (l, None)
-        vLs = [self.left_null_projector(n, l=l, get_vL=True)[1] for n in range(self.L)]
+        vLs = [self.left_null_projector(n, l=l, get_vL=True)[1] for n in range(self.L)] if vLs is None else vLs
         shapes = [(vL.shape[-1], self.data[n+1].shape[1] if n+1<self.L else 1)
                   for vL, n in zip(vLs, range(self.L))]
         if get_vLs:

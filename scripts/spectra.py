@@ -1,3 +1,4 @@
+'''store a list of instantaneous lyapunov exponents'''
 import os, sys, inspect
 currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 parentdir = os.path.dirname(currentdir)
@@ -21,9 +22,11 @@ H_i = [Sz12@Sz22+Sx12] + [bulkH for _ in range(L-3)] + [Sz12@Sz22+Sx22]
 H = [H_i[0]+Sz12]+[H_i[i]+Sz12+Sz22 for i in range(1, L-2)]+[H_i[-1]+Sz22]
 W = L*[MPO_TFI(0, 0.25, 0.5, 0.5)]
 
-dt = 5e-3
-t_fin = 100
+dt = 1e-3
+t_fin = 10 
 T = linspace(0, t_fin, int(t_fin//dt)+1)
+t_burn = 2
+load_basis=False
 
 if L<10:
     psi_0 = load('fixtures/mat{}x{}.npy'.format(L,L))
@@ -31,9 +34,15 @@ if L<10:
 else:
     mps = fMPS().load('fixtures/product{}.npy'.format(L))
 
-Ds = [6]
+
+Ds = [2]
 for D in Ds:
     F = Trajectory(mps, H=H, W=W)
     F.run_name = 'spectra/lyapunovs'
-    exps, _ = F.lyapunov(T, D, m=1, t_burn=4)
+    exps, lys = F.lyapunov(T, D, t_burn=t_burn)
     F.save(exps=True)
+
+    fig, ax = plt.subplots(2, 1, sharex=True)
+    ax[0].plot(lys)
+    ax[1].plot(exps)
+    plt.show()
