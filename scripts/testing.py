@@ -17,10 +17,9 @@ Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
 Sx, Sy, Sz = spins(0.5)
 
 L = 4 
-bulkH =Sz12@Sz22+Sx12+Sx22
-H_i = [Sz12@Sz22+Sx12] + [bulkH for _ in range(L-3)] + [Sz12@Sz22+Sx22]
-H = [H_i[0]+Sz12]+[H_i[i]+Sz12+Sz22 for i in range(1, L-2)]+[H_i[-1]+Sz22]
-W = L*[MPO_TFI(0, 0.25, 0.5, 0.5)]
+bulkH =Sz12@Sz22+Sx22
+H = [Sz12@Sz22+Sx12+Sx22] + [bulkH for _ in range(L-2)] 
+W = L*[MPO_TFI(0, 0.25, 0.5, 0.)]
 
 dt = 5e-3
 t_fin = 2 
