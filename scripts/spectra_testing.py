@@ -37,7 +37,7 @@ else:
     mps = fMPS().load('fixtures/product{}.npy'.format(L))
 
 
-Ds = [11]
+Ds = [7]
 for D in Ds:
     if load_basis and 2==D:
         Q = load('data/bases/spectra/lyapunovs_L8_D2_N10000_basis.npy')

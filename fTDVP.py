@@ -12,9 +12,9 @@ from numpy import load, isclose, allclose, zeros_like as zl, prod, imag as im
 from numpy import log, abs, diag, cumsum as cs, arange as ar, eye, kron as kr
 from numpy import cross, dot, kron, split, concatenate as ct, isnan, isinf
 from numpy import trace as tr, zeros, printoptions, tensordot, trace, save
-from numpy import sign
+from numpy import sign, block
 from numpy.random import randn
-from numpy.linalg import inv, svd
+from numpy.linalg import inv, svd, eig
 from numpy.linalg import det, qr
 import numpy as np
 
@@ -193,7 +193,7 @@ class Trajectory(object):
                 self.mps = self.mps.grow(self.H, 0.1, D).right_canonicalise()
                 self.rk4int(linspace(0, 1, 100))
 
-        Q = self.mps.tangent_space_basis(H=H, type='F1') if basis is None else basis
+        Q = self.mps.tangent_space_basis(H=H, type='F2') if basis is None else basis
         if just_max:
             # just evolve top vector, dont bother with QR
             q = Q[0]

@@ -151,6 +151,9 @@ class fMPS(object):
         """
         return self.__mul__(1/other)
 
+    def __str__(self):
+        return 'Matrix Product State: L={}, d={}, D={}'.format(L, d, D)
+
     def left_from_state(self, state):
         """left_from_state: generate left canonical mps from state tensor
 
@@ -1509,7 +1512,7 @@ class fMPS(object):
                 return [ct([b1, zeros(d2)]) for b1 in basis1]+\
                        [ct([zeros(d1), b2]) for b2 in basis2]
             return array(reduce(direct_sum, Qs))
-        elif type=='F1':
+        elif type=='F2':
             if H is None:
                 raise Exception
             J1, J2 = self.jac(H, real_matrix=False)
