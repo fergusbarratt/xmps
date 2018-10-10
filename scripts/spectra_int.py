@@ -21,10 +21,10 @@ bulkH =Sz12@Sz22+Sx22
 H = [Sz12@Sz22+Sx12+Sx22] + [bulkH for _ in range(L-3)]
 W = L*[MPO_TFI(0, 0.25, 0.5, 0)]
 
-dt = 5e-2
+dt = 5e-3
 t_fin = 100 
 T = linspace(0, t_fin, int(t_fin//dt)+1)
-t_burn = 1
+t_burn = 10
 load_basis = True
 Q = None
 #(100, 10)
@@ -36,7 +36,7 @@ else:
     mps = fMPS().load('fixtures/product{}.npy'.format(L))
 
 
-Ds = [2]
+Ds = [6]
 for D in Ds:
     if load_basis and 2==D:
         Q = load('data/bases/spectra/lyapunovs_L8_D2_N10000_basis.npy')
