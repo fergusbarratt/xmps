@@ -49,9 +49,13 @@ for D in Ds:
     if load_basis and 5==D:
         Q = load('data/bases/spectra/lyapunovs_L8_D5_N20000_basis.npy')
         mps = fMPS().load('data/bases/spectra/lyapunovs_L8_D5_N20000_state.npy')
+    if load_basis and 6==D:
+        Q = load('data/bases/spectra/lyapunovs_L8_D6_N20000_basis.npy')
+        mps = fMPS().load('data/bases/spectra/lyapunovs_L8_D6_N20000_state.npy')
+        t_burn = 0.1
 
     F = Trajectory(mps, H=H, W=W)
-    F.run_name = 'spectra/lyapunovs'
+    F.run_name = 'spectra/2_lyapunovs'
     exps, lys = F.lyapunov(T, D, t_burn=t_burn, basis=Q)
     F.save(exps=True)
 
