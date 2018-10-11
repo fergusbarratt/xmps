@@ -33,7 +33,16 @@ else:
 
 Ds = [2]
 for D in Ds:
+    dt = 5e-3
+    t_fin = 100 
+    T = linspace(0, t_fin, int(t_fin//dt)+1)
     F = Trajectory(mps, H=H, W=W)
     exps = F.invfreeint(T).mps_evs([Sx, Sy, Sz], 0)
+    F.clear()
+    dt = 5e-2
+    t_fin = 100 
+    T_ = linspace(0, t_fin, int(t_fin//dt)+1)
+    exps_ = F.invfreeint(T_).mps_evs([Sx, Sy, Sz], 0)
     plt.plot(T, exps)
+    plt.plot(T_, exps_)
     plt.show()

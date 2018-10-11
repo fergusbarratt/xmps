@@ -21,10 +21,10 @@ bulkH =Sz12@Sz22+Sx22+Sz22
 H = [Sz12@Sz22+Sx12+Sz12+Sx22+Sz22] + [bulkH for _ in range(L-2)]
 W = L*[MPO_TFI(0, 0.25, 0.5, 0.5)]
 
-dt = 5e-3
-t_fin = 100 
+dt = 2e-2
+t_fin = 2
 T = linspace(0, t_fin, int(t_fin//dt)+1)
-t_burn = 10
+t_burn = 5
 load_basis = True
 Q = None
 #(100, 10)
@@ -37,27 +37,13 @@ else:
 
 Ds = [6]
 for D in Ds:
-    if load_basis and 2==D:
-        Q = load('data/bases/spectra/lyapunovs_L8_D2_N10000_basis.npy')
-        mps = fMPS().load('data/bases/spectra/lyapunovs_L8_D2_N10000_state.npy')
-    if load_basis and 3==D:
-        Q = load('data/bases/spectra/lyapunovs_L8_D3_N20000_basis.npy')
-        mps = fMPS().load('data/bases/spectra/lyapunovs_L8_D3_N20000_state.npy')
-    if load_basis and 4==D:
-        Q = load('data/bases/spectra/lyapunovs_L8_D4_N20000_basis.npy')
-        mps = fMPS().load('data/bases/spectra/lyapunovs_L8_D4_N20000_state.npy')
-    if load_basis and 5==D:
-        Q = load('data/bases/spectra/lyapunovs_L8_D5_N20000_basis.npy')
-        mps = fMPS().load('data/bases/spectra/lyapunovs_L8_D5_N20000_state.npy')
-    if load_basis and 6==D:
-        Q = load('data/bases/spectra/lyapunovs_L8_D6_N20000_basis.npy')
-        mps = fMPS().load('data/bases/spectra/lyapunovs_L8_D6_N20000_state.npy')
-        t_burn = 0.1
+    if load_basis and 8>=D:
+        Q = load('data/bases/spectra/40000s/lyapunovs_L8_D{}_N40000_basis.npy'.format(D))
 
     F = Trajectory(mps, H=H, W=W)
     F.run_name = 'spectra/2_lyapunovs'
     exps, lys = F.lyapunov(T, D, t_burn=t_burn, basis=Q)
-    F.save(exps=True)
+    #F.save(exps=True)
 
     fig, ax = plt.subplots(2, 1, sharex=True)
     ax[0].plot(lys)

@@ -193,7 +193,7 @@ class Trajectory(object):
                 self.mps = self.mps.grow(self.H, 0.1, D).right_canonicalise()
                 self.rk4int(linspace(0, 1, 100))
 
-        Q = self.mps.tangent_space_basis(H=H, type='F2') if basis is None else basis
+        Q = self.mps.tangent_space_basis(H=H, type='F1') if basis is None else basis
         if just_max:
             # just evolve top vector, dont bother with QR
             q = Q[0]
