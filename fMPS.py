@@ -893,7 +893,6 @@ class fMPS(object):
             slices = [slice(a[0], a[1], 1)
                       for a in [([0]+shapes)[i:i+2] for i in range(len(shapes))]]
             return slices[i]
-        pt = True
 
         J1_ = -1j*zeros((DD, DD))
         J2_ = -1j*zeros((DD, DD))
@@ -902,7 +901,7 @@ class fMPS(object):
                 i, j = i_+nulls, j_+nulls
 
                 J1_ij = F1(i,j)
-                J2_ij = F2(i, j) + (0 if not pt else Γ2(i, j))
+                J2_ij = F2(i, j) + Γ2(i, j)
 
                 J1_[ind(i_), ind(j_)] = J1_ij.reshape(prod(J1_ij.shape[:2]), -1)
                 J2_[ind(i_), ind(j_)] = J2_ij.reshape(prod(J2_ij.shape[:2]), -1)
