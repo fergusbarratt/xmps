@@ -182,7 +182,11 @@ class Trajectory(object):
         self.psi = self.ed_history[-1]
         return self
 
-    def lyapunov(self, T, D=None, just_max=False, m=1, t_burn=2 , initial_basis='F2'):
+    def lyapunov(self, T, D=None, 
+                 just_max=False, 
+                 m=1, 
+                 t_burn=2, 
+                 initial_basis='F2'):
         H = self.H
         has_mpo = self.W is not None
         if D is not None:
@@ -190,7 +194,6 @@ class Trajectory(object):
             # otherwise use dynamical expand: less numerically stable
             if has_mpo:
                 self.mps = self.mps.right_canonicalise().expand(D)
-                print(self.mps.structure())
                 self.invfreeint(linspace(0, t_burn, int(50*t_burn)))
                 self.burn_len = int(200*t_burn)
                 self.mps_history = []
@@ -246,7 +249,7 @@ class Trajectory(object):
             exps = cs(array(lys), axis=0)/ar(1, len(lys)+1)
         else:
             self.Q = Q
-            exps = cs(array(lys), axis=0)/ed(ar(1, len(lys)+1), 1)
+            exps = cs(array(lys)[10:], axis=0)/ed(ar(1, len(lys)+1)[10:], 1)
         self.exps = exps
         self.lys = array(lys)
         return exps, array(lys)

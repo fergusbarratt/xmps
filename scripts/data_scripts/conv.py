@@ -23,9 +23,13 @@ G = load('data/spectra/run_3/lyapunovs_L8_D7_N40000.npy')[::step][k:]
 avG = av(G)                                                          
 H = load('data/spectra/run_3/lyapunovs_L8_D8_N40000.npy')[::step][k:]
 avH = av(H)
+I = load('data/spectra/run_3/lyapunovs_L8_D9_N40000.npy')[::step][k:]
+avI = av(I)
+J = load('data/spectra/run_3/lyapunovs_L8_D10_N40000.npy')[::step][k:]
+avJ = av(J)
 
-data = [(A, avA), (B, avB), (C, avC), (D, avD), (E, avE), (F, avF), (G, avG), (H, avH)]
-Ds = [1, 2, 3, 4, 5, 6, 7, 8]#, 10]
+data = [(A, avA), (B, avB), (C, avC), (D, avD), (E, avE), (F, avF), (G, avG), (H, avH), (I, avI), (J, avJ)]
+Ds = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 fig, ax = plt.subplots(2, len(Ds), sharex=True, sharey='row')
 ax = ed(ax, -1) if len(Ds)==1 else ax
 for m, (lys, exps) in enumerate(data):
