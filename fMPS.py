@@ -304,7 +304,6 @@ class fMPS(object):
                           self.data[m]), 0, 0, 2)
 
                 Vs[m], Ls[m] = diagonalise(M)
-
                 self.data[m] = swapaxes(dot(dot(cT(V), self.data[m]), Vs[m]),
                                         0, 1)
 
@@ -495,13 +494,13 @@ class fMPS(object):
         def get_l(mps):
             ls = [array([[1]])]
             for n in range(len(mps)):
-                ls.append(sum(re(cT(mps[n]) @ ls[-1] @ mps[n]), axis=0))
+                ls.append(diag(diag(sum(re(cT(mps[n]) @ ls[-1] @ mps[n]), axis=0))))
             return lambda n: ls[n+1]
 
         def get_r(mps):
             rs = [array([[1]])]
             for n in range(len(mps))[::-1]:
-                rs.append(sum(re(mps[n] @ rs[-1] @ cT(mps[n])), axis=0))
+                rs.append(diag(diag(sum(re(mps[n] @ rs[-1] @ cT(mps[n])), axis=0))))
             return lambda n: rs[::-1][n+1]
 
         if store_envs:
@@ -693,8 +692,7 @@ class fMPS(object):
         :param H: hamiltonian
         :param dt: timestep
         :param D_: new bond dimension
-        :param threshold: by default will not expand if no need to:
-                          set to None to expand regardless
+        :param threshold: by default will expand if no need to, else add threshold
         """
         L, d, A, D = self.L, self.d, self.data, self.D
         def vR(n): return self.right_null_projector(n, r, True)[1]
@@ -735,7 +733,7 @@ class fMPS(object):
             self.dynamical_expand(H, dt, min(self.d*self.D, D_), None)
         return self
 
-    def dA_dt(self, H, store_energy=False, fullH=False, prs=None):
+    def dA_dt(self, H, store_energy=False, fullH=False, prs_vLs=None):
         """dA_dt: Finds A_dot (from TDVP) [B(n) for n in range(n)], energy. Uses inverses.
         Indexing is A[0], A[1]...A[L-1]
 
@@ -745,7 +743,7 @@ class fMPS(object):
         self.dA_cache = {}
         L, d, A = self.L, self.d, self.data
         l, r = self.get_envs(True)
-        prs_vLs = [self.left_null_projector(n, l, get_vL=True) for n in range(self.L)] if prs is None else prs
+        prs_vLs = [self.left_null_projector(n, l, get_vL=True) for n in range(self.L)] if prs_vLs is None else prs_vLs
         def pr(n): return prs_vLs[n][0]
         def vL(n): return prs_vLs[n][1]
 
@@ -825,45 +823,51 @@ class fMPS(object):
            match from one timestep to the next makes trajectories continuous.
         """
         for i in reversed(range(self.L)):
-            B, B_ = self[i], mps[i]
-            S = sum(B@cT(B_), axis=0)
+            S = sum(self[i]@cT(mps[i]), axis=0)
             U, P = polar(S)
-            self[i] = cT(U)@B
+            self[i] = cT(U)@self[i]
 
             if 0 < i:
-                self.data[i-1] = self[i-1]@U
+                self[i-1] = self[i-1]@U
+        return self
 
     def jac(self, H,
             as_matrix=True,
-            real_matrix=True):
+            real_matrix=True, 
+            fix_vLs=False):
         """jac: calculate the jacobian of the current mps
         """
         L, d, A = self.L, self.d, self.data
-        dA_dt = self.dA_dt(H)
-        l, r = self.l, self.r
+        l, r = self.get_envs()
         prs_vLs = [self.left_null_projector(n, l, get_vL=True) for n in range(self.L)]
         prs = [x[0] for x in prs_vLs]
         vLs = [x[1] for x in prs_vLs]
 
         self.new_vL = vLs
-        if hasattr(self, 'old_vL'):
-            self.v = array([])
-            vLs = []
-            for i in range(self.L):
-                if prod(A[i].shape[:-1])!=A[i].shape[-1]:
-                    S = sum(cT(self.new_vL[i])@self.old_vL[i], axis=0)
-                    U, P = polar(S)
-                    vLs.append(self.new_vL[i]@U)
-                    self.v = ct([self.v, vLs[i].real.reshape(-1), vLs[i].imag.reshape(-1)])
-                else:
-                    vLs.append(self.new_vL[i])
-            self.new_vL = vLs
+        if fix_vLs:
+            if hasattr(self, 'old_vL'):
+                self.v = array([])
+                vLs = []
+                for i in range(self.L):
+                    if prod(A[i].shape[:-1])!=A[i].shape[-1]:
+                        S = sum(cT(self.new_vL[i])@self.old_vL[i], axis=0)
+                        U, P = polar(S)
+                        vLs.append(self.new_vL[i]@U)
+                        self.v = ct([self.v, vLs[i].real.reshape(-1), vLs[i].imag.reshape(-1)])
+                    else:
+                        vLs.append(self.new_vL[i])
+                self.new_vL = vLs
+            prs = [self.left_null_projector(n, l, vL=vLs[n]) for n in range(self.L)]
 
         prs_vLs = list(zip(prs, vLs))
         def vL(i): return vLs[i]
-
-        cr, cl = [ch(r(i)) for i in range(self.L)], [ch(l(i)) for i in range(self.L)]
-        icr, icl = [inv(cr[i]) for i in range(self.L)], [inv(cl[i]) for i in range(self.L)]
+        dA_dt = self.dA_dt(H, prs_vLs=prs_vLs)
+        def inv_diag(mat):
+            return diag(1/diag(mat))
+        def ch_diag(mat):
+            return diag(sqrt(diag(mat)))
+        cr, cl = [ch_diag(r(i)) for i in range(self.L)], [ch_diag(l(i)) for i in range(self.L)]
+        icr, icl = [inv_diag(cr[i]) for i in range(self.L)], [inv_diag(cl[i]) for i in range(self.L)]
         inv_envs= (icr, icl, cr, cl)
 
         # Get tensors
@@ -889,6 +893,7 @@ class fMPS(object):
             slices = [slice(a[0], a[1], 1)
                       for a in [([0]+shapes)[i:i+2] for i in range(len(shapes))]]
             return slices[i]
+        pt = True
 
         J1_ = -1j*zeros((DD, DD))
         J2_ = -1j*zeros((DD, DD))
@@ -897,7 +902,7 @@ class fMPS(object):
                 i, j = i_+nulls, j_+nulls
 
                 J1_ij = F1(i,j)
-                J2_ij = F2(i, j) + Γ2(i, j)
+                J2_ij = F2(i, j) + (0 if not pt else Γ2(i, j))
 
                 J1_[ind(i_), ind(j_)] = J1_ij.reshape(prod(J1_ij.shape[:2]), -1)
                 J2_[ind(i_), ind(j_)] = J2_ij.reshape(prod(J2_ij.shape[:2]), -1)
@@ -913,6 +918,7 @@ class fMPS(object):
                             [[1, 3, 2, 4], [-1, -2, 1], [-4, -5, 2], [-3, 3], [-6, 4]])
 
             return (lambda i, j: gauge(F1(i, j), i, j)), (lambda i, j: gauge_(F2(i, j)+Γ2(i, j), i, j))
+
         J = kron(Sz, re(J2_)) + kron(eye(2), re(J1_)) + kron(Sx, im(J2_)) + kron(-1j*Sy, im(J1_))
         return J
 
@@ -1333,11 +1339,11 @@ class fMPS(object):
                     links[j+1][1] = -6
                 G = ncon(bottom+[H]+top, links)
 
-        def gauge(G, i, j):
-            return ncon([G, inv(ch(l(i-1)))@vL(i), inv(ch(l(j-1)))@vL(j), inv(ch(r(i))), inv(ch(r(j)))], 
-                        [[1, 3, 2, 4], [-1, -2, 1], [-4, -5, 2], [-3, 3], [-6, 4]])
 
         if testing:
+            def gauge(G, i, j):
+                return ncon([G, inv(ch(l(i-1)))@vL(i), inv(ch(l(j-1)))@vL(j), inv(ch(r(i))), inv(ch(r(j)))], 
+                            [[1, 3, 2, 4], [-1, -2, 1], [-4, -5, 2], [-3, 3], [-6, 4]])
             assert allclose(gauge(G_, i, j), G)
             G = tra(G, [3, 4, 5, 0, 1, 2]) if j_<i_ else G
             return G
@@ -1589,32 +1595,32 @@ class TestfMPS(unittest.TestCase):
         """setUp"""
         self.N = N = 5  # Number of MPSs to test
         #  min and max params for randint
-        L_min, L_max = 6, 8
-        d_min, d_max = 2, 4
-        D_min, D_max = 5, 10
+        L_min, L_max = 7, 8
+        d_min, d_max = 2, 3
+        D_min, D_max = 9, 10
         ut_min, ut_max = 3, 7
         # N random MPSs
         self.rand_cases = [fMPS().random(randint(L_min, L_max),
-                                         randint(d_min, D_min),
+                                         randint(d_min, d_max),
                                          randint(D_min, D_max))
                            for _ in range(N)]
         # N random MPSs, right canonicalised and truncated to random D
         self.right_cases = [fMPS().random(
                             randint(L_min, L_max),
-                            randint(d_min, D_min),
+                            randint(d_min, d_max),
                             randint(D_min, D_max)).right_canonicalise(
                             randint(D_min, D_max))
                             for _ in range(N)]
         # N random MPSs, left canonicalised and truncated to random D
         self.left_cases = [fMPS().random(
                             randint(L_min, L_max),
-                            randint(d_min, D_min),
+                            randint(d_min, d_max),
                             randint(D_min, D_max)).left_canonicalise(
                             randint(D_min, D_max))
                            for _ in range(N)]
         self.mixed_cases = [fMPS().random(
                             randint(L_min, L_max),
-                            randint(d_min, D_min),
+                            randint(d_min, d_max),
                             randint(D_min, D_max)).mixed_canonicalise(
                             randint(ut_min, ut_max),
                             randint(D_min, D_max))
@@ -1627,6 +1633,8 @@ class TestfMPS(unittest.TestCase):
         self.tens_0_5 = load('fixtures/mat5x5.npy')
         self.tens_0_6 = load('fixtures/mat6x6.npy')
         self.tens_0_7 = load('fixtures/mat7x7.npy')
+        self.tens_0_8 = load('fixtures/mat8x8.npy')
+        self.tens_0_9 = load('fixtures/mat9x9.npy')
 
         self.mps_0_2 = fMPS().left_from_state(self.tens_0_2)
         self.psi_0_2 = self.mps_0_2.recombine().reshape(-1)
@@ -1645,6 +1653,15 @@ class TestfMPS(unittest.TestCase):
 
         self.mps_0_7 = fMPS().left_from_state(self.tens_0_7)
         self.psi_0_7 = self.mps_0_7.recombine().reshape(-1)
+
+        self.mps_0_8 = fMPS().left_from_state(self.tens_0_8)
+        self.psi_0_8 = self.mps_0_8.recombine().reshape(-1)
+
+        self.mps_0_9 = fMPS().left_from_state(self.tens_0_9)
+        self.psi_0_9 = self.mps_0_9.recombine().reshape(-1)
+        self.fixtures = [self.mps_0_2, self.mps_0_3, self.mps_0_4,
+                         self.mps_0_5, self.mps_0_6, self.mps_0_7,
+                         self.mps_0_8, self.mps_0_9]
 
     def test_energy_2(self):
         """test_energy_2: 2 spins: energy of random hamiltonian matches full H"""
@@ -2066,32 +2083,32 @@ class TestfMPS(unittest.TestCase):
         '''-1j<d_id_j ψ|H|ψ>=<d_id_j ψ|Ad_j|d_jψ> with no truncation'''
         Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
         Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
-        mps = self.mps_0_3
-        H = [Sz1@Sz2+Sz1, Sz1@Sz2+Sz1+Sz2]
-        dA_dt = mps.dA_dt(H)
-        l, r = mps.l, mps.r
-        i, j = 1, 2
-        F2 = -1j*mps.F2(i, j, H, testing=True)
-        Γ2 = td(mps.christoffel(i, j, i), l(i-1)@dA_dt[i]@r(i), [[-3, -2, -1], [0, 1, 2]])
-        self.assertTrue(allclose(F2+Γ2, 0))
+        from numpy import nonzero, logical_not as lon, max
+        for m, L in enumerate(range(2, 10)):
+            print(L)
+            H = [Sz1@Sz2+(Sz1+Sz2) for _ in range(L-1)]
+            mps = self.fixtures[m].right_canonicalise(1).grow(H, 0.1, 2**L)
+            mps.right_canonicalise()
+            #mps = fMPS().random(L, 2, 2**L).right_canonicalise()
+            dA_dt = mps.dA_dt(H)
+            l, r = mps.get_envs()
 
-        mps = self.mps_0_4
-        H = [Sz1@Sz2+Sz1, Sz1@Sz2+Sz1+Sz2, Sz1@Sz2+Sz2]
-        dA_dt = mps.dA_dt(H)
-        l, r = mps.l, mps.r
-        i, j = 2, 3
-        F2 = -1j*mps.F2(i, j, H, testing=True)
-        Γ2 = td(mps.christoffel(i, j, i), l(i-1)@dA_dt[i]@r(i), [[-3, -2, -1], [0, 1, 2]])
-        self.assertTrue(allclose(F2+Γ2, 0))
+            def inv_diag(mat):
+                return diag(1/diag(mat))
+            def ch_diag(mat):
+                return diag(sqrt(diag(mat)))
+            cr, cl = [ch_diag(r(i)) for i in range(mps.L)], [ch_diag(l(i)) for i in range(mps.L)]
+            icr, icl = [inv_diag(cr[i]) for i in range(mps.L)], [inv_diag(cl[i]) for i in range(mps.L)]
+            inv_envs= (icr, icl, cr, cl)
 
-        mps = self.mps_0_5
-        H = [Sz1@Sz2+Sz1, Sz1@Sz2+Sz1+Sz2, Sz1@Sz2+Sz1+Sz2, Sz1@Sz2+Sz2]
-        dA_dt = mps.dA_dt(H)
-        l, r = mps.l, mps.r
-        for i, j in [(2, 3), (2, 4), (3, 2), (4, 2)]:
-            F2 = -1j*mps.F2(i, j, H, testing=True)
-            Γ2 = td(mps.christoffel(i, j, min(i, j)), l(min(i, j)-1)@dA_dt[min(i, j)]@r(min(i, j)), [[-3, -2, -1], [0, 1, 2]])
-            self.assertTrue(allclose(F2+Γ2, 0))
+            for i, j in product(range(L), range(L)):
+                F2 = -1j*mps.F2(i, j, H, inv_envs=inv_envs)
+                Γ2 = mps.christoffel(i, j, min(i, j), closed=(None, None, l(min(i, j)-1)@dA_dt[min(i, j)]@r(min(i, j))))
+                if not allclose(F2, -Γ2):
+                    F2[abs(F2)<1e-15] = 0
+                    Γ2[abs(Γ2)<1e-15] = 0
+                    print(L, i, j)
+                self.assertTrue(allclose(F2, -Γ2))
 
     def test_christoffel(self):
         mps = self.mps_0_6.left_canonicalise()
@@ -2245,18 +2262,22 @@ class TestfMPS(unittest.TestCase):
         H = [Sz1@Sz2+Sx1, Sz1@Sz2+Sx1+Sx2]
         J1, J2 = mps.jac(H, True, False)
         self.assertTrue(allclose(J1+J1.conj().T, 0))
+        for L in range(2, 10):
+            mps = fMPS().random(L, 2, 2**L).left_canonicalise()
+            N = 10 
+            for _ in range(N):
+                H = [randn(4, 4)+1j*randn(4, 4) for _ in range(L-1)]
+                H = [h+h.conj().T for h in H]
+                J1, J2 = mps.jac(H, True, False)
+                self.assertTrue(allclose(J1,-J1.conj().T))
+                if not allclose(J2, 0):
+                    print(J2)
 
-        mps = fMPS().random(5, 2, 10).left_canonicalise()
-        N = 5
-        for _ in range(N):
-            H = [randn(4, 4)+1j*randn(4, 4) for _ in range(4)]
-            H = [h+h.conj().T for h in H]
-            J1, J2 = mps.jac(H, True, False)
-            self.assertTrue(allclose(J1,-J1.conj().T))
-            self.assertTrue(allclose(J2, 0))
-            J = mps.jac(H, True, True)
-            self.assertTrue(allclose(J+J.T, 0))
-            mps = (mps+mps.dA_dt(H)*0.1).left_canonicalise()
+                J = mps.jac(H)
+                self.assertTrue(allclose(J+J.T, 0))
+
+                self.assertTrue(allclose(J2, 0))
+                mps = (mps+mps.dA_dt(H)*0.1).left_canonicalise()
 
     def test_expand(self):
         mps = fMPS().random(3, 2, 1)
@@ -2268,6 +2289,52 @@ class TestfMPS(unittest.TestCase):
 
         self.assertTrue(allclose(ls, mps.Es([Sx, Sy, Sz], 0)))
         self.assertTrue(mps.structure()==[(1, 2), (2, 2), (2, 1)])
+
+    def test_match_gauge_to(self):
+        Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
+        Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
+
+        mps_1 = self.right_cases[0]
+        # doesn't change expectation values
+        for case in self.right_cases:
+            a = mps_1.E(Sx, 0)
+            mps_1.right_canonicalise().match_gauge_to(case)
+            b = mps_1.E(Sx, 0)
+            self.assertTrue(allclose(a, b))
+
+        mps_1 = self.left_cases[0]
+        for case in self.left_cases:
+            a = mps_1.E(Sx, 0)
+            mps_1.left_canonicalise().match_gauge_to(case)
+            b = mps_1.E(Sx, 0)
+            self.assertTrue(allclose(a, b))
+
+        mps_1 = self.left_cases[0]
+        for case in self.right_cases:
+            a = mps_1.E(Sx, 0)
+            mps_1.left_canonicalise().match_gauge_to(case)
+            b = mps_1.E(Sx, 0)
+            self.assertTrue(allclose(a, b))
+
+        evs = []
+        evs_ = []
+        mps_0 = fMPS().random(6, 2, 5)
+        H = [Sz12@Sz22+Sx12+Sx22, Sz12@Sz22+Sx22, Sz12@Sz22+Sx22+Sx22, Sz12@Sz22+Sx22, Sz12@Sz22+Sx22]
+
+        mps = mps_0.copy()
+        for _ in range(30):
+            evs.append(mps.E(Sx, 0))
+            old_mps = mps.copy()
+            mps = (mps + mps.dA_dt(H)*0.1).left_canonicalise()
+            mps = mps.match_gauge_to(old_mps).copy()
+
+        mps = mps_0.copy()
+        for _ in range(30):
+            evs_.append(mps.E(Sx, 0))
+            mps = (mps + mps.dA_dt(H)*0.1).left_canonicalise()
+
+        self.assertTrue(allclose(array(evs),array(evs_)))
+            
 
 class TestvfMPS(unittest.TestCase):
     """TestvfMPS"""

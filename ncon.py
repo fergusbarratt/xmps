@@ -1,5 +1,5 @@
 import numpy as np
-import collections
+import collections.abc as collections
 
 """ A module for the function ncon, which does contractions of several tensors.
 """

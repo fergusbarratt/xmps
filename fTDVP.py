@@ -32,7 +32,7 @@ Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
 class Trajectory(object):
     """Trajectory"""
 
-    def __init__(self, mps_0, H=None, W=None, fullH=False, run_name=''):
+    def __init__(self, mps_0, H=None, W=None, fullH=False, run_name='', continuous=True):
         """__init__
 
         :param mps_0: initial state
@@ -49,6 +49,7 @@ class Trajectory(object):
         self.fullH=fullH
         self.mps_history = []
         self.run_name = run_name
+        self.continuous = continuous
 
     def euler(self, mps, dt, H=None, store=True):
         H = self.H if H is None else H
@@ -70,8 +71,11 @@ class Trajectory(object):
     def invfree(self, mps, dt, W=None, store=True):
         if store:
             self.mps_history.append(mps.serialize(real=True))
+        if self.continuous:
+            A_old = mps.copy()
         A = tdvp(mps.data, self.W, 1j*dt/2)
-        return fMPS(A[0])
+        return fMPS(A[0]) if not self.continuous else fMPS(A[0]).match_gauge_to(A_old)
+
 
     def eulerint(self, T):
         """eulerint: integrate with euler time steps
@@ -178,7 +182,7 @@ class Trajectory(object):
         self.psi = self.ed_history[-1]
         return self
 
-    def lyapunov(self, T, D=None, just_max=False, m=1, t_burn=2 , basis=None):
+    def lyapunov(self, T, D=None, just_max=False, m=1, t_burn=2 , initial_basis='F2'):
         H = self.H
         has_mpo = self.W is not None
         if D is not None:
@@ -186,14 +190,22 @@ class Trajectory(object):
             # otherwise use dynamical expand: less numerically stable
             if has_mpo:
                 self.mps = self.mps.right_canonicalise().expand(D)
-                self.invfreeint(linspace(0, t_burn, int(200*t_burn)))
+                print(self.mps.structure())
+                self.invfreeint(linspace(0, t_burn, int(50*t_burn)))
                 self.burn_len = int(200*t_burn)
                 self.mps_history = []
             else:
                 self.mps = self.mps.grow(self.H, 0.1, D).right_canonicalise()
                 self.rk4int(linspace(0, 1, 100))
 
-        Q = self.mps.tangent_space_basis(H=H, type='F1') if basis is None else basis
+        if initial_basis == 'F2':
+            Q = self.mps.tangent_space_basis(H=H, type=initial_basis)
+        elif initial_basis == 'eye' or initial_basis == 'rand':
+            Q = kron(eye(2), self.mps.tangent_space_basis(H=H, type=initial_basis))
+        else:
+            Q = initial_basis
+
+        #Q = kron(eye(2), self.mps.tangent_space_basis(type='eye'))
         if just_max:
             # just evolve top vector, dont bother with QR
             q = Q[0]
@@ -218,9 +230,7 @@ class Trajectory(object):
                 if t%m==0:
                     vL = self.mps.new_vL
 
-                old_mps = self.mps.copy()
                 self.mps = self.invfree(self.mps, dt, H)
-                self.mps.match_gauge_to(old_mps)
 
                 self.mps.old_vL = vL
             else:
@@ -233,10 +243,10 @@ class Trajectory(object):
                 self.mps.old_vL = vL
         if just_max:
             self.q = q
-            exps = (1/(dt))*cs(array(lys), axis=0)/ar(1, len(lys)+1)
+            exps = cs(array(lys), axis=0)/ar(1, len(lys)+1)
         else:
             self.Q = Q
-            exps = (1/(dt))*cs(array(lys), axis=0)/ed(ar(1, len(lys)+1), 1)
+            exps = cs(array(lys), axis=0)/ed(ar(1, len(lys)+1), 1)
         self.exps = exps
         self.lys = array(lys)
         return exps, array(lys)
