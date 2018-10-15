@@ -1,4 +1,5 @@
-from numpy import load, cumsum as cs, expand_dims as ed, arange as ar, array
+from numpy import load, cumsum as cs, expand_dims as ed, arange as ar, 
+from numpy import array, concatenate as ct
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 #mpl.style.use('ggplot')
@@ -9,6 +10,7 @@ def av(lys):
 
 A = load('data/spectra/lyapunovs_L6_D1_N5000.npy')[::step][k:]
 avA = av(A)                                                          
+A_ = load('data/spectra/2_lyapunovs_L6_D1_N5000.npy')[::step][k:]
 B = load('data/spectra/lyapunovs_L6_D2_N5000.npy')[::step][k:]
 avB = av(B)                                                          
 C = load('data/spectra/lyapunovs_L6_D3_N5000.npy')[::step][k:]

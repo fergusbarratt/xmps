@@ -27,12 +27,6 @@ class fTFD(fMPS):
                                     int(sqrt(X.shape[2])), int(sqrt(X.shape[2])))), 
                          [1, 0, 3, 2, 5, 4]).reshape(X.shape) for X in self])
 
-    def flip_spin(self):
-        return fTFD([X.reshape(int(sqrt(X.shape[0])), int(sqrt(X.shape[0])), *X.shape[1:]
-                     ).transpose(1, 0, 2, 3
-                     ).reshape(X.shape) 
-                     for X in self])
-
     def M(self):
         D = self.D
         return kron(eye(D*(D+1)/2), -eye(D*(D-1)/2))
