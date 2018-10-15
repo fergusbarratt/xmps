@@ -205,7 +205,7 @@ class Trajectory(object):
                  initial_basis='F2'):
         H = self.H
         has_mpo = self.W is not None
-        if D is not None:
+        if D is not None and t_burn!=0:
             # if MPO supplied - just expand, canonicalise and use inverse free integrator
             # otherwise use dynamical expand: less numerically stable
             if has_mpo:

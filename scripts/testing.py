@@ -34,9 +34,11 @@ else:
 Ds = [1, 2, 3, 4, 5, 6, 7, 8] 
 for D in Ds:
     #fig, ax = plt.subplots(4, 1)
+    Q = load('data/bases/spectra/lyapunovs_L6_D{}_N5000_basis.npy'.format(D))
+    mps = fMPS().load('data/bases/spectra/lyapunovs_L6_D{}_N5000_state.npy'.format(D))
     F = Trajectory(mps, H=H, W=W, continuous=True)
-    F.run_name = 'spectra/lyapunovs'
-    exps, lys = F.lyapunov(T, D, t_burn=5)
+    F.run_name = 'spectra/2_lyapunovs'
+    exps, lys = F.lyapunov(T, D, t_burn=0, initial_basis=Q)
     F.save(exps=True)
     #ax[0].plot(F.mps_history)
     #ax[1].plot(F.vs)

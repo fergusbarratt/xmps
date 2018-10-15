@@ -26,13 +26,11 @@ avH = av(H)
 
 data = [(A, avA), (B, avB), (C, avC), (D, avD), (E, avE), (F, avF), (G, avG)]
 Ds = [1, 2, 3, 4, 5, 6, 7, 8]
-fig, ax = plt.subplots(2, len(Ds), sharex=True, sharey='row')
+fig, ax = plt.subplots(len(Ds), 1, sharex=True, sharey='row')
 ax = ed(ax, -1) if len(Ds)==1 else ax
-for m, (lys, exps) in enumerate(data):
-    ax[0][m].plot(lys)
-    ax[0][m].set_title('D='+str(Ds[m]), loc='right')
-    ax[1][m].plot(exps)
+for m, x in enumerate(data):
+    ax[m].hist(x[1][-1], bins=10)
+    ax[m].set_title('D='+str(Ds[m]), loc='right')
 fig.tight_layout()
-#plt.savefig('images/spectra/conv.pdf', bbox_inches='tight')
+#plt.savefig('images/spectra/hists.pdf', bbox_inches='tight')
 plt.show()
-

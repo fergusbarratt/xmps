@@ -152,7 +152,7 @@ class fMPS(object):
         return self.__mul__(1/other)
 
     def __str__(self):
-        return 'Matrix Product State: L={}, d={}, D={}'.format(L, d, D)
+        return 'Matrix Product State: L={}, d={}, D={}'.format(self.L, self.d, self.D)
 
     def left_from_state(self, state):
         """left_from_state: generate left canonical mps from state tensor
@@ -1337,7 +1337,6 @@ class fMPS(object):
                 else:
                     links[j+1][1] = -6
                 G = ncon(bottom+[H]+top, links)
-
 
         if testing:
             def gauge(G, i, j):
