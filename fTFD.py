@@ -31,12 +31,16 @@ class fTFD(fMPS):
     def symm_asymm(self):
         D = self.D
         return ((eye(D**2) + bd(eye(int(D*(D+1)/2)), -eye(int(D*(D-1)/2))))/2,
-                (eye(D**2) - bd(eye(int(D*(D+1)/2)), -eye(int(D*(D-1)/2))))/2)
+                (eye(D**2) - bd(eye(int(D*(D+1)/2)), -eye(int(D*(D-1)/2))))/2,
+                bd(eye(int(D*(D+1)/2)), -eye(int(D*(D-1)/2))))
+
+    def flip_spin(self, mat):
+
 
     def vL(self):
         prs_vLs = [self.left_null_projector(n, get_vL=True) for n in range(self.L)]
         def vL(n): return vLs[n][1]
-        Pp, Pm = self.symm_asymm()
+        Pp, Pm, M = self.symm_asymm()
 
     def left_null_projector(self, n, l=None, get_vL=False, store_envs=False, vL=None):
         """left_null_projector:           |
