@@ -3,9 +3,15 @@ from fMPS import fMPS
 from ncon import ncon
 from numpy.random import randint, randn
 from numpy import kron, swapaxes as sw, eye, transpose as tra, sqrt
+from numpy import allclose
 from scipy.linalg import norm, null_space as null, inv, cholesky as ch
 from scipy.linalg import block_diag as bd
 from tensor import H as cT, C as c
+
+def fs(X):
+    return X.reshape(int(sqrt(X.shape[0])), int(sqrt(X.shape[0])), *X.shape[1:]
+                     ).transpose(1, 0, *list(range(2, len(X.shape)+1))
+                     ).reshape(X.shape) 
 
 class fTFD(fMPS):
     def __init__(self, data=None, d=None, D=None):
@@ -28,19 +34,19 @@ class fTFD(fMPS):
                                     int(sqrt(X.shape[2])), int(sqrt(X.shape[2])))), 
                          [1, 0, 3, 2, 5, 4]).reshape(X.shape) for X in self])
 
-    def symm_asymm(self):
-        D = self.D
+    def symm_asymm(self, D):
+        D = int(sqrt(D))
         return ((eye(D**2) + bd(eye(int(D*(D+1)/2)), -eye(int(D*(D-1)/2))))/2,
                 (eye(D**2) - bd(eye(int(D*(D+1)/2)), -eye(int(D*(D-1)/2))))/2,
                 bd(eye(int(D*(D+1)/2)), -eye(int(D*(D-1)/2))))
 
-    def flip_spin(self, mat):
-
-
-    def vL(self):
+    def get_vL(self):
         prs_vLs = [self.left_null_projector(n, get_vL=True) for n in range(self.L)]
-        def vL(n): return vLs[n][1]
-        Pp, Pm, M = self.symm_asymm()
+        def vLs(n): 
+            Pp, Pm, M = self.symm_asymm(self.data[n].shape[1])
+            return ((1/2)*prs_vLs[n][1]+(1/2)*M@fs(prs_vLs[n][1]),
+                    (1/2)*prs_vLs[n][1]-(1/2)*M@fs(prs_vLs[n][1]), M)
+        return vLs
 
     def left_null_projector(self, n, l=None, get_vL=False, store_envs=False, vL=None):
         """left_null_projector:           |
@@ -60,6 +66,14 @@ class fTFD(fMPS):
         if get_vL:
             return pr, vL
         return pr
+
+    def dA_dt(self, H, store_energy=False, fullH=False, prs_vLs=None):
+        dA_dt = super().dA_dt(self, H, store_energy=store_energy, fullH=fullH, prs_vLs=prs_vLs)
+        for n in range(self.L):
+            Pp, Pm, M = symm_asymm(self[n].shape[1])
+            dA_dt[n] = (dA_dt[n]+M@fs(dA_dt[n])@M)/2
+        return dA_dt
+
 
 class testfTFD(unittest.TestCase):
     def setUp(self):
@@ -86,8 +100,14 @@ class testfTFD(unittest.TestCase):
         for A, A_ in zip(self.pure_cases, self.mixed_cases):
             self.assertTrue(A==A.symmetry())
             self.assertFalse(A_==A_.symmetry())
-            A.vL()
-            raise Exception
+            for n in range(A.L):
+                vL_sym, vL_asy, M = A.get_vL()(n)
+                self.assertTrue(allclose(vL_sym,  M@fs(vL_sym)))
+                self.assertTrue(allclose(vL_asy, -M@fs(vL_asy)))
+
+                vL_sym, vL_asy, M = A_.get_vL()(n)
+                self.assertTrue(allclose(vL_sym,  M@fs(vL_sym)))
+                self.assertTrue(allclose(vL_asy, -M@fs(vL_asy)))
 
 if __name__=='__main__':
     unittest.main(verbosity=2)
