@@ -4,6 +4,7 @@ from ncon import ncon
 from numpy.random import randint, randn
 from numpy import kron, swapaxes as sw, eye, transpose as tra, sqrt
 from scipy.linalg import norm, null_space as null, inv, cholesky as ch
+from scipy.linalg import block_diag as bd
 from tensor import H as cT, C as c
 
 class fTFD(fMPS):
@@ -27,9 +28,15 @@ class fTFD(fMPS):
                                     int(sqrt(X.shape[2])), int(sqrt(X.shape[2])))), 
                          [1, 0, 3, 2, 5, 4]).reshape(X.shape) for X in self])
 
-    def M(self):
+    def symm_asymm(self):
         D = self.D
-        return kron(eye(D*(D+1)/2), -eye(D*(D-1)/2))
+        return ((eye(D**2) + bd(eye(int(D*(D+1)/2)), -eye(int(D*(D-1)/2))))/2,
+                (eye(D**2) - bd(eye(int(D*(D+1)/2)), -eye(int(D*(D-1)/2))))/2)
+
+    def vL(self):
+        prs_vLs = [self.left_null_projector(n, get_vL=True) for n in range(self.L)]
+        def vL(n): return vLs[n][1]
+        Pp, Pm = self.symm_asymm()
 
     def left_null_projector(self, n, l=None, get_vL=False, store_envs=False, vL=None):
         """left_null_projector:           |
@@ -53,20 +60,20 @@ class fTFD(fMPS):
 class testfTFD(unittest.TestCase):
     def setUp(self):
         """setUp"""
-        self.N = N = 8  # Number of MPSs to test
+        self.N = N = 4  # Number of MPSs to test
         #  min and max params for randint
         L_min, L_max = 7, 8
         d_min, d_max = 2, 3 
-        D_max = 16
+        D, D_sq = 3, 9
         # N random MPSs
         self.pure_cases = [fTFD().random(randint(L_min, L_max),
                                          randint(d_min, d_max),
-                                         D=4,
+                                         D=D,
                                          pure=True)
                            for _ in range(N)]
         self.mixed_cases = [fTFD().random(randint(L_min, L_max),
                                           randint(d_min, d_max),
-                                          D=16,
+                                          D=D_sq,
                                           pure=False)
                            for _ in range(N)]
 
@@ -75,6 +82,8 @@ class testfTFD(unittest.TestCase):
         for A, A_ in zip(self.pure_cases, self.mixed_cases):
             self.assertTrue(A==A.symmetry())
             self.assertFalse(A_==A_.symmetry())
+            A.vL()
+            raise Exception
 
 if __name__=='__main__':
     unittest.main(verbosity=2)
