@@ -16,13 +16,13 @@ Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
 
 Sx, Sy, Sz = spins(0.5)
 
-L = 6 
-bulkH =Sz12@Sz22+Sx22
-H = [Sz12@Sz22+Sx12+Sx22] + [bulkH for _ in range(L-2)] 
+L = 6
+bulkH =Sz12@Sz22+Sx22+Sz22
+H = [Sz12@Sz22+Sx12+Sx22+Sz12+Sz22] + [bulkH for _ in range(L-2)]
 W = L*[MPO_TFI(0, 0.25, 0.5, 0.)]
 
 dt = 1e-2
-t_fin = 20 
+t_fin = 200
 T = linspace(0, t_fin, int(t_fin//dt)+1)
 
 if L<10:
@@ -31,9 +31,8 @@ if L<10:
 else:
     mps = fMPS().load('fixtures/product{}.npy'.format(L))
 
-Ds = [1, 2, 3, 4, 5, 6, 7, 8] 
+Ds = [1, 2, 3, 4, 5, 6, 7, 8]
 for D in Ds:
-    #fig, ax = plt.subplots(4, 1)
     F = Trajectory(mps, H=H, W=W, continuous=True)
     F.run_name = 'spectra/lyapunovs'
     exps, lys = F.lyapunov(T, D, t_burn=5)
