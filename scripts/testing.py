@@ -21,8 +21,8 @@ bulkH =Sz12@Sz22+Sx22
 H = [Sz12@Sz22+Sx12+Sx22] + [bulkH for _ in range(L-2)] 
 W = L*[MPO_TFI(0, 0.25, 0.5, 0.)]
 
-dt = 1e-2
-t_fin = 20 
+dt = 2e-2
+t_fin = 100 
 T = linspace(0, t_fin, int(t_fin//dt)+1)
 
 if L<10:
@@ -37,10 +37,10 @@ for D in Ds:
     F = Trajectory(mps, H=H, W=W, continuous=True)
     F.run_name = 'spectra/lyapunovs'
     exps, lys = F.lyapunov(T, D, t_burn=5)
+    F.save(exps=True)
     #ax[0].plot(F.mps_history)
     #ax[1].plot(F.vs)
     #ax[2].plot(lys)
     #ax[3].hist(exps[-1])
     #save('{}'.format(D), exps[-1])
     #plt.show()
-    #F.save(exps=True)
