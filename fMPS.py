@@ -752,7 +752,7 @@ class fMPS(object):
                 e = []
                 B = -1j*zl(A[i])
                 _, Dn, Dn_1 = A[i].shape
-                H = [h.reshape(2, 2, 2, 2) for h in H]
+                H = [h.reshape(d, d, d, d) for h in H]
 
                 if d*Dn==Dn_1:
                     # Projector is full of zeros

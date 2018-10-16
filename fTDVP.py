@@ -12,7 +12,7 @@ from numpy import load, isclose, allclose, zeros_like as zl, prod, imag as im
 from numpy import log, abs, diag, cumsum as cs, arange as ar, eye, kron as kr
 from numpy import cross, dot, kron, split, concatenate as ct, isnan, isinf
 from numpy import trace as tr, zeros, printoptions, tensordot, trace, save
-from numpy import sign, block, sqrt
+from numpy import sign, block, sqrt, max
 from numpy.random import randn
 from numpy.linalg import inv, svd, eig
 from numpy.linalg import det, qr
@@ -325,6 +325,11 @@ class Trajectory(object):
                       0.5*re(psi_1_.overlap(psi_2_)))
             
         return Ws
+
+    def mps_list(self):
+        assert self.mps_history
+        L, d, D = self.mps.L, self.mps.d, self.mps.D
+        return list(map(lambda x: fMPS().deserialize(x, L, d, D, real=True), self.mps_history))
 
     def mps_evs(self, ops, site):
         assert self.mps_history
