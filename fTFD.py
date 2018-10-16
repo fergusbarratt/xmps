@@ -74,7 +74,6 @@ class fTFD(fMPS):
             dA_dt[n] = (dA_dt[n]+M@fs(dA_dt[n])@M)/2
         return dA_dt
 
-
 class testfTFD(unittest.TestCase):
     def setUp(self):
         """setUp"""
