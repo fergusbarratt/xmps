@@ -16,16 +16,16 @@ Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
 
 Sx, Sy, Sz = spins(0.5)
 
-L = 8 
+L = 4 
 bulkH =Sz12@Sz22+Sx22+Sz22
 H = [Sz12@Sz22+Sx12+Sz12+Sx22+Sz22] + [bulkH for _ in range(L-2)]
 W = L*[MPO_TFI(0, 0.25, 0.5, 0.5)]
 
 dt = 2e-2
-t_fin = 2
+t_fin = 20 
 T = linspace(0, t_fin, int(t_fin//dt)+1)
 t_burn = 5
-load_basis = True
+load_basis = False
 Q = None
 #(100, 10)
 
@@ -35,7 +35,7 @@ if L<10:
 else:
     mps = fMPS().load('fixtures/product{}.npy'.format(L))
 
-Ds = [6]
+Ds = [1, 2, 3, 4]
 for D in Ds:
     if load_basis and 8>=D:
         Q = load('data/bases/spectra/40000s/lyapunovs_L8_D{}_N40000_basis.npy'.format(D))

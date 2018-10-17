@@ -12,7 +12,7 @@ from numpy import load, isclose, allclose, zeros_like as zl, prod, imag as im
 from numpy import log, abs, diag, cumsum as cs, arange as ar, eye, kron as kr
 from numpy import cross, dot, kron, split, concatenate as ct, isnan, isinf
 from numpy import trace as tr, zeros, printoptions, tensordot, trace, save
-from numpy import sign, block
+from numpy import sign, block, sqrt
 from numpy.random import randn
 from numpy.linalg import inv, svd, eig
 from numpy.linalg import det, qr
@@ -76,6 +76,22 @@ class Trajectory(object):
         A = tdvp(mps.data, self.W, 1j*dt/2)
         return fMPS(A[0]) if not self.continuous else fMPS(A[0]).match_gauge_to(A_old)
 
+    def invfree4(self, mps, dt, W=None, store=True):
+        """invfree4 fourth order symmetric composition
+        """
+        if store:
+            self.mps_history.append(mps.serialize(real=True))
+        if self.continuous:
+            A_old = mps.copy()
+        a1, a2, a3 = b5, b4, b3 = (146+5*sqrt(19))/540, (-2+10*sqrt(19))/135, 1/5
+        b1, b2 = a5, a4 = (14-sqrt(19))/108, (-23-20*sqrt(19))/270
+        A = tdvp(tdvp(tdvp(tdvp(tdvp(mps.data, 
+                                     self.W, 1j*dt, a=a1, b=b1)[0],
+                                 self.W, 1j*dt, a=a2, b=b2)[0],
+                             self.W, 1j*dt, a=a3, b=b3)[0],
+                       self.W, 1j*dt, a=a4, b=b4)[0],
+                   self.W, 1j*dt, a=a5, b=b5)
+        return fMPS(A[0]) if not self.continuous else fMPS(A[0]).match_gauge_to(A_old)
 
     def eulerint(self, T):
         """eulerint: integrate with euler time steps
@@ -116,7 +132,7 @@ class Trajectory(object):
         L, d, D = mps.L, mps.d, mps.D
 
         for t in tqdm(T):
-            mps = self.invfree(mps, T[1]-T[0])
+            mps = self.invfree4(mps, T[1]-T[0])
 
         self.mps = fMPS().deserialize(self.mps_history[-1], L, d, D, real=True)
         return self
@@ -171,10 +187,10 @@ class Trajectory(object):
         psi_0 = self.mps.recombine().reshape(-1)
         H = sum([n_body(a, i, len(H), d=2)
                  for i, a in enumerate(H)], axis=0) if not self.fullH else H
-        self.ed_history = []
         psi_n = psi_0
+        self.ed_history = [psi_0]
         dt = T[1]-T[0]
-        for t in tqdm(T):
+        for t in tqdm(T[:-1]):
             psi_n = expm(-1j *H*dt)@psi_n
             self.ed_history.append(psi_n)
 
@@ -233,7 +249,7 @@ class Trajectory(object):
                 if t%m==0:
                     vL = self.mps.new_vL
 
-                self.mps = self.invfree(self.mps, dt, H)
+                self.mps = self.invfree4(self.mps, dt, H)
 
                 self.mps.old_vL = vL
             else:
@@ -392,7 +408,7 @@ class TestTrajectory(unittest.TestCase):
                 plt.plot(T, D)
                 plt.show()
         
-        test_2 = True
+        test_2 = False
         if test_2:
             Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
             Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
@@ -423,7 +439,7 @@ class TestTrajectory(unittest.TestCase):
                 ax.plot(T, C)
                 plt.show()
 
-        test_3 = True
+        test_3 = False
         if test_3:
             Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
             Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
@@ -458,7 +474,7 @@ class TestTrajectory(unittest.TestCase):
                 ax.plot(T, C)
                 plt.show()
 
-        test_4 = True
+        test_4 = False
         if test_4:
             Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
             Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
@@ -521,7 +537,7 @@ class TestTrajectory(unittest.TestCase):
             self.assertTrue(norm(B-A)/prod(A.shape)<dt)
             self.assertTrue(norm(C-A)/prod(A.shape)<dt**2)
 
-            plot=False
+            plot=True
             if plot:
                 fig, ax = plt.subplots(1, 1, sharey=True, sharex=True)
                 ax.set_ylim([-1, 1])
@@ -570,7 +586,7 @@ class TestTrajectory(unittest.TestCase):
         ops = Sz2, Sz5
         ops_ = ((Sz, 1), (Sz, 4))
         T = linspace(0, 1, 3)
-        F = Trajectory(mps, H=H, W=W)
+        F = Trajectory(mps, H=H, W=W, fullH=True)
         ed_evs  = F.ed_OTOC(T, ops)
         mps_evs = F.mps_OTOC(T, ops_)
         plt.plot(mps_evs)
@@ -586,7 +602,7 @@ class TestTrajectory(unittest.TestCase):
         mps = self.mps_0_2
         H = [Sx1-Sx2]
         T = linspace(0, 1, 100)
-        exps, lys, _ = Trajectory(mps, H).lyapunov(T, D=1, bar=True)
+        exps, lys, _ = Trajectory(mps, H).lyapunov(T, D=1)
         self.assertTrue(allclose(exps[-1], 0))
 
     def test_lyapunov_local_hamiltonian_3(self):
@@ -596,7 +612,7 @@ class TestTrajectory(unittest.TestCase):
         mps = self.mps_0_3
         H = [Sx1+Sx2, Sx2]
         T = linspace(0, 1, 100)
-        exps, lys, _ = Trajectory(mps, H).lyapunov(T, D=1, bar=True)
+        exps, lys, _ = Trajectory(mps, H).lyapunov(T, D=1)
         self.assertTrue(allclose(exps[-1], 0))
 
     def test_lyapunov_no_truncate_2(self):
@@ -606,7 +622,7 @@ class TestTrajectory(unittest.TestCase):
         mps = self.mps_0_2
         H = [Sz1@Sz2+Sx1+Sx2]
         T = linspace(0, 1, 100)
-        exps, lys, _ = Trajectory(mps, H).lyapunov(T, D=None, bar=True)
+        exps, lys, _ = Trajectory(mps, H).lyapunov(T, D=None)
         self.assertTrue(allclose(exps[-1], 0))
 
     def test_lyapunov_no_truncate_3(self):
@@ -616,7 +632,7 @@ class TestTrajectory(unittest.TestCase):
         mps = self.mps_0_3
         H = [Sz1@Sz2+Sx1+Sx2, Sz1@Sz2+Sx2]
         T = linspace(0, 0.1, 100)
-        exps, lys, _ = Trajectory(mps, H).lyapunov(T, D=None, bar=True)
+        exps, lys, _ = Trajectory(mps, H).lyapunov(T, D=None)
         self.assertTrue(allclose(exps[-1], 0))
 
 if __name__ == '__main__':
