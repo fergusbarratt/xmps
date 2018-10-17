@@ -1,4 +1,9 @@
+import os 
+import glob
+import shutil
 import unittest
+import pickle 
+
 from time import time
 from fMPS import fMPS
 from tensor import get_null_space, H as cT, C as c
@@ -32,7 +37,7 @@ Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
 class Trajectory(object):
     """Trajectory"""
 
-    def __init__(self, mps_0, H=None, W=None, fullH=False, run_name='', continuous=True):
+    def __init__(self, mps_0=None, H=None, W=None, fullH=False, run_name='', continuous=True):
         """__init__
 
         :param mps_0: initial state
@@ -44,8 +49,8 @@ class Trajectory(object):
         self.H = H # hamiltonian as list of 4x4 mats or big matrix
         self.W = W # hamiltonian as mpo - required for invfreeint
 
-        self.mps_0 = deepcopy(mps_0)
-        self.mps = deepcopy(mps_0)
+        self.mps_0 = mps_0.copy() if mps_0 is not None else mps_0
+        self.mps = mps_0.copy() if mps_0 is not None else mps_0
         self.fullH=fullH
         self.mps_history = []
         self.run_name = run_name
@@ -203,14 +208,15 @@ class Trajectory(object):
 
     def lyapunov(self, T, D=None, 
                  just_max=False, 
-                 m=1, 
                  t_burn=2, 
                  initial_basis='F2'):
+        self.has_run_lyapunov = True
         H = self.H
         has_mpo = self.W is not None
-        if D is not None and t_burn!=0:
+        if D is not None and t_burn!=0 and not hasattr(self, 'Q'):
             # if MPO supplied - just expand, canonicalise and use inverse free integrator
             # otherwise use dynamical expand: less numerically stable
+            # if we already have a basis set - we must be resuming a run
             if has_mpo:
                 self.mps = self.mps.right_canonicalise().expand(D)
                 self.invfreeint(linspace(0, t_burn, int(50*t_burn)), order='high')
@@ -220,14 +226,15 @@ class Trajectory(object):
                 self.mps = self.mps.grow(self.H, 0.1, D).right_canonicalise()
                 self.rk4int(linspace(0, 1, 100))
 
-        if initial_basis == 'F2':
+        if hasattr(self, 'Q'):
+            Q = self.Q
+        elif initial_basis == 'F2':
             Q = self.mps.tangent_space_basis(H=H, type=initial_basis)
         elif initial_basis == 'eye' or initial_basis == 'rand':
             Q = kron(eye(2), self.mps.tangent_space_basis(H=H, type=initial_basis))
         else:
             Q = initial_basis
 
-        #Q = kron(eye(2), self.mps.tangent_space_basis(type='eye'))
         if just_max:
             # just evolve top vector, dont bother with QR
             q = Q[0]
@@ -235,26 +242,26 @@ class Trajectory(object):
         lys = []
         self.vs = []
         for t in tqdm(range(len(T))):
-            if t%m == 0:
-                J = self.mps.jac(H)
-                if hasattr(self.mps, 'old_vL'):
-                    self.vs.append(self.mps.v)
-                if just_max:
-                    q = expm_multiply(J*m*dt, q)
-                    lys.append(log(abs(norm(q))))
-                    q /= norm(q)
-                else:
-                    M = expm_multiply(J*m*dt, Q)
-                    Q, R = qr(M)
-                    lys.append(log(abs(diag(R))))
+            J = self.mps.jac(H)
+            if hasattr(self.mps, 'old_vL'):
+                self.vs.append(self.mps.v)
+            if just_max:
+                q = expm_multiply(J*dt, q)
+                lys.append(log(abs(norm(q))))
+                q /= norm(q)
+            else:
+                M = expm_multiply(J*dt, Q)
+                Q, R = qr(M)
+                lys.append(log(abs(diag(R))))
 
             if has_mpo:
-                if t%m==0:
+                if t==0:
                     vL = self.mps.new_vL
 
                 self.mps = self.invfree4(self.mps, dt, H)
 
                 self.mps.old_vL = vL
+                self.vL = vL
             else:
                 vL = self.mps.new_vL
 
@@ -263,15 +270,21 @@ class Trajectory(object):
                 self.mps.match_gauge_to(old_mps)
 
                 self.mps.old_vL = vL
+                self.vL = vL
+
+        if hasattr(self, 'lys'):
+            self.lys = ct([self.lys, array(lys[1:])])
+        else:
+            self.lys = array(lys)
+
         if just_max:
             self.q = q
-            exps = cs(array(lys), axis=0)/ar(1, len(lys)+1)
+            self.exps = cs(self.lys, axis=0)/ar(1, len(self.lys)+1)
         else:
             self.Q = Q
-            exps = cs(array(lys)[10:], axis=0)/ed(ar(1, len(lys)+1)[10:], 1)
-        self.exps = exps
-        self.lys = array(lys)
-        return exps, array(lys)
+            self.exps = cs(self.lys, axis=0)/ed(ar(1, len(self.lys)+1), 1)
+
+        return self.exps, array(lys)
 
     def ed_OTOC(self, T, ops):
         """ed_OTOC: -<[W(t), V(0)], [W(t), V(0)]>
@@ -376,6 +389,66 @@ class Trajectory(object):
         if clear:
             self.clear()
 
+    def stop(self, loc='data'):
+        """stop: save a folder with all the data under loc
+        """
+        assert not self.fullH
+        assert hasattr(self, 'W')
+        # make directories - doesn't work if more runs than 10
+        # don't do more runs than 10
+        run_dir = os.path.join(loc, self.run_name)
+        if not run_dir in map(lambda x: x[:-2], glob.glob(run_dir+'_*')):
+            run_dir = run_dir+'_1'
+            os.makedirs(run_dir)
+        else:
+            n = max(list(map(lambda x: int(x[-1]), glob.glob(run_dir+'_*'))))
+            run_dir = run_dir+'_'+str(n+1)
+            os.makedirs(run_dir)
+
+        self.run_dir = run_dir
+        name = 'L{}_D{}_N{}'.format(self.mps.L, self.mps.D, len(self.mps_history))
+
+        self.mps.store(os.path.join(run_dir, name+'_state'))
+        self.mps_0.store(os.path.join(run_dir, name+'_initial_state'))
+
+        with open(os.path.join(run_dir, name+'_ham'), 'wb') as f:
+            pickle.dump(self.H, f)
+        with open(os.path.join(run_dir, name+'_mpo'), 'wb') as f:
+            pickle.dump(self.W, f)
+        with open(os.path.join(run_dir, name+'_vL'), 'wb') as f:
+            pickle.dump(self.vL, f)
+
+        if self.has_run_lyapunov:
+            save(os.path.join(run_dir, name+'_inst_exps'), self.lys)
+            save(os.path.join(run_dir, name+'_basis'), self.Q)
+        return run_dir
+
+    def resume(self, run_name, loc='data', n=None, lys=True):
+        run_dir = os.path.join(loc, run_name)
+        # resume the most recent run if not specified
+        if n is None:
+            n = max(list(map(lambda x: int(x[-1]), glob.glob(run_dir+'_*'))))
+        self.run_dir = run_dir+'_'+str(n)
+        istate, state = sorted(glob.glob(os.path.join(self.run_dir, '*state*')))
+        H_loc = glob.glob(os.path.join(self.run_dir, '*ham*'))[0]
+        W_loc = glob.glob(os.path.join(self.run_dir, '*mpo*'))[0]
+        vL_loc = glob.glob(os.path.join(self.run_dir, '*vL*'))[0]
+        self.mps_0, self.mps = fMPS().load(istate), fMPS().load(state)
+        with open(H_loc, 'rb') as f:
+            self.H = pickle.load(f)
+        with open(W_loc, 'rb') as f:
+            self.W = pickle.load(f)
+        with open(vL_loc, 'rb') as f:
+            self.mps.old_vL = pickle.load(f)
+
+        if lys:
+            Q_loc = glob.glob(os.path.join(self.run_dir, '*basis*'))[0]
+            lys_loc = glob.glob(os.path.join(self.run_dir, '*inst*'))[0]
+            self.Q = load(Q_loc)
+            self.lys = load(lys_loc)
+
+        return self
+
 class TestTrajectory(unittest.TestCase):
     """TestF"""
     def setUp(self):
@@ -398,6 +471,41 @@ class TestTrajectory(unittest.TestCase):
 
         self.mps_0_5 = fMPS().left_from_state(self.tens_0_5)
         self.psi_0_5 = self.mps_0_5.recombine().reshape(-1)
+
+    def test_stop_resume(self):
+        """test_stop_resume"""
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
+
+        dt, t_fin = 1e-2, 2
+        T = linspace(0, t_fin, int(t_fin//dt)+1)
+
+        mps_0 = self.mps_0_5.right_canonicalise(3)
+        H = [Sz1@Sz2+Sx1+Sx2] + [Sz1@Sz2+Sx2] + [Sz1@Sz2+Sx2] + [Sz1@Sz2+Sx2]
+        W = mps_0.L*[MPO_TFI(0, 0.25, 0.5, 0)]
+        F = Trajectory(mps_0, H=H, W=W)
+        F.run_name = 'test'
+
+        F.lyapunov(T, 3, t_burn=0)
+        F.stop()
+        F_ = Trajectory().resume('test')
+        self.assertTrue(F_.mps_0==F.mps_0)
+        self.assertTrue(F_.mps==F.mps)
+        self.assertTrue(allclose(F_.Q, F.Q))
+        self.assertTrue(allclose(F_.lys, F.lys))
+        F_.lyapunov(T, 3)
+        self.assertTrue(len(F_.lys)==2*len(T)-1)
+
+        plt.plot(F.vs+F_.vs)
+        plt.show()
+
+        plt.plot(F_.lys)
+        plt.show()
+
+        plt.plot(F.mps_history+F_.mps_history)
+        plt.show()
+
+        shutil.rmtree(F_.run_dir)
 
     def test_integrators(self):
         test_D_1 = False
