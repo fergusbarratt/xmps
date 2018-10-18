@@ -4,6 +4,7 @@ tdvp/
 *.npy
 notebooks/
 images/
+runs.md
 
 # Byte-compiled / optimized / DLL files
 *.swp

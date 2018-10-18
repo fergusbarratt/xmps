@@ -152,7 +152,7 @@ class fMPS(object):
         return self.__mul__(1/other)
 
     def __str__(self):
-        return 'Matrix Product State: L={}, d={}, D={}'.format(L, d, D)
+        return 'Matrix Product State: L={}, d={}, D={}'.format(self.L, self.d, self.D)
 
     def left_from_state(self, state):
         """left_from_state: generate left canonical mps from state tensor
@@ -752,7 +752,7 @@ class fMPS(object):
                 e = []
                 B = -1j*zl(A[i])
                 _, Dn, Dn_1 = A[i].shape
-                H = [h.reshape(2, 2, 2, 2) for h in H]
+                H = [h.reshape(d, d, d, d) for h in H]
 
                 if d*Dn==Dn_1:
                     # Projector is full of zeros
@@ -1337,7 +1337,6 @@ class fMPS(object):
                 else:
                     links[j+1][1] = -6
                 G = ncon(bottom+[H]+top, links)
-
 
         if testing:
             def gauge(G, i, j):

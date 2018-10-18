@@ -1,13 +1,13 @@
 import os, sys, inspect
 currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 parentdir = os.path.dirname(currentdir)
-sys.path.insert(0,parentdir)
+sys.path.insert(0,os.path.dirname(parentdir))
 
 from fTDVP import Trajectory
 from fMPS import fMPS
 from spin import N_body_spins, spins, n_body
 from numpy import load, linspace, save, sum, array, concatenate as ct, stack as st, log, exp
-from numpy import ceil, real as re, cumsum as cs, arange as ar
+from numpy import ceil, real as re, cumsum as cs, arange as ar, array
 import matplotlib.pyplot as plt
 from tdvp.tdvp_fast import MPO_TFI
 from scipy.interpolate import interp1d
@@ -18,26 +18,24 @@ Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
 
 Sx, Sy, Sz = spins(0.5)
 
-L = 8 
-bulkH =Sz12@Sz22+Sx22
-H_i = [Sz12@Sz22+Sx12+Sx22] + [bulkH for _ in range(L-2)]
-H = [H_i[0]+Sz12+Sz22]+[H_i[i]+Sz22 for i in range(1, L-1)]
-W = L*[MPO_TFI(0, 0.25, 0.5, 0.5)]
+L = 6 
+bulkH =Sz12@Sz22+Sx22/2
+H = [Sz12@Sz22+Sx12/2+Sx22/2]+[bulkH for _ in range(L-2)]
 
-dt = 5e-3
-t_fin = 200
-D = 16 
+dt = 0.2
+t_fin = 2000
+D = 8
 T = linspace(0, t_fin, int(t_fin//dt)+1)
 psi_0 = load('fixtures/mat{}x{}.npy'.format(L,L))
 
 mps = fMPS().left_from_state(psi_0).left_canonicalise(1).expand(D)
 
-F = Trajectory(mps, H=H, W=W)
+F = Trajectory(mps, H=H)
 F.run_name = 'spectra/entanglement'
-F.invfreeint(T)
-sch = F.schmidts()
-λ = array([exp(max([-re(s[i//2]**2@log(s[i//2]**2)) for i in range(len(sch[0]))])) for s in sch])
-save('data/spectra/Dt', λ)
+F.edint(T)
+sch = array(F.schmidts())
+λ = array([exp(max([-re(s@log(s)) for s in S])) for S in sch])
+#save('data/spectra/Dt', λ)
 
 fig, ax = plt.subplots(1, 1, sharex=True)
 ax.plot(T[1:], λ)

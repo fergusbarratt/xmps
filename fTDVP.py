@@ -12,7 +12,7 @@ from numpy import load, isclose, allclose, zeros_like as zl, prod, imag as im
 from numpy import log, abs, diag, cumsum as cs, arange as ar, eye, kron as kr
 from numpy import cross, dot, kron, split, concatenate as ct, isnan, isinf
 from numpy import trace as tr, zeros, printoptions, tensordot, trace, save
-from numpy import sign, block, sqrt
+from numpy import sign, block, sqrt, max
 from numpy.random import randn
 from numpy.linalg import inv, svd, eig
 from numpy.linalg import det, qr
@@ -119,7 +119,7 @@ class Trajectory(object):
         self.mps = fMPS().deserialize(self.mps_history[-1], L, d, D, real=True)
         return self
 
-    def invfreeint(self, T, D=None):
+    def invfreeint(self, T, D=None, order='low'):
         """invfreeint: inverse free (symmetric) integrator - wraps Frank code. 
                        requires a MPO - MPO_TFI/MPO_XXZ from tdvp 
                        remember my ed thing has Sx = 1/2 Sx etc. for some reason
@@ -132,7 +132,10 @@ class Trajectory(object):
         L, d, D = mps.L, mps.d, mps.D
 
         for t in tqdm(T):
-            mps = self.invfree4(mps, T[1]-T[0])
+            if order=='high':
+                mps = self.invfree4(mps, T[1]-T[0])
+            elif order=='low':
+                mps = self.invfree(mps, T[1]-T[0])
 
         self.mps = fMPS().deserialize(self.mps_history[-1], L, d, D, real=True)
         return self
@@ -205,12 +208,12 @@ class Trajectory(object):
                  initial_basis='F2'):
         H = self.H
         has_mpo = self.W is not None
-        if D is not None:
+        if D is not None and t_burn!=0:
             # if MPO supplied - just expand, canonicalise and use inverse free integrator
             # otherwise use dynamical expand: less numerically stable
             if has_mpo:
                 self.mps = self.mps.right_canonicalise().expand(D)
-                self.invfreeint(linspace(0, t_burn, int(50*t_burn)))
+                self.invfreeint(linspace(0, t_burn, int(50*t_burn)), order='high')
                 self.burn_len = int(200*t_burn)
                 self.mps_history = []
             else:
@@ -323,6 +326,11 @@ class Trajectory(object):
             
         return Ws
 
+    def mps_list(self):
+        assert self.mps_history
+        L, d, D = self.mps.L, self.mps.d, self.mps.D
+        return list(map(lambda x: fMPS().deserialize(x, L, d, D, real=True), self.mps_history))
+
     def mps_evs(self, ops, site):
         assert self.mps_history
         L, d, D = self.mps.L, self.mps.d, self.mps.D
@@ -330,12 +338,20 @@ class Trajectory(object):
                     for mps in map(lambda x: fMPS().deserialize(x, L, d, D, real=True), self.mps_history)])
 
     def schmidts(self):
-        assert self.mps_history
-        L, d, D = self.mps.L, self.mps.d, self.mps.D
-        sch = []
-        for mps in map(lambda x: fMPS().deserialize(x, L, d, D, real=True), self.mps_history):
-            sch.append([diag(x) for x in mps.left_canonicalise().Ls])
-        return sch[1:]
+        if hasattr(self, 'ed_history'):
+            sch = []
+            mpss = []
+            for x in tqdm(self.ed_history):
+                mps = fMPS().left_from_state(x.reshape([self.mps.d]*self.mps.L))
+                sch.append([diag(x) for x in mps.left_canonicalise().Ls])
+            return sch[1:]
+        else:
+            assert self.mps_history
+            L, d, D = self.mps.L, self.mps.d, self.mps.D
+            sch = []
+            for mps in map(lambda x: fMPS().deserialize(x, L, d, D, real=True), self.mps_history):
+                sch.append([diag(x) for x in mps.left_canonicalise().Ls])
+            return sch[1:]
 
     def ed_evs(self, ops):
         assert hasattr(self, "ed_history")
