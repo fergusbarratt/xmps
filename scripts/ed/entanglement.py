@@ -19,8 +19,8 @@ Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
 Sx, Sy, Sz = spins(0.5)
 
 L = 6 
-bulkH =Sz12@Sz22+Sx22/2
-H = [Sz12@Sz22+Sx12/2+Sx22/2]+[bulkH for _ in range(L-2)]
+bulkH =Sz12@Sz22+Sx22
+H = [Sz12@Sz22+Sx12+Sx22]+[bulkH for _ in range(L-2)]
 
 dt = 0.2
 t_fin = 2000
