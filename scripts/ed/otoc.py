@@ -4,10 +4,11 @@ parentdir = os.path.dirname(os.path.dirname(currentdir))
 sys.path.insert(0,parentdir)
 
 from fMPS import fMPS
+from tdvp.tdvp_fast import MPO_TFI
 from fTDVP import Trajectory
 from spin import N_body_spins, spins, n_body
 from numpy import load, linspace, save, sum, log, array, cumsum as cs
-from numpy import arange as ar
+from numpy import arange as ar, mean
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 mpl.style.use('ggplot')
@@ -27,16 +28,28 @@ loc = (Sx1+Sz1), (Sx2+Sz2)
 listH = [ent+loc[0]+loc[1]] + [ent+loc[1] for _ in range(L-2)]
 fullH = sum([n_body(a, i, len(listH), d=2) for i, a in enumerate(listH)], axis=0)
 
-mps = fMPS().random(L, 2, 1).left_canonicalise()
-
-T = linspace(0, 100, 2000)
-ops = Szi, Szj 
-otocs = array(Trajectory(mps, fullH, fullH=True).ed_OTOC(T, ops))
-save('data/otocs', log(otocs)-log(otocs)[1])
-
-fig, ax = plt.subplots(1, 1, sharex=True)
-ax.set_title('$Sz{}, Sz{}$'.format(i+1, j+1))
-ax.plot(T, log(otocs)-log(otocs)[1])
-fig.tight_layout()
-fig.savefig('images/spectra/otoc.pdf')
+mpss = Trajectory(fMPS().load('fixtures/product{}.npy'.format(L)),
+                  H=listH,
+                  W=L*[MPO_TFI(0, 0.5, 0.25, 0.25)]).invfreeint(
+                          linspace(0, 100, 200), 'high').mps_list()
+otocss = []
+for mps in mpss:
+    T = linspace(0, 20, 100)
+    ops = Szi, Szj 
+    otocs = array(Trajectory(mps, fullH, fullH=True).ed_OTOC(T, ops))
+    otocss.append(otocs)
+otocss = array(otocss)
+plt.plot(otocss.T)
 plt.show()
+
+ma = mean(otocss, axis=0)
+plt.plot(log(ma)-log(ma)[1])
+plt.show()
+#save('data/otocs', log(otocs)-log(otocs)[1])
+
+#fig, ax = plt.subplots(1, 1, sharex=True)
+#ax.set_title('$Sz{}, Sz{}$'.format(i+1, j+1))
+##ax.plot(T, log(otocs)-log(otocs)[1])
+#fig.tight_layout()
+##fig.savefig('images/spectra/otoc.pdf')
+#plt.show()
