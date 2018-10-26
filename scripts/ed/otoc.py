@@ -31,7 +31,7 @@ fullH = sum([n_body(a, i, len(listH), d=2) for i, a in enumerate(listH)], axis=0
 mpss = Trajectory(fMPS().load('fixtures/product{}.npy'.format(L)),
                   H=listH,
                   W=L*[MPO_TFI(0, 0.5, 0.25, 0.25)]).invfreeint(
-                          linspace(0, 100, 200), 'high').mps_list()
+                          linspace(0, 100, 1000), 'high').mps_list()
 otocss = []
 for mps in mpss:
     T = linspace(0, 20, 100)
@@ -39,7 +39,7 @@ for mps in mpss:
     otocs = array(Trajectory(mps, fullH, fullH=True).ed_OTOC(T, ops))
     otocss.append(otocs)
 otocss = array(otocss)
-plt.plot(otocss.T)
+plt.plot(otocss.T[::10])
 plt.show()
 
 ma = mean(otocss, axis=0)
