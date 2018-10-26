@@ -337,6 +337,23 @@ class Trajectory(object):
         return array([mps.Es(ops, site)
                     for mps in map(lambda x: fMPS().deserialize(x, L, d, D, real=True), self.mps_history)])
 
+    def mps_energies(self):
+        assert self.H is not None
+        assert self.mps_history
+        return [mps.energy(self.H) for mps in self.mps_list()]
+
+    def ed_energies(self):
+        assert self.H is not None
+        assert hasattr(self, 'ed_history')
+        H = self.H
+        H = sum([n_body(a, i, len(H), d=2)
+                 for i, a in enumerate(H)], axis=0) if not self.fullH else H
+        return self.ed_evs([H])
+
+    def deserialize(self):
+        L, d, D = self.mps.L, self.mps.d, self.mps.D
+        return list(map(lambda x: fMPS().deserialize(x, L, d, D, real=True), self.mps_history))
+
     def schmidts(self):
         if hasattr(self, 'ed_history'):
             sch = []
@@ -530,7 +547,7 @@ class TestTrajectory(unittest.TestCase):
             Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
             Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
 
-            dt, t_fin = 2e-2, 10 
+            dt, t_fin = 0.1, 100
             T = linspace(0, t_fin, int(t_fin//dt)+1)
 
             mps_0 = self.mps_0_5.right_canonicalise()
@@ -544,22 +561,43 @@ class TestTrajectory(unittest.TestCase):
             Sx4, Sy4, Sz4 = N_body_spins(0.5, 4, 5)
             Sx5, Sy5, Sz5 = N_body_spins(0.5, 5, 5)
 
+            X = F.invfreeint(T, 'low')
+            C = X.mps_evs([Sx, Sy, Sz], 1)
+            C_e = X.mps_energies()
+            X.ed_history = array([mps.recombine().reshape(-1) for mps in X.mps_list()])
+            C_e_ = X.ed_energies()
+            F.clear()
 
-            A = F.edint(T).ed_evs([Sx3, Sy3, Sz3])
+            X = F.edint(T)
+            A = X.ed_evs([Sx2, Sy2, Sz2])
+            A_e = X.ed_energies()
             F.clear()
-            B = F.eulerint(T).mps_evs([Sx, Sy, Sz], 2)
+
+            X = F.eulerint(T)
+            B = X.mps_evs([Sx, Sy, Sz], 1)
+            B_e = X.mps_energies()
+            X.ed_history = [mps.recombine().reshape(-1) for mps in X.mps_list()]
+            B_e_ = X.ed_energies()
             F.clear()
-            C = F.invfreeint(T).mps_evs([Sx, Sy, Sz], 2)
+
             self.assertTrue(norm(B-A)/prod(A.shape)<dt)
             self.assertTrue(norm(C-A)/prod(A.shape)<dt**2)
 
-            plot=True
+            plot=False
             if plot:
                 fig, ax = plt.subplots(1, 1, sharey=True, sharex=True)
                 ax.set_ylim([-1, 1])
                 ax.plot(T, A)
                 #ax.plot(T, B)
                 ax.plot(T, C)
+                plt.show()
+                fig, ax = plt.subplots(1, 1, sharey=True, sharex=True)
+                ax.plot(T, A_e, label='ed')
+                #ax.plot(T, B_e, label='euler')
+                #ax.plot(T, B_e_, label='euler_')
+                #ax.plot(T, C_e, label='invfree')
+                ax.plot(T, C_e_, label='invfree_')
+                plt.legend()
                 plt.show()
 
     def test_OTOCs_eye(self):

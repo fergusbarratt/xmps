@@ -1,5 +1,5 @@
 from numpy import load, cumsum as cs, expand_dims as ed, arange as ar
-from numpy import array, concatenate as ct, abs
+from numpy import array, concatenate as ct, abs, save
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 #mpl.style.use('ggplot')
@@ -28,6 +28,7 @@ avH = av(H)
 data = [(A, avA), (B, avB), (C, avC), (D, avD), (E, avE), (F, avF), (G, avG), (H, avH)]
 Ds = [1, 2, 3, 4, 5, 6, 7, 8]
 data = [abs(dat[1][-1]) for dat in data]
+save('data/exps',  (1/5e-3)*array(data))
 
 fig, ax = plt.subplots(2, 1, sharex=True)
 ax[0].scatter(Ds, list(map(sum, data)), marker='x')

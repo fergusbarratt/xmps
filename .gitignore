@@ -5,6 +5,7 @@ tdvp/
 notebooks/
 images/
 runs.md
+notes/
 
 # Byte-compiled / optimized / DLL files
 *.swp
