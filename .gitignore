@@ -4,6 +4,7 @@ tdvp/
 *.npy
 notebooks/
 images/
+notes/
 runs.md
 
 # Byte-compiled / optimized / DLL files
