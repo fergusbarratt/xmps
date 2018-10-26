@@ -21,30 +21,17 @@ bulkH =Sz12@Sz22+Sx22+Sz22
 H = [Sz12@Sz22+Sx12+Sx22+Sz12+Sz22] + [bulkH for _ in range(L-2)]
 W = L*[MPO_TFI(0, 0.25, 0.5, 0.5)]
 
-<<<<<<< HEAD:scripts/testing.py
-dt = 5e-3
-t_fin = 400
-=======
 dt = 1e-2
-t_fin = 200 
->>>>>>> 4ab65148d812cb27bd22516407f76b65d0832ab4:scripts/spectra/testing.py
+t_fin = 200
 T = linspace(0, t_fin, int(t_fin//dt)+1)
 
-if L<10:
-    psi_0 = load('fixtures/mat{}x{}.npy'.format(L,L))
-    mps = fMPS().left_from_state(psi_0).right_canonicalise(1)
-else:
-    mps = fMPS().load('fixtures/product{}.npy'.format(L))
+mps = fMPS().load('fixtures/product{}.npy'.format(L))
 
-Ds = [7, 8]
+Ds = [2]
 for D in Ds:
     F = Trajectory(mps, H=H, W=W, continuous=True)
     F.run_name = 'spectra/lyapunovs'
-<<<<<<< HEAD:scripts/testing.py
     exps, lys = F.lyapunov(T, D, t_burn=10)
-=======
-    exps, lys = F.lyapunov(T, D, t_burn=5, initial_basis=Q)
->>>>>>> 4ab65148d812cb27bd22516407f76b65d0832ab4:scripts/spectra/testing.py
     F.save(exps=True)
     #ax[0].plot(F.mps_history)
     #ax[1].plot(F.vs)
