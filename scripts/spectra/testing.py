@@ -38,12 +38,8 @@ for D in Ds:
     F.run_name = 'spectra/lyapunovs'
     exps, lys = F.lyapunov(T, D, t_burn=0)
     F.stop()
-    plt.plot(lys)
-    plt.savefig('x.pdf')
     F.resume('spectra/lyapunovs', n=1)
-    exps, lys = F.lyapunov(T, D, t_burn=0)
-    plt.plot(lys)
-    plt.savefig('y.pdf')
+    exps, lys = F.lyapunov(T[:5], D, t_burn=0)
 
     #ax[0].plot(F.mps_history)
     #ax[1].plot(F.vs)
