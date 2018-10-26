@@ -1,13 +1,13 @@
-import os 
+import os
 import glob
 import shutil
 import unittest
-import pickle 
+import pickle
 
 from time import time
 from fMPS import fMPS
 from tensor import get_null_space, H as cT, C as c
-from ncon import ncon 
+from ncon import ncon
 from tdvp.tdvp_fast import tdvp, MPO_TFI
 
 from spin import N_body_spins, spins, comm, n_body
@@ -90,7 +90,7 @@ class Trajectory(object):
             A_old = mps.copy()
         a1, a2, a3 = b5, b4, b3 = (146+5*sqrt(19))/540, (-2+10*sqrt(19))/135, 1/5
         b1, b2 = a5, a4 = (14-sqrt(19))/108, (-23-20*sqrt(19))/270
-        A = tdvp(tdvp(tdvp(tdvp(tdvp(mps.data, 
+        A = tdvp(tdvp(tdvp(tdvp(tdvp(mps.data,
                                      self.W, 1j*dt, a=a1, b=b1)[0],
                                  self.W, 1j*dt, a=a2, b=b2)[0],
                              self.W, 1j*dt, a=a3, b=b3)[0],
@@ -125,8 +125,8 @@ class Trajectory(object):
         return self
 
     def invfreeint(self, T, D=None, order='low'):
-        """invfreeint: inverse free (symmetric) integrator - wraps Frank code. 
-                       requires a MPO - MPO_TFI/MPO_XXZ from tdvp 
+        """invfreeint: inverse free (symmetric) integrator - wraps Frank code.
+                       requires a MPO - MPO_TFI/MPO_XXZ from tdvp
                        remember my ed thing has Sx = 1/2 Sx etc. for some reason
 
         :param T:
@@ -189,7 +189,7 @@ class Trajectory(object):
         return self
 
     def edint(self, T):
-        """edint: exact diagonalisation 
+        """edint: exact diagonalisation
         """
         H = self.H
         psi_0 = self.mps.recombine().reshape(-1)
@@ -206,9 +206,9 @@ class Trajectory(object):
         self.psi = self.ed_history[-1]
         return self
 
-    def lyapunov(self, T, D=None, 
-                 just_max=False, 
-                 t_burn=2, 
+    def lyapunov(self, T, D=None,
+                 just_max=False,
+                 t_burn=2,
                  initial_basis='F2'):
         self.has_run_lyapunov = True
         H = self.H
@@ -335,7 +335,7 @@ class Trajectory(object):
             psi_2[0] *= n2_0*n2_1
             Ws.append(psi_1_.overlap(psi_1_)+psi_2_.overlap(psi_2_)-
                       0.5*re(psi_1_.overlap(psi_2_)))
-            
+
         return Ws
 
     def mps_list(self):
@@ -374,7 +374,7 @@ class Trajectory(object):
         self.mps = self.mps_0.copy()
 
     def save(self, loc='data/', exps=True, clear=True):
-        assert self.mps_history 
+        assert self.mps_history
         assert hasattr(self, 'exps') if exps else True
         self.id = self.run_name+'_L{}_D{}_N{}'.format(self.mps.L, self.mps.D, len(self.mps_history))
         save(loc+self.id, self.mps_history if not exps else self.lys)
@@ -531,7 +531,7 @@ class TestTrajectory(unittest.TestCase):
                 plt.plot(T, C)
                 plt.plot(T, D)
                 plt.show()
-        
+
         test_2 = False
         if test_2:
             Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
@@ -568,7 +568,7 @@ class TestTrajectory(unittest.TestCase):
             Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
             Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
 
-            dt, t_fin = 2e-2, 10 
+            dt, t_fin = 2e-2, 10
             T = linspace(0, t_fin, int(t_fin//dt)+1)
 
             mps_0 = self.mps_0_3.right_canonicalise()
@@ -603,7 +603,7 @@ class TestTrajectory(unittest.TestCase):
             Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
             Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
 
-            dt, t_fin = 2e-2, 10 
+            dt, t_fin = 2e-2, 10
             T = linspace(0, t_fin, int(t_fin//dt)+1)
 
             mps_0 = self.mps_0_4.right_canonicalise()
@@ -638,7 +638,7 @@ class TestTrajectory(unittest.TestCase):
             Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
             Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
 
-            dt, t_fin = 2e-2, 10 
+            dt, t_fin = 2e-2, 10
             T = linspace(0, t_fin, int(t_fin//dt)+1)
 
             mps_0 = self.mps_0_5.right_canonicalise()
