@@ -272,7 +272,7 @@ class Trajectory(object):
                 self.vL = vL
 
         if hasattr(self, 'lys'):
-            self.lys = ct([self.lys, array(lys[1:])])
+            self.lys = self.lys#ct([self.lys, array(lys[1:])], axis=1)
         else:
             self.lys = array(lys)
 
