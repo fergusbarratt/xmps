@@ -15,7 +15,7 @@ from tdvp.tdvp_fast import MPO_TFI
 from scipy.interpolate import interp1d
 from scipy.optimize import curve_fit
 mpl.style.use('ggplot')
-L = 6  
+L = 6
 S_list = [N_body_spins(0.5, n, L) for n in range(1, L+1)]
 i = 2
 j = 2
@@ -38,7 +38,7 @@ fullH = sum([n_body(a, i, len(listH), d=2) for i, a in enumerate(listH)], axis=0
 
 dt = 0.1
 t_fin = 300
-D = 2**(L//2) 
+D = 2**(L//2)
 T = linspace(0, t_fin, int(t_fin//dt)+1)
 T = linspace(0, 300, 2000)
 #psi_0 = load('fixtures/mat{}x{}.npy'.format(L,L))
@@ -59,4 +59,5 @@ ax.set_title('$S_E$', loc='right')
 #fig.savefig('images/spectra/entanglement.pdf')
 
 fig.tight_layout()
+fig.savefig('images/spectra/Dt.pdf')
 plt.show()

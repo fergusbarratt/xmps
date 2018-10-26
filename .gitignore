@@ -4,6 +4,7 @@ tdvp/
 *.npy
 notebooks/
 images/
+notes/
 runs.md
 notes/
 
