@@ -394,7 +394,8 @@ class Trajectory(object):
         assert not self.fullH
         assert hasattr(self, 'W')
         # make directories - doesn't work if more runs than 10
-        # don't do more runs than 10
+        # shouldn't be doin more runs than 10
+        # careful that there are no files with run name in the folder
         run_dir = os.path.join(loc, self.run_name)
         if not run_dir in map(lambda x: x[:-2], glob.glob(run_dir+'_*')):
             run_dir = run_dir+'_1'

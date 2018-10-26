@@ -21,8 +21,8 @@ bulkH =Sz12@Sz22+Sx22
 H = [Sz12@Sz22+Sx12+Sx22] + [bulkH for _ in range(L-2)]
 W = L*[MPO_TFI(0, 0.25, 0.5, 0.)]
 
-dt = 5e-3
-t_fin = 800
+dt = 0.5
+t_fin = 5
 T = linspace(0, t_fin, int(t_fin//dt)+1)
 
 if L<10:
@@ -31,13 +31,20 @@ if L<10:
 else:
     mps = fMPS().load('fixtures/product{}.npy'.format(L))
 
-Ds = [4, 8]
+Ds = [1]
 for D in Ds:
     #fig, ax = plt.subplots(4, 1)
     F = Trajectory(mps, H=H, W=W, continuous=True)
     F.run_name = 'spectra/lyapunovs'
-    exps, lys = F.lyapunov(T, D, t_burn=10)
+    exps, lys = F.lyapunov(T, D, t_burn=0)
     F.stop()
+    plt.plot(lys)
+    plt.savefig('x.pdf')
+    F.resume('spectra/lyapunovs', n=1)
+    exps, lys = F.lyapunov(T, D, t_burn=0)
+    plt.plot(lys)
+    plt.savefig('y.pdf')
+
     #ax[0].plot(F.mps_history)
     #ax[1].plot(F.vs)
     #ax[2].plot(lys)
