@@ -839,6 +839,7 @@ class fMPS(object):
         """
         L, d, A = self.L, self.d, self.data
         l, r = self.get_envs()
+
         prs_vLs = [self.left_null_projector(n, l, get_vL=True) for n in range(self.L)]
         prs = [x[0] for x in prs_vLs]
         vLs = [x[1] for x in prs_vLs]
