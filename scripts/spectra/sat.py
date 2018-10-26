@@ -38,20 +38,23 @@ fullH = sum([n_body(a, i, len(listH), d=2) for i, a in enumerate(listH)], axis=0
 
 dt = 0.1
 t_fin = 300
-D = 2**(L//2) 
 T = linspace(0, t_fin, int(t_fin//dt)+1)
-T = linspace(0, 300, 2000)
+T = linspace(0, 1000, 10000)
 #psi_0 = load('fixtures/mat{}x{}.npy'.format(L,L))
 
 #mps = fMPS().left_from_state(psi_0).left_canonicalise(1).expand(D)
-mps = fMPS().load('fixtures/product{}.npy'.format(L)).left_canonicalise().expand(D)
+fMPS().random(L, 2, 1).right_canonicalise().store('fixtures/product{}.npy'.format(L))
+D = 8
+for D in range(2, 8):
+    mps = fMPS().load('fixtures/product{}.npy'.format(L)).right_canonicalise().expand(D)
+    W = L*[MPO_TFI(0, 0.5, 0.25, 0.25)]
 
-F = Trajectory(mps, H=fullH, fullH=True)
-F.run_name = 'spectra/entanglement'
-F.edint(T)
-sch = array(F.schmidts())
-λ = array([max([-re(s@log(s)) for s in S]) for S in sch])
-save('data/S', λ)
+    F = Trajectory(mps, H=listH, W=W, fullH=False)
+    F.run_name = 'spectra/entanglement'
+    F.invfreeint(T)
+    sch = array(F.schmidts())
+    λ = array([max([-re(s@log(s)) for s in S]) for S in sch])
+    save('data/S_{}'.format(D), λ)
 
 fig, ax = plt.subplots(1, 1, sharex=True)
 ax.plot(T[1:], λ)

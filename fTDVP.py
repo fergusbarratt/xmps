@@ -337,6 +337,11 @@ class Trajectory(object):
         return array([mps.Es(ops, site)
                     for mps in map(lambda x: fMPS().deserialize(x, L, d, D, real=True), self.mps_history)])
 
+    def deserialize(self):
+        L, d, D = self.mps.L, self.mps.d, self.mps.D
+        return list(map(lambda x: fMPS().deserialize(x, L, d, D, real=True), self.mps_history))
+
+
     def schmidts(self):
         if hasattr(self, 'ed_history'):
             sch = []

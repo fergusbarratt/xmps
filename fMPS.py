@@ -17,7 +17,7 @@ from numpy import split as chop, ones_like, save, load, zeros_like as zl
 from numpy import eye, cumsum as cs, sqrt, expand_dims as ed, imag as im
 from numpy import transpose as tra, trace as tr, tensordot as td, kron
 from numpy import mean, sign, angle, unwrap, exp, diff, pi, squeeze as sq
-from numpy import round, flipud
+from numpy import round, flipud, cos, sin, exp, arctan2, arccos
 
 from scipy.linalg import null_space as null, orth, expm#, sqrtm as ch
 from scipy.linalg import polar
@@ -228,9 +228,25 @@ class fMPS(object):
         :param D: bond dimension
         generate a random fMPS
         """
-
         self.L = L
         self.d = d
+        if D == 1:
+            self.D = 1
+            # random product states
+            V = randn(L, 3)
+            V = V/ed(norm(V, axis=-1), -1)
+            def to_spherical(rs):
+                sphers = []
+                for r in rs:
+                    [x, y, z] = r
+                    sphers.append([norm(r), arctan2(y,z), arccos(z/norm(r))])
+                return array(sphers)
+            V = to_spherical(V)
+            self.data = []
+            for _, th, f in V:
+                self.data.append(ed(ed(array([cos(th/2), exp(1j*f)*sin(th/2)]), -1), -1))
+            return self
+
         fMPS = [rand(*((d,) + shape)) + 1j*rand(*((d,) + shape))
                 for shape in self.create_structure(L, d, D)]
         self.D = max([max(shape[1:]) for shape in self.create_structure(L, d, D)])
