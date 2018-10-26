@@ -255,8 +255,7 @@ class Trajectory(object):
                 lys.append(log(abs(diag(R))))
 
             if has_mpo:
-                if t==0:
-                    vL = self.mps.new_vL
+                vL = self.mps.new_vL
 
                 self.mps = self.invfree4(self.mps, dt, H)
 
@@ -477,23 +476,24 @@ class TestTrajectory(unittest.TestCase):
         Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
         Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
 
-        dt, t_fin = 1e-2, 2
+        dt, t_fin = 2e-2,5
         T = linspace(0, t_fin, int(t_fin//dt)+1)
 
-        mps_0 = self.mps_0_5.right_canonicalise(3)
-        H = [Sz1@Sz2+Sx1+Sx2] + [Sz1@Sz2+Sx2] + [Sz1@Sz2+Sx2] + [Sz1@Sz2+Sx2]
+        mps_0 = self.mps_0_4.right_canonicalise(3)
+        H = [Sz1@Sz2+Sx1+Sx2] + [Sz1@Sz2+Sx2] + [Sz1@Sz2+Sx2]
         W = mps_0.L*[MPO_TFI(0, 0.25, 0.5, 0)]
         F = Trajectory(mps_0, H=H, W=W)
         F.run_name = 'test'
 
-        F.lyapunov(T, 3, t_burn=0)
+        F.lyapunov(T, t_burn=0)
         F.stop()
         F_ = Trajectory().resume('test')
         self.assertTrue(F_.mps_0==F.mps_0)
         self.assertTrue(F_.mps==F.mps)
         self.assertTrue(allclose(F_.Q, F.Q))
         self.assertTrue(allclose(F_.lys, F.lys))
-        F_.lyapunov(T, 3)
+        self.assertTrue(all([allclose(F.vL[i], F_.mps.old_vL[i]) for i in range(len(F.vL))]))
+        F_.lyapunov(T)
         self.assertTrue(len(F_.lys)==2*len(T)-1)
 
         plt.plot(F.vs+F_.vs)

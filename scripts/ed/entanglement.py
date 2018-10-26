@@ -19,11 +19,11 @@ Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
 Sx, Sy, Sz = spins(0.5)
 
 L = 6 
-bulkH =Sz12@Sz22+Sx22/2
-H = [Sz12@Sz22+Sx12/2+Sx22/2]+[bulkH for _ in range(L-2)]
+bulkH =Sz12@Sz22+Sx22
+H = [Sz12@Sz22+Sx12+Sx22]+[bulkH for _ in range(L-2)]
 
-dt = 0.2
-t_fin = 2000
+dt = 0.01
+t_fin = 100
 D = 8
 T = linspace(0, t_fin, int(t_fin//dt)+1)
 psi_0 = load('fixtures/mat{}x{}.npy'.format(L,L))
@@ -42,4 +42,5 @@ ax.plot(T[1:], λ)
 ax.set_title('$D(t)$', loc='right')
 
 fig.tight_layout()
+fig.savefig('images/spectra/Dt.pdf')
 plt.show()
