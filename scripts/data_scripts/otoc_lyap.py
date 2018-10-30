@@ -18,10 +18,10 @@ dt = 0.15
 z = 2*dt*cs(λ(Ds))
 z_ = dt*cs(λ_(Ds))
 
-k = 500
-plt.plot(linspace(0, 100, 2000)[:k], y[:k]-y[k], label='$log(OTOC(Sz^3, Sz^3)(t))$')
+k = -1
+plt.plot(linspace(0, 20, 100)[:k], (y[:k])[:99], label='$log(OTOC(Sz^3, Sz^3)(t))$')
 #plt.plot(linspace(0, 100, 1999), av(y[1:]), label='$av(log(OTOC(Sz^3, Sz^3)(t)))$')
-plt.plot(linspace(0, 100, 1999)[:k], z[:k]-z[k], label='$\int^t\lambda_m(D(t))dt$')
+plt.plot(linspace(0, 20, 100)[:k], (z[:k])[:99], label='$\int^t\lambda_m(D(t))dt$')
 #plt.plot(linspace(0, 100, 1999), z_, label='$\int^t\lambda_{ks}(D(t))dt$')
 #plt.plot(linspace(0, 100, 1999), av(log(z)-log(z)[0]), label='$av(log(N\int^t\lambda(D(t))dt))$')
 #plt.plot(linspace(0, 100, 1999), x, label='$S_E(t)$')

@@ -8,13 +8,18 @@ from scipy.optimize import curve_fit
 from scipy.interpolate import interp1d
 
 import matplotlib.pyplot as plt
-def av(lys):
-    return cs(array(lys), axis=0)/ar(1, len(lys)+1)
+def av(lys, dt=1):
+    return (1/dt)*cs(array(lys), axis=0)/ar(1, len(lys)+1)
 Y = []
-for D in range(2, 8):
+for D in range(2, 9):
     X = load('data/S_{}.npy'.format(D))
     #plt.plot(av(X), label=str(D))
     Y.append(av(X)[-1])
+
+plt.scatter(range(2, 8), Y)
+plt.show()
+raise Exception
+
 
 Ds = array([2, 3, 4, 5, 6, 7])
 dat = array(Y)
