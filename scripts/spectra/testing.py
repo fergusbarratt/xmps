@@ -17,11 +17,11 @@ Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
 Sx, Sy, Sz = spins(0.5)
 
 L = 6
-bulkH =Sz12@Sz22+Sx22
-H = [Sz12@Sz22+Sx12+Sx22] + [bulkH for _ in range(L-2)]
-W = L*[MPO_TFI(0, 0.25, 0.5, 0.)]
+bulkH =Sz12@Sz22+Sx22+Sz22
+H = [Sz12@Sz22+Sx12+Sx22+Sz12+Sz22] + [bulkH for _ in range(L-2)]
+W = L*[MPO_TFI(0, 0.25, 0.5, 0.5)]
 
-dt = 0.5
+dt = 0.1
 t_fin = 5
 T = linspace(0, t_fin, int(t_fin//dt)+1)
 
@@ -32,6 +32,12 @@ for D in Ds:
     F = Trajectory(mps, H=H, W=W, continuous=True)
     F.run_name = 'spectra/lyapunovs'
     exps, lys = F.lyapunov(T, D, t_burn=0)
+    fig, ax = plt.subplots(2, 1, sharex=True)
+    ax[0].plot(lys)
     F.stop()
-    F.resume('spectra/lyapunovs', n=1)
-    exps, lys = F.lyapunov(T[:5], D, t_burn=0)
+    F.resume('spectra/lyapunovs')
+    exps, lys = F.lyapunov(T, D, t_burn=0)
+    F.delete()
+    ax[1].plot(lys)
+    plt.show()
+

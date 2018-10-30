@@ -272,7 +272,7 @@ class Trajectory(object):
                 self.vL = vL
 
         if hasattr(self, 'lys'):
-            self.lys = ct([self.lys, array(lys[1:])])
+            self.lys = ct([self.lys, array(lys)])
         else:
             self.lys = array(lys)
 
@@ -283,7 +283,7 @@ class Trajectory(object):
             self.Q = Q
             self.exps = cs(self.lys, axis=0)/ed(ar(1, len(self.lys)+1), 1)
 
-        return self.exps, array(lys)
+        return self.exps, self.lys
 
     def ed_OTOC(self, T, ops):
         """ed_OTOC: -<[W(t), V(0)], [W(t), V(0)]>
@@ -465,6 +465,10 @@ class Trajectory(object):
             self.lys = load(lys_loc)
 
         return self
+
+    def delete(self):
+        print('deleting...',  self.run_dir)
+        shutil.rmtree(self.run_dir)
 
 class TestTrajectory(unittest.TestCase):
     """TestF"""
