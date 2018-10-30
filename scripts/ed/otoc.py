@@ -11,6 +11,7 @@ from numpy import load, linspace, save, sum, log, array, cumsum as cs
 from numpy import arange as ar, mean
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+from tensor import H as cT, C as c
 mpl.style.use('ggplot')
 L = 6
 S_list = [N_body_spins(0.5, n, L) for n in range(1, L+1)]
@@ -30,16 +31,17 @@ fullH = sum([n_body(a, i, len(listH), d=2) for i, a in enumerate(listH)], axis=0
 
 mpss = Trajectory(fMPS().load('fixtures/product{}.npy'.format(L)),
                   H=listH,
-                  W=L*[MPO_TFI(0, 0.5, 0.25, 0.25)]).invfreeint(
-                          linspace(0, 100, 1000), 'high').mps_list()
+                  W=L*[MPO_TFI(0, 0.25, 0.5, 0.5)]).invfreeint(
+                          linspace(0, 1000, 2000), 'high').mps_list()
 otocss = []
 for mps in mpss:
     T = linspace(0, 20, 100)
     ops = Szi, Szj 
+    #print(c(mps.recombine().reshape(-1))@fullH@mps.recombine().reshape(-1))
     otocs = array(Trajectory(mps, fullH, fullH=True).ed_OTOC(T, ops))
     otocss.append(otocs)
 otocss = array(otocss)
-plt.plot(otocss.T[::10])
+plt.plot(otocss[::10].T)
 plt.show()
 
 ma = mean(otocss, axis=0)
