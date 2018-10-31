@@ -43,7 +43,7 @@ T = linspace(0, 1000, 10000)
 #psi_0 = load('fixtures/mat{}x{}.npy'.format(L,L))
 
 #mps = fMPS().left_from_state(psi_0).left_canonicalise(1).expand(D)
-fMPS().random(L, 2, 1).right_canonicalise().store('fixtures/product{}.npy'.format(L))
+#fMPS().random(L, 2, 1).right_canonicalise().store('fixtures/product{}.npy'.format(L))
 D = 8
 for D in range(2, 8):
     mps = fMPS().load('fixtures/product{}.npy'.format(L)).right_canonicalise().expand(D)

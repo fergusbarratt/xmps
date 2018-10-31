@@ -13,12 +13,9 @@ def av(lys, dt=1):
 Y = []
 for D in range(2, 9):
     X = load('data/S_{}.npy'.format(D))
-    #plt.plot(av(X), label=str(D))
+    plt.plot(X, label=str(D))
     Y.append(av(X)[-1])
-
-plt.scatter(range(2, 8), Y)
 plt.show()
-raise Exception
 
 
 Ds = array([2, 3, 4, 5, 6, 7])
@@ -34,14 +31,12 @@ def D(s):
     else:
         return g_(s)
 
-D = vectorize(D)
-
 
 Ds_ = array([1, 2, 3, 4, 5, 6, 7, 8])
 lamb = load('data/exps.npy')
 max_l = array(list(map(max, map(abs, lamb))))
 ks = array(list(map(sum, map(abs, lamb))))/2
 
-λ = interp1d(Ds_, max_l)
-λ_ = interp1d(Ds_, ks)
-
+D = vectorize(D)
+max_l = interp1d(Ds_, max_l)
+ks = interp1d(Ds_, ks)
