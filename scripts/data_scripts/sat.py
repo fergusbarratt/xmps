@@ -25,9 +25,9 @@ def numdiff(F, T=None):
 # rolling max - make function monotonic
 def rm(lys):
     a = [lys[0]]
-    for i in lys:
+    for i in lys[1:]:
         a.append(i if i>a[-1] else a[-1])
-    return a
+    return array(a)
 
 Y = []
 # load all the entanglement entropies - time average, and add last element to Y
@@ -85,12 +85,12 @@ plt.show()
 fig, ax = plt.subplots(2, 2, sharex=True)
 C = load('data/otocs.npy')
 S = load('data/S.npy')
-factor = (D(S))**2
+factor = (rm(D(S)))**2
 ax[0][0].plot(numdiff(C))
 ax[0][0].set_title('$\partial_t C(t)$')
-ax[1][0].plot(max_l(rm(D(S)))[:-1])
+ax[1][0].plot(max_l(rm(D(S))))
 ax[1][0].set_title('$\lambda_{max}(D(t))$')
-ax[1][1].plot(ks(rm(D(S)))[:-1]/factor)
+ax[1][1].plot(ks(rm(D(S)))/factor)
 ax[1][1].set_title('$S_{KS}(D(t))/D(t)^2$')
 ax[0][1].plot(numdiff(S))
 ax[0][1].set_title('$\partial_t S_E(t)$')
@@ -102,17 +102,18 @@ plt.show()
 
 fig, ax = plt.subplots(1, 1)
 ax.plot(numdiff(S), label ='$\partial_t S_E(t)$')
-ax.plot(ks(rm(D(S)))[:-1]/factor, label='$S_{KS}(D(t))/(D(t)^2)$')
+ax.plot(ks(rm(D(S)))/factor, label='$S_{KS}(D(t))/(D(t)^2)$')
 ax.set_xlabel('$t$')
 plt.savefig('images/sat/dS_Ks.pdf')
 plt.legend()
 plt.show()
 
-
 fig, ax = plt.subplots(1, 1)
-factor = S[:-1]
-ax.plot(numdiff(C)[1:]/C[1:-1], label='$\partial_t ln(C(t)')
-ax.plot(2*max_l(rm(D(S)))[1:-1]/factor, label='$2*\lambda_{max}(D(t)/S_E(t)$')
-plt.savefig('images/sat/dlnC_lmax.pdf')
-ax.set_ylim([-2, 5])
+factor = rm(D(S))**2/72
+ax.plot(av(numdiff(C)[1:]/C[1:-1]), label='$\partial_t ln(C(t)$')
+ax.plot(2*max_l(rm(D(S)))/factor, label='$2L^2*2\lambda_{max}(D(t))/D^2(t)$')
+plt.legend()
+#ax.set_ylim([-2, 5])
+#plt.savefig('images/sat/dlnC_lmax.pdf')
 plt.show()
+
