@@ -6,8 +6,10 @@ from numpy import load, cumsum as cs, arange as ar, expand_dims as ed
 from numpy import array, log, save, exp, vectorize, linspace, log
 from scipy.optimize import curve_fit
 from scipy.interpolate import interp1d
+import matplotlib as mpl
 
 import matplotlib.pyplot as plt
+plt.style.use('ggplot')
 
 dt = 0.1
 
@@ -75,11 +77,12 @@ ks = array(list(map(sum, map(abs, lamb))))/2
 max_l = interp1d(Ds_, max_l)
 ks = interp1d(Ds_, ks)
 
-plt.plot(Ds_, max_l(Ds_), label='$\lambda_{max}(D)$')
-plt.plot(Ds_, ks(Ds_), label='$S_{KS}(D)$')
-plt.legend()
-plt.xlabel('$D$')
-plt.savefig('images/sat/lambda_max_ks.pdf')
+fig, ax = plt.subplots(1, 1, figsize=(7, 4))
+ax.scatter(Ds_, max_l(Ds_), label='$\lambda_{max}(D)$', marker='x')
+ax.scatter(Ds_, ks(Ds_), label='$S_{KS}(D)$', marker='x')
+ax.legend()
+ax.set_xlabel('$D$')
+fig.savefig('images/sat/lambda_max_ks.pdf')
 plt.show()
 
 fig, ax = plt.subplots(2, 2, sharex=True)
@@ -109,7 +112,7 @@ plt.savefig('images/sat/dS_Ks.pdf')
 plt.show()
 
 fig, ax = plt.subplots(1, 1)
-factor = rm(D(S))**2/72
+factor = rm(D(S))**2
 ax.plot(numdiff(C)[1:]/C[1:-1], label='$\partial_t ln(C(t)$')
 ax.plot(2*max_l(rm(D(S)))/factor, label='$2L^2*2\lambda_{max}(D(t))/D^2(t)$')
 plt.legend()
