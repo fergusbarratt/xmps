@@ -112,11 +112,11 @@ plt.savefig('images/sat/dS_Ks.pdf')
 plt.show()
 
 fig, ax = plt.subplots(1, 1)
-factor = rm(D(S))**2
-ax.plot(numdiff(C)[1:]/C[1:-1], label='$\partial_t ln(C(t)$')
-ax.plot(2*max_l(rm(D(S)))/factor, label='$2L^2*2\lambda_{max}(D(t))/D^2(t)$')
+factor = 1
+ax.plot(numdiff(log(C[1:])), label='$\partial_t ln(C(t)$')
+ax.plot(2*max_l(rm(D(S)))[:(len(C)+1)], label='$2\lambda_{max}(D(t))$')
 plt.legend()
 #ax.set_ylim([-2, 5])
-plt.savefig('images/sat/dlnC_lmax.pdf')
+#plt.savefig('images/sat/dlnC_lmax.pdf')
 plt.show()
 

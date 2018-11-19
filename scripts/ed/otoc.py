@@ -15,8 +15,8 @@ from tensor import H as cT, C as c
 mpl.style.use('ggplot')
 L = 6
 S_list = [N_body_spins(0.5, n, L) for n in range(1, L+1)]
-i = 2
-j = 2
+i = 3
+j = 4
 Sxi, Syi, Szi = S_list[i]
 Sxj, Syj, Szj = S_list[j]
 
@@ -34,8 +34,8 @@ L = 6
 # generate a list of product states with the same energy
 mpss = Trajectory(fMPS().load('fixtures/product{}.npy'.format(L)),
                   H=listH,
-                  W=L*[MPO_TFI(0, 0.25, 0.5, 0.)]).invfreeint(
-                          linspace(0, 3000, 10), 'high').mps_list()
+                  W=L*[MPO_TFI(0, 0.25, 0.5, 0.5)]).invfreeint(
+                          linspace(0, 3000, 33), 'high').mps_list()
 
 e = []
 for mps in mpss:
@@ -46,8 +46,8 @@ plt.show()
 
 otocss = []
 for mps in mpss:
-    T = linspace(0, 100, 1000)
-    ops = Szi, Szj 
+    T = linspace(0, 50, 200)
+    ops = Szi, Szj
     otocs = array(Trajectory(mps, fullH, fullH=True).ed_OTOC(T, ops))
     otocss.append(otocs)
 
