@@ -603,7 +603,7 @@ class fMPS(object):
             l, r = self.get_envs()
             e = []
             for m, h in enumerate(H):
-                h = h.reshape(2, 2, 2, 2)
+                h = h.reshape(*[self.d]*4)
                 C = ncon([h]+self.data[m:m+2], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]])
                 e.append(ncon([c(l(m-1))@self.data[m].conj(), self.data[m+1].conj()@c(r(m+1))]+[C], [[1, 3, 4], [2, 4, 5], [1, 2, 3, 5]]))
             return re(sum(e))
@@ -663,7 +663,7 @@ class fMPS(object):
         l, r = self.l, self.r
         def vR(n): return self.right_null_projector(n, r, True)[1]
 
-        H = [h.reshape(2, 2, 2, 2) for h in H]
+        H = [h.reshape(*[self.d]*4) for h in H]
         def G(m):
             C = ncon([H[m]]+[l(m-1)@A[m], A[m+1]@r(m+1)], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
             return ncon([c(vL(m)), c(vR(m+1)), C], [[1, 3, -1], [2, -2, 4], [1, 2, 3, 4]])
@@ -713,7 +713,7 @@ class fMPS(object):
         L, d, A, D = self.L, self.d, self.data, self.D
         def vR(n): return self.right_null_projector(n, r, True)[1]
 
-        H = [h.reshape(2, 2, 2, 2) for h in H]
+        H = [h.reshape(*[self.d]*4) for h in H]
         def G(m):
             return ncon([l(m-1)@A[m], A[m+1]@r(m+1), H[m], c(vL(m)), c(vR(m+1))],
                         [[2, 1, 4], [6, 4, 8], [3, 6, 2, 7], [3, 1, -1], [7, -2, 8]])
@@ -992,7 +992,7 @@ class fMPS(object):
                 d, Din_1, Di = self[i].shape
 
                 if not d*Din_1==Di:
-                    H = [h.reshape(2, 2, 2, 2) for h in H]
+                    H = [h.reshape(*[self.d]*4) for h in H]
                     if str(i) not in self.F1_i_mem_:
                         # compute i properties, and store in cache
                         Rd_ = ncon([inv_ch_l(i-1)@c(vL(i)), A[i]], [[1, -2, -3], [1, -1, -4]])
@@ -1070,7 +1070,7 @@ class fMPS(object):
                 if testing:
                     G = 1j*zeros((*A[i].shape, *A[j].shape))
                     d, Din_1, Di = self[i].shape
-                    H = [h.reshape(2, 2, 2, 2) for h in H]
+                    H = [h.reshape(*[self.d]*4) for h in H]
 
                     Rd = ncon([pr(i), A[i]], [[-3, -4, 1, -2], [1, -1, -5]])
                     Lb = ncon([l(i-1)]+[pr(i), pr(i), inv(r(i)), inv(r(i))], [[2, 3], [-1, -2, 1, 2], [1, 3, -4, -5], [-3, -7], [-6, -8]])
@@ -1257,7 +1257,7 @@ class fMPS(object):
 
             G_ = 1j*zeros((gDi, gDi_1, gDj, gDj_1))
         elif not fullH:
-            H = [h.reshape(2, 2, 2, 2) for h in H]
+            H = [h.reshape(*[self.d]*4) for h in H]
             # new stuff
             gDi, gDi_1 = vL(i).shape[-1], A[i+1].shape[1] if i != self.L-1 else 1
             gDj, gDj_1 = vL(j).shape[-1], A[j+1].shape[1] if j != self.L-1 else 1
