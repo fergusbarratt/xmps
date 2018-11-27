@@ -913,18 +913,21 @@ class fMPS(object):
 
         J1_ = -1j*zeros((DD, DD))
         J2_ = -1j*zeros((DD, DD))
+        Γ2_ = -1j*zeros((DD, DD))
         for i_ in range(len(shapes)):
             for j_ in range(len(shapes)):
                 i, j = i_+nulls, j_+nulls
 
                 J1_ij = F1(i,j)
-                J2_ij = F2(i, j) + Γ2(i, j)
+                J2_ij = F2(i, j)
+                Γ2_ij =  Γ2(i, j)
 
                 J1_[ind(i_), ind(j_)] = J1_ij.reshape(prod(J1_ij.shape[:2]), -1)
                 J2_[ind(i_), ind(j_)] = J2_ij.reshape(prod(J2_ij.shape[:2]), -1)
+                Γ2_[ind(i_), ind(j_)] = Γ2_ij.reshape(prod(Γ2_ij.shape[:2]), -1)
 
         if not real_matrix:
-            return J1_, J2_
+            return J1_, J2_+Γ2_
         if not as_matrix:
             def gauge(G, i, j):
                 return ncon([G, inv(ch(l(i-1)))@vL(i), inv(ch(l(j-1)))@c(vL(j)), inv(ch(r(i))), inv(ch(r(j)))], 
@@ -934,6 +937,8 @@ class fMPS(object):
                             [[1, 3, 2, 4], [-1, -2, 1], [-4, -5, 2], [-3, 3], [-6, 4]])
 
             return (lambda i, j: gauge(F1(i, j), i, j)), (lambda i, j: gauge_(F2(i, j)+Γ2(i, j), i, j))
+        
+        J2_ = J2_ + Γ2_
 
         J = kron(Sz, re(J2_)) + kron(eye(2), re(J1_)) + kron(Sx, im(J2_)) + kron(-1j*Sy, im(J1_))
         return J

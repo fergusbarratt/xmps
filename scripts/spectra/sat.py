@@ -25,7 +25,7 @@ Sxj, Syj, Szj = S_list[j]
 Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
 Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
 
-g, h = (sqrt(5)+2)/8, (sqrt(5)+1)/4
+#g, h = (sqrt(5)+2)/8, (sqrt(5)+1)/4
 #ent = 4*Sz1@Sz2
 #loc = 2*g*Sx1+2*h*Sz1, 2*g*Sx2+2*h*Sz2
 ent = Sz1@Sz2
@@ -43,11 +43,11 @@ T = linspace(0, 1000, 10000)
 #psi_0 = load('fixtures/mat{}x{}.npy'.format(L,L))
 
 #mps = fMPS().left_from_state(psi_0).left_canonicalise(1).expand(D)
-fMPS().random(L, 2, 1).right_canonicalise().store('fixtures/product{}.npy'.format(L))
+#fMPS().random(L, 2, 1).right_canonicalise().store('fixtures/product{}.npy'.format(L))
 D = 8
 for D in range(2, 8):
     mps = fMPS().load('fixtures/product{}.npy'.format(L)).right_canonicalise().expand(D)
-    W = L*[MPO_TFI(0, 0.5, 0.25, 0.25)]
+    W = L*[MPO_TFI(0, 0.25, 0.5, 0.5)]
 
     F = Trajectory(mps, H=listH, W=W, fullH=False)
     F.run_name = 'spectra/entanglement'

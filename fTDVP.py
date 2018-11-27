@@ -204,12 +204,14 @@ class Trajectory(object):
 
         self.ed_history = array(self.ed_history)
         self.psi = self.ed_history[-1]
+        self.mps = fMPS().left_from_state(self.psi.reshape([self.mps.d]*self.mps.L))
         return self
 
     def lyapunov(self, T, D=None,
                  just_max=False,
                  t_burn=2,
-                 initial_basis='F2'):
+                 initial_basis='F2', 
+                 order='high'):
         self.has_run_lyapunov = True
         H = self.H
         has_mpo = self.W is not None
@@ -256,8 +258,11 @@ class Trajectory(object):
 
             if has_mpo:
                 vL = self.mps.new_vL
-
-                self.mps = self.invfree4(self.mps, dt, H)
+                
+                if order=='high':
+                    self.mps = self.invfree4(self.mps, dt, H)
+                elif order=='low':
+                    self.mps = self.invfree(self.mps, dt, H)
 
                 self.mps.old_vL = vL
                 self.vL = vL
