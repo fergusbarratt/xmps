@@ -207,10 +207,42 @@ class Trajectory(object):
         self.mps = fMPS().left_from_state(self.psi.reshape([self.mps.d]*self.mps.L))
         return self
 
+
+    def lyapunov2(self, T, D=None):
+        self.has_run_lyapunov = True
+        H = self.H
+        has_mpo = self.W is not None
+        if D is not None and t_burn!=0 and not hasattr(self, 'Q'):
+            # if MPO supplied - just expand, canonicalise and use inverse free integrator
+            # otherwise use dynamical expand: less numerically stable
+            # if we already have a basis set - we must be resuming a run
+            if has_mpo:
+                self.mps = self.mps.right_canonicalise().expand(D)
+                self.invfreeint(linspace(0, t_burn, int(50*t_burn)), order='high')
+                self.burn_len = int(200*t_burn)
+                self.mps_history = []
+            else:
+                self.mps = self.mps.grow(self.H, 0.1, D).right_canonicalise()
+                self.rk4int(linspace(0, 1, 100))
+
+        dt = T[1]-T[0]
+        self.lys = []
+        for t in tqdm(range(len(T))):
+            J1, J2, Γ2 = self.mps.jac(H, real_matrix=False)
+            J2 = kron(Sz, re(J2))+kron(Sz, im(J2))
+            self.lys.append(eig(J2)[0])
+            self.mps = self.invfree4(self.mps, dt, H)
+
+        self.lys = array(self.lys)
+        self.exps = 1/dt*cs(self.lys, axis=0)/ed(ar(1, len(self.lys)+1), 1)
+        return self.lys, self.exps
+
+
+
     def lyapunov(self, T, D=None,
                  just_max=False,
                  t_burn=2,
-                 initial_basis='F2', 
+                 initial_basis='F2',
                  order='high'):
         self.has_run_lyapunov = True
         H = self.H
@@ -236,12 +268,14 @@ class Trajectory(object):
             Q = kron(eye(2), self.mps.tangent_space_basis(H=H, type=initial_basis))
         else:
             Q = initial_basis
+        Q_ = copy(Q)
 
         if just_max:
             # just evolve top vector, dont bother with QR
             q = Q[0]
         dt = T[1]-T[0]
         lys = []
+        lys_ = []
         self.vs = []
         for t in tqdm(range(len(T))):
             J = self.mps.jac(H)
@@ -253,12 +287,15 @@ class Trajectory(object):
                 q /= norm(q)
             else:
                 M = expm_multiply(J*dt, Q)
+                M_ = expm_multiply(-J.T*dt, Q_)
                 Q, R = qr(M)
+                Q_, R_ = qr(M_)
                 lys.append(log(abs(diag(R))))
+                lys_.append(log(abs(diag(R_))))
 
             if has_mpo:
                 vL = self.mps.new_vL
-                
+
                 if order=='high':
                     self.mps = self.invfree4(self.mps, dt, H)
                 elif order=='low':
@@ -278,8 +315,10 @@ class Trajectory(object):
 
         if hasattr(self, 'lys'):
             self.lys = ct([self.lys, array(lys)])
+            self.lys_ = ct([self.lys_, array(lys_)])
         else:
             self.lys = array(lys)
+            self.lys_ = array(lys_)
 
         if just_max:
             self.q = q
@@ -288,7 +327,7 @@ class Trajectory(object):
             self.Q = Q
             self.exps = cs(self.lys, axis=0)/ed(ar(1, len(self.lys)+1), 1)
 
-        return self.exps, self.lys
+        return self.exps, self.lys, self.lys_
 
     def ed_OTOC(self, T, ops):
         """ed_OTOC: -<[W(t), V(0)], [W(t), V(0)]>
@@ -442,6 +481,7 @@ class Trajectory(object):
 
         if self.has_run_lyapunov:
             save(os.path.join(run_dir, name+'_inst_exps'), self.lys)
+            save(os.path.join(run_dir, name+'_inst_exps_'), self.lys_)
             save(os.path.join(run_dir, name+'_basis'), self.Q)
         return run_dir
 
@@ -474,6 +514,7 @@ class Trajectory(object):
     def delete(self):
         print('deleting...',  self.run_dir)
         shutil.rmtree(self.run_dir)
+
 
 class TestTrajectory(unittest.TestCase):
     """TestF"""
@@ -642,7 +683,7 @@ class TestTrajectory(unittest.TestCase):
             Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 4)
             Sx3, Sy3, Sz3 = N_body_spins(0.5, 3, 4)
             Sx4, Sy4, Sz4 = N_body_spins(0.5, 4, 4)
-            
+
             X = F.edint(T)
             A = X.ed_evs([Sx3, Sy3, Sz3])
             A_e = X.ed_energies()
