@@ -2,61 +2,143 @@
 
 \usepackage{physics}
 \usepackage{amsmath}
+\usepackage[margin=1in]{geometry}
 
 \title{Transfer Report}
 \author{Fergus Barratt}
 
-
 \begin{document}
 \maketitle
-\section{Spin Wave calculation of the OTOC}
+\section{Introduction}
+The effective use of quantum technology requires the systems we build to be isolated from the environment.
+In general this can only be achieved approximately.
+In this project, we investigate the role of the world at large in three different ways
+\begin{enumerate}
+    \item In gate-based quantum computation, the threshold theorem says that any local environmental influence can be overcome by error correction.
+          No such theorem exists for adiabatic quantum computation. 
+          We introduce tools from classical statistical mechanics to characterise the failure of adiabatic quantum computation.
+    \item We introduce a useful connection between different ways of treating the environment.
+    \item Classical systems exhibit dynamical chaos - an exponential sensitivity to initial conditions. 
+          In quantum systems classical chaos is impossible.
+          What role does the standard tool for characterising dynamical chaos - the lyapunov spectrum - play in the quantum case?
+          We build on some earlier work in this area, and compare to standard tools for evaluating quantum chaos.
+\end{enumerate}
 %
-Start with XXZ hamiltonian
+\section{Failure of Adiabatic Quantum Computation}\label{sec:failure}
+%
+\subsection{Introduction}
+Adiabatic Quantum Computation (AQC) is an alternative (equivalent~\cite{Aharonov2004}) paradigm of quantum computation.
+We prepare the ground state of some easily accessed Hamiltonian.
+If we tune the parameters in the hamiltonian sufficiently slowly, then by the adiabatic theorem~\cite{born1928adiabatic} the system will remain in the ground state of the time varying hamiltonian.
+By transforming the state in this way we can perform a quantum computation.
+
+Whilst the effect of the environment on gate-based quantum computation is well understood, the same is not true about AQC.
+In particular, for gate-based QC we have threshold theorems that suggest that if we have access to sufficiently many qubits we can overcome the effects of local noise. 
+In the following, we introduce methods popularised in the study of classical glasses to characterise failure in AQC.
+\subsection{Dynamical Phase Transitions}
+Phase transitions are conventionally understood by a free energy, which becomes discontinuous as a function of some system parameter. 
+One standard example is found in the classical Ising model in two dimensions, in which we can distinguish a paramagnetic from a ferromagnetic phase by a discontinuity in the free energy as a function of temperature.
+Each phase is characterised by the value of some order parameter, in this case the magnetisation.
+A more rigorous understanding of this formalism can be achieved by using large deviation theory. 
+The partition function 
 \begin{equation}
-    H = -J \sum_i S_{i}^xS_{i+1}^x+S_{i}^yS_{i+1}^y+ \gamma S_{i}^zS_{i+1}^z
+    \mathcal{Z}_N(\beta) = \ev{e^{-\beta H}}
 \end{equation}
-%
-\subsection{Holstein-Primakoff}
-%
-\begin{align}
-    S_i^+ &= \sqrt{2S} \sqrt{1-\frac{n_i}{2S}} b\\
-    S_i^- &= \sqrt{2S}  b^\dagger \sqrt{1-\frac{n_i}{2S}}\\
-    S_i^z &= S - n_i
-\end{align}
-%
-The Hamiltonian is 
-\begin{align}
-    H &= \frac{-JNS^2\gamma}{2} - \frac{JS}{2}\sum_i(b_ib_{i+1}^\dagger+b_{i}^\dagger b_{i+1}-\gamma(b_i^\dagger b_i+b_{i+1}^\dagger b_{i+1}))\\
-    &+ \frac{J}{4}\sum_i(n_i b_i b_{i+1}^\dagger + b_i b_{i+1}^\dagger - n_i b_i^\dagger b_{i+1} - b_i^\dagger b_{i+1} n_{i+1} - 2\gamma n_i n_{i+1}) + \mathcal{O}\big(\frac{1}{S}\big)\nonumber
-\end{align}
-%
-\section{OTOC}
-%
+is the moment generating function (MGF) of the energy in the probability distribution over microstates.
+The free energy 
 \begin{equation}
-    C_i(t) = \ev{\comm{S_i^z(0)}{S_i^z(t)}^2} = 1-\ev{S_i^z(0)S_i^z(t)S_i^z(0)S_i^z(t)} = 1-K_i(t)
+    f(\beta) = \lim_{N\rightarrow\infty} \frac{1}{N} \mathcal{Z}_N(\beta)
 \end{equation}
-%
-\subsection{Spin Wave calculation}
-%
-Expand around classical saddle point. Let $R(t)\vec{l}(0)$ be the solution to the classical equations of motion, and write
+is the \emph{scaled cumulant generating function} (sCGF) associated with this probability distribution.
+
+AQC is a dynamical process, and the failure of AQC is a dynamical transition - computational trajectories which support sufficient entanglement succeed, and those that don't, fail. 
+If this failure can be characterised by an order parameter, it must be dynamical, that is must depend on a whole trajectory. 
+In studies of the glass transition~\cite{Garrahan2007}, a formalism was introduced for characterising just this kind of transition.
+We define the \emph{dynamical partition function}
 \begin{equation}
-    K_i(t) = R_{z\alpha}R_{z\beta} \ev{S_i^z(0)S_i^\alpha(t)S_i^z(0)S_i^\beta(t)} = \tr(M_i(t)\chi_i(t))
+    \mathcal{Z}_t(s) = \ev{e^{-sQ}}\label{eq:mgf}
 \end{equation}
-where $S_i^\alpha(t)$ (and thus $\chi(t)$) is calculated using spin waves.
-%
-\subsubsection{$\mathcal{O}(S)$}
-%
-Free spin waves
+where $Q = \int^t \dd{t'} I(t')$ is some time-extensive (in this case time-integrated) observable, and the average is taken over an ensemble of trajectories.
+$s$ is a generating parameter, of which more later.
+We can thus define:
 \begin{equation}
-    H = -\frac{JNS^2 \gamma}{2} + JS\sum_{k}(\gamma-\cos{k}) b_k^\dagger b_k
+    \varphi(s) = \lim_{t\rightarrow\infty} \frac{1}{t} \ln\mathcal{Z}_t(s), \label{eq:cgf}
 \end{equation}
-Compute higher order terms with mean field - then will get anomalous terms.
-Choose as initial state $\ket{\psi} = b_i^\dagger \ket{\uparrow}^{\otimes N}$: $\ev{H}-E_0 = 2J\gamma$ - can use $\gamma$ to put in middle of spectrum. Then 
+the \emph{dynamical free energy}.
+Dynamical phase transitions are discontinuities in the dynamical free energy, and seperate phases characterised by a dynamical order parameter.
 %
+\subsubsection{Bias}
+%
+In the static case, the free energy depends on the inverse temperature $\beta$, which has a sensible physical meaning. 
+In the dynamical case the interpretation of the parameter $s$ is not clear. 
+We can understand $\beta$ as a bias on the microcanonical ensemble, making certain states more or less probable, depending on their energy.
+In the same way $s$ makes certain trajectories more or less probable, depending on the value of $Q$.
+
+In AQC, it is the environment that biases trajectories - for stronger dissipation, trajectories with less entanglement are more likely. 
+We will show that these biasing effects are one and the same - that is, environmental bias can be understood as a bias on an ensemble of quantum trajectories. 
+%
+\subsubsection{Quantum Mechanics}
+%
+There are subtleties associated with understanding eqs.~\ref{eq:mgf} and~\ref{eq:cgf} for quantum systems. 
+In particular, given that measurements in quantum mechanics are commonly understood as single shot operations, how can the exponent of eq.~\ref{eq:mgf} be understood?
+The answer is provided by the full counting statistics~\cite{Nazarov2001}.
+In Ref~\cite{Hickey2013} the $s$-biased states are introduced
 \begin{equation}
-    \chi_i^{\alpha\beta}(t) = -\ev{S_i^\alpha(t)S_i^z(0)S_i^\beta}
+    \ket{s} = \flatfrac{e^{i(H-is\hat{I})t} \ket{\Omega}}{\norm{e^{i(H-is\hat{I})t} \ket{\Omega}}}
 \end{equation}
+in terms of which 
+\begin{equation}
+    \varphi(s) = -\ev{k}{s}/s
+\end{equation}
+\subsection{The Failure of Adiabatic Quantum Computation as a Dynamical Phase Transition}
+We apply the above ideas in a simple model of AQC, and show the equivalence of trajectory bias and environmental influence.
+%
+\subsubsection{Two Spin model}
+%
+\begin{itemize}
+    \item Introduce the two spin model.
+    \item Justify $h=0$.
+    \item Quantum trajectories determine AQC success.
+    \item Introduce Dynamical phase transition.
+\end{itemize}
+%
+\subsubsection{Parametrisation of two spin Hilbert Space}
+%
+\begin{itemize}
+    \item Derive parametrisation from Schmidt decomposition
+    \item Derive EOM from heisenberg equations.
+\end{itemize}
+%
+\subsubsection{Zero magnetisation}
+%
+\begin{itemize}
+    \item Initial state restricts to zero magnetisation subspace
+    \item EOM for restricted subspace
+\end{itemize}
 
 
 
+
+\section{Keldysh Field Theory \& the Lindblad Equation}\label{sec:open}
+%
+\subsection{Introduction}
+The Lindblad equation has become the standard tool for treating Markovian open quantum systems. 
+Keldysh Field Theory allows us to write field theoretic descriptions of open quantum systems. 
+In general the two represent distinct ways of describing open quantum systems - nevertheless, for consistency they must each be derivable from the other. 
+In the following we derive the Lindblad Equation from a Keldysh Field Theory.
+%
+\section{Lyapunov Spectra in Matrix Product State Simulations}\label{sec:chaos}
+%
+\subsection{Introduction}
+According to the classical definition, chaos is precluded in quantum systems by the unitarity of the Schr\"odinger equation.
+Quantum evolution does show signatures of chaos however, and the role of classical chaos in i.e.\ thermalization is performed in other ways.
+In this section we build on the work of Ref.~\cite{Andrew}, in which a connection is made between classical chaotic dynamics and thermalisation via Lyapunov spectra extracted in several semiclassical limits.
+\subsubsection{Lyapunov Exponents and the Lyapunov Spectrum}
+The Lyapunov exponents characterise the rate of growth of infinitesimal perturbations to an initial condition.
+\subsubsection{Matrix Product States and the Time Dependent Variational Principle}
+Matrix Product States (hereinafter MPS) provide a convenient parametrisation of wavefunctions in 1 dimension.
+\subsection{Results}
+
+\bibliographystyle{unsrt}
+\bibliography{bibliography}
 \end{document}
