@@ -1,8 +1,8 @@
 from numpy import array, allclose, sqrt, zeros, reshape
-from numpy import tensordot, kron, identity
+from numpy import tensordot, kron, identity, diag, arange
 from itertools import product
 from functools import reduce
-from math import log as logd
+from math import log as logd, sqrt
 
 
 def levi_civita(dim):
@@ -40,10 +40,8 @@ def levi_civita(dim):
 
     return reshape(flattened_tensor,[dim]*dim)
 
-
 def tensor(ops):
     return reduce(kron, ops)
-
 
 def n_body(op, i, n, d=None):
     """n_body: n_body versions of local operator
@@ -64,7 +62,6 @@ def n_body(op, i, n, d=None):
     if not i < n:
         raise Exception("i must be less than n")
     return tensor(l)
-
 
 def spins(S):
     """spins. returns [Sx, Sy, Sz] for spin S
@@ -116,8 +113,19 @@ def spins(S):
                               [0   , 0   , -1/2 , 0   ],
                               [0   , 0   , 0    , -3/2]])
 
-    return [spin(S, i) for i in range(3)]
+    def arc(x):
+        return array(list(x))
 
+    def Cp(j, m): return sqrt((j-m)*(j+m+1))
+    def Cm(j, m): return sqrt((j+m)*(j-m+1))
+    def Sp(j): return diag(arc(Cp(j, m) for m in arange(j-1, -j-1, -1)), 1)
+    def Sm(j): return diag(arc(Cm(j, m) for m in arange(j, -j, -1)), -1)
+
+    def Sx(j): return (Sp(j)+Sm(j))/2
+    def Sy(j): return (Sp(j)-Sm(j))/2j
+    def Sz(j): return diag(arc(arange(j, -j-1, -1)))
+
+    return (Sx(S), Sy(S), Sz(S))
 
 def ladders(S):
     """ladders
@@ -153,7 +161,6 @@ def ladders(S):
                               [0       , 0 , sqrt(3) , 0]])
     return [ladder(S, pm) for pm in [-1, 1]]
 
-
 def N_body_spins(S, i, N):
     """N_body_spiNs: S_x^i etc. -> local spiN operators with ideNtities 
        teNsored iN oN either side
@@ -164,7 +171,6 @@ def N_body_spins(S, i, N):
     """
     return [n_body(s, i, N) for s in spins(S)]
 
- 
 def N_body_ladders(S, i, N):
     """N_body_ladders: S_+^i etc. -> local spiN ladder operators 
        with ideNtities teNsored iN oN either side
@@ -178,10 +184,8 @@ def N_body_ladders(S, i, N):
 def comm(A, B):
     return A@B - B@A
 
-
 def acomm(A, B):
     return A@B + B@A
-
 
 def CR(Sx, Sy, Sz):
     """CR: Determine if a set of spin operators satisfy spin commutation relations
@@ -194,22 +198,14 @@ def CR(Sx, Sy, Sz):
                                            tensordot(eps[j, k]*1j, S, [0, 0]))
     return satisfied   
 
-
 class spinHamiltonians(object):
     """1d spin Hamiltonians"""
-    def __init__(self, S, N=None):
+    def __init__(self, S, finite=True):
         """__init__"""
-        self.Sx = lambda i:   N_body_spins(S, i, N)[0] 
-        self.Sy = lambda i:   N_body_spins(S, i, N)[1]
-        self.Sz = lambda i:   N_body_spins(S, i, N)[2] 
-        self.Sm = lambda i: N_body_ladders(S, i, N)[0] 
-        self.Sp = lambda i: N_body_ladders(S, i, N)[1] 
-
-        if N is None:
-            self.finite = False
-        else:
-            self.N = N
-            self.finite = True
+        self.Sx = lambda i:   N_body_spins(S, i, 2)[0] 
+        self.Sy = lambda i:   N_body_spins(S, i, 2)[1]
+        self.Sz = lambda i:   N_body_spins(S, i, 2)[2] 
+        self.finite = finite
 
     def nn_general(self, Jx, Jy, Jz, hx, hy, hz):
         """nn_general: nn spin model with all nn couplings (Jx, Jy, Jz)
@@ -221,7 +217,10 @@ class spinHamiltonians(object):
                  Jz * Sz(1) @ Sz(2) + \
                  hx * Sx(1) + \
                  hy * Sy(1) + \
-                 hz * Sz(1)
+                 hz * Sz(1) + \
+                 hx * Sx(2) + \
+                 hy * Sy(2) + \
+                 hz * Sz(2)
 
         if self.finite:
             N = self.N
@@ -230,7 +229,7 @@ class spinHamiltonians(object):
                      hy * Sy(2) + \
                      hz * Sz(2)
 
-            return sum([h_bulk]*(N-2) + [h_end])
+            return [h_bulk]*(N-2) + [h_end]
         else:
             return h_bulk
 
@@ -267,4 +266,4 @@ class spinHamiltonians(object):
             N = self.N
             return [1/2*SS + 1/6 * SS@SS + 1/3]*(N-1)
 
-assert all([CR(*spins(S)) for S in [0.5, 1, 1.5]])
+assert all([CR(*spins(S)) for S in [0.5, 1, 1.5, 2., 2.5, 3]])

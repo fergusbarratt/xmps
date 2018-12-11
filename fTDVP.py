@@ -283,7 +283,8 @@ class Trajectory(object):
 
         if just_max:
             self.q = q
-            self.exps = cs(self.lys, axis=0)/ar(1, len(self.lys)+1)
+            k = 200
+            self.exps = (1/dt)*cs(self.lys, axis=0)[k:]/ar(1, len(self.lys)+1-k)
         else:
             self.Q = Q
             self.exps = cs(self.lys, axis=0)/ed(ar(1, len(self.lys)+1), 1)

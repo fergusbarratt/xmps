@@ -7,41 +7,39 @@ sys.path.insert(0,parentdir)
 from fMPS import fMPS
 from fTDVP import Trajectory
 from spin import N_body_spins, spins, n_body
-from numpy import load, linspace, save, sum
+from numpy import load, linspace, save, sum, cumsum as cs, arange as ar
+from numpy import array, expand_dims as ed
 import matplotlib.pyplot as plt
-from tdvp.tdvp_fast import MPO_TFI
+from tdvp.tdvp_fast import MPO_TFI, MPO_XXZ
 
-Sx12, Sy12, Sz12 = N_body_spins(1, 1, 2)
-Sx22, Sy22, Sz22 = N_body_spins(1, 2, 2)
+def av(lys, dt=1):
+    return (1/dt)*cs(array(lys), axis=0)/ed(ar(1, len(lys)+1), -1)
 
-Sx, Sy, Sz = spins(1)
+D = 2
+Ss = [0.5, 1, 1.5, 2, 2.5, 3]
+fig, ax = plt.subplots(len(Ss), 1, sharey=True, sharex=True)
+for m, S in enumerate(Ss):
 
-L = 4 
-bulkH =Sz12@Sz22+Sx22+Sz22
-H = [Sz12@Sz22+Sx12+Sz12+Sx22+Sz22] + [bulkH for _ in range(L-2)]
-W = L*[MPO_TFI(0, 0.25, 0.5, 0.5, Sx, Sz)]
+    Sx12, Sy12, Sz12 = N_body_spins(S, 1, 2)
+    Sx22, Sy22, Sz22 = N_body_spins(S, 2, 2)
 
-dt = 2e-2
-t_fin = 5
-T = linspace(0, t_fin, int(t_fin//dt)+1)
-t_burn = 5
-load_basis = False
-Q = None
-#(100, 10)
+    Sx, Sy, Sz = spins(S)
 
-mps = fMPS().random(L, 3, 20).left_canonicalise(1)
+    L = 2 
+    H = [Sx12@Sx22+Sy12@Sy22+Sz12@Sz22+Sx12-Sz22]# + [bulkH for _ in range(L-2)]
+    W = L*[MPO_XXZ(1, 0., 0.5, 0., 1, Sx, Sy, Sz)]
 
-Ds = [1]
-for D in Ds:
-    #if load_basis and 8>=D:
-    #    Q = load('data/bases/spectra/40000s/lyapunovs_L8_D{}_N40000_basis.npy'.format(D))
+    dt = 2e-2
+    t_fin = 5
+    T = linspace(0, t_fin, int(t_fin//dt)+1)
+    t_burn = 5
+
+    mps = fMPS().random(L, int(2*S+1), 2).left_canonicalise(1)
 
     F = Trajectory(mps, H=H, W=W)
     F.run_name = 'large_S/lyapunovs'
     exps, lys = F.lyapunov(T, D, t_burn=t_burn)
     F.stop()
 
-    fig, ax = plt.subplots(2, 1, sharex=True)
-    ax[0].plot(lys)
-    ax[1].plot(exps)
-    plt.show()
+    ax[m].plot(av(lys[5:], dt))
+plt.show()
