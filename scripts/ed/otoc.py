@@ -9,14 +9,16 @@ from fTDVP import Trajectory
 from spin import N_body_spins, spins, n_body
 from numpy import load, linspace, save, sum, log, array, cumsum as cs
 from numpy import arange as ar, mean
+from numpy.linalg import eigvalsh
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 from tensor import H as cT, C as c
+from tqdm import tqdm
 mpl.style.use('ggplot')
 L = 6
 S_list = [N_body_spins(0.5, n, L) for n in range(1, L+1)]
 i = 3
-j = 4
+j = 3
 Sxi, Syi, Szi = S_list[i]
 Sxj, Syj, Szj = S_list[j]
 
@@ -30,19 +32,22 @@ listH = [ent+loc[0]+loc[1]] + [ent+loc[1] for _ in range(L-2)]
 fullH = sum([n_body(a, i, len(listH), d=2) for i, a in enumerate(listH)], axis=0)
 D = 8
 L = 6
+v = eigvalsh(fullH)
+E = (max(v)-min(v))/2.5
+N = 10
 
 # generate a list of product states with the same energy
-mpss = Trajectory(fMPS().load('fixtures/product{}.npy'.format(L)),
-                  H=listH,
-                  W=L*[MPO_TFI(0, 0.25, 0.5, 0.5)]).invfreeint(
-                          linspace(0, 3000, 33), 'high').mps_list()
+mpss = [fMPS().random_with_energy_E(E, listH, L, 2, 1) 
+        for _ in tqdm(range(500))]
 
-e = []
-for mps in mpss:
-    psi = mps.recombine().reshape(-1)
-    e.append(psi.conj()@fullH@psi)
-plt.plot(e)
-plt.show()
+extras = []
+for mps in tqdm(mpss):
+    extras += Trajectory(fMPS().load('fixtures/product{}.npy'.format(L)),
+                       H=listH,
+                       W=L*[MPO_TFI(0, 0.25, 0.5, 0.)]).invfreeint(
+                       linspace(0, 10, 50), 'high').mps_list()
+
+mpss += extras
 
 otocss = []
 for mps in mpss:

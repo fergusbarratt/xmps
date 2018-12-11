@@ -17,9 +17,9 @@ from numpy import load, isclose, allclose, zeros_like as zl, prod, imag as im
 from numpy import log, abs, diag, cumsum as cs, arange as ar, eye, kron as kr
 from numpy import cross, dot, kron, split, concatenate as ct, isnan, isinf
 from numpy import trace as tr, zeros, printoptions, tensordot, trace, save
-from numpy import sign, block, sqrt, max
+from numpy import sign, block, sqrt, max, sort
 from numpy.random import randn
-from numpy.linalg import inv, svd, eig
+from numpy.linalg import inv, svd, eig, eigvalsh
 from numpy.linalg import det, qr
 import numpy as np
 
@@ -207,10 +207,44 @@ class Trajectory(object):
         self.mps = fMPS().left_from_state(self.psi.reshape([self.mps.d]*self.mps.L))
         return self
 
+    def lyapunov2(self, T, D=None, t_burn=0):
+        self.has_run_lyapunov = True
+        H = self.H
+        has_mpo = self.W is not None
+        if D is not None and t_burn!=0 and not hasattr(self, 'Q'):
+            # if MPO supplied - just expand, canonicalise and use inverse free integrator
+            # otherwise use dynamical expand: less numerically stable
+            # if we already have a basis set - we must be resuming a run
+            if has_mpo:
+                self.mps = self.mps.right_canonicalise().expand(D)
+                self.invfreeint(linspace(0, t_burn, int(50*t_burn)), order='high')
+                self.burn_len = int(200*t_burn)
+                self.mps_history = []
+            else:
+                self.mps = self.mps.grow(self.H, 0.1, D).right_canonicalise()
+                self.rk4int(linspace(0, 1, 100))
+
+        dt = T[1]-T[0]
+        _, J2, _ = self.mps.jac(H, real_matrix=False)
+        Js = zl(kron(Sz, J2))*1j
+        for t in tqdm(range(len(T))):
+            J1, J2, Γ2 = self.mps.jac(H, real_matrix=False)
+            J2 = J2+Γ2
+            Js += kron(Sz, re(J2))+kron(Sz, im(J2))
+            if has_mpo:
+                vL = self.mps.new_vL
+
+                self.mps = self.invfree4(self.mps, dt, H)
+
+                self.mps.old_vL = vL
+                self.vL = vL
+
+        return eigvalsh(Js)
+
     def lyapunov(self, T, D=None,
                  just_max=False,
                  t_burn=2,
-                 initial_basis='F2', 
+                 initial_basis='F2',
                  order='high'):
         self.has_run_lyapunov = True
         H = self.H
@@ -236,12 +270,14 @@ class Trajectory(object):
             Q = kron(eye(2), self.mps.tangent_space_basis(H=H, type=initial_basis))
         else:
             Q = initial_basis
+        Q_ = copy(Q)
 
         if just_max:
             # just evolve top vector, dont bother with QR
             q = Q[0]
         dt = T[1]-T[0]
         lys = []
+        lys_ = []
         self.vs = []
         for t in tqdm(range(len(T))):
             J = self.mps.jac(H)
@@ -253,12 +289,15 @@ class Trajectory(object):
                 q /= norm(q)
             else:
                 M = expm_multiply(J*dt, Q)
+                M_ = expm_multiply(-J.T*dt, Q_)
                 Q, R = qr(M)
+                Q_, R_ = qr(M_)
                 lys.append(log(abs(diag(R))))
+                lys_.append(log(abs(diag(R_))))
 
             if has_mpo:
                 vL = self.mps.new_vL
-                
+
                 if order=='high':
                     self.mps = self.invfree4(self.mps, dt, H)
                 elif order=='low':
@@ -278,8 +317,11 @@ class Trajectory(object):
 
         if hasattr(self, 'lys'):
             self.lys = ct([self.lys, array(lys)])
+            if hasattr(self, 'lys_'):
+                self.lys_ = ct([self.lys_, array(lys_)])
         else:
             self.lys = array(lys)
+            self.lys_ = array(lys_)
 
         if just_max:
             self.q = q
@@ -287,9 +329,12 @@ class Trajectory(object):
             self.exps = (1/dt)*cs(self.lys, axis=0)[k:]/ar(1, len(self.lys)+1-k)
         else:
             self.Q = Q
-            self.exps = cs(self.lys, axis=0)/ed(ar(1, len(self.lys)+1), 1)
+            self.exps = (1/dt)*cs(self.lys[10:], axis=0)/ed(ar(1, len(self.lys)+1), 1)[10:]
 
-        return self.exps, self.lys
+        if hasattr(self, 'lys_'):
+            return self.exps, self.lys, self.lys_
+        else:
+            return self.exps, self.lys
 
     def ed_OTOC(self, T, ops):
         """ed_OTOC: -<[W(t), V(0)], [W(t), V(0)]>
@@ -395,6 +440,8 @@ class Trajectory(object):
     def clear(self):
         self.mps_history = []
         self.mps = self.mps_0.copy()
+        if hasattr(self, 'lys'):
+            delattr(self, 'lys')
 
     def save(self, loc='data/', exps=True, clear=True):
         assert self.mps_history
@@ -438,12 +485,16 @@ class Trajectory(object):
             pickle.dump(self.H, f)
         with open(os.path.join(run_dir, name+'_mpo'), 'wb') as f:
             pickle.dump(self.W, f)
-        with open(os.path.join(run_dir, name+'_vL'), 'wb') as f:
-            pickle.dump(self.vL, f)
+        if hasattr(self, 'vL'):
+            with open(os.path.join(run_dir, name+'_vL'), 'wb') as f:
+                pickle.dump(self.vL, f)
 
         if self.has_run_lyapunov:
             save(os.path.join(run_dir, name+'_inst_exps'), self.lys)
-            save(os.path.join(run_dir, name+'_basis'), self.Q)
+            if hasattr(self, 'lys_'):
+                save(os.path.join(run_dir, name+'_inst_exps_'), self.lys_)
+            if hasattr(self, 'Q'):
+                save(os.path.join(run_dir, name+'_basis'), self.Q)
         return run_dir
 
     def resume(self, run_name, loc='data', n=None, lys=True):
@@ -475,6 +526,7 @@ class Trajectory(object):
     def delete(self):
         print('deleting...',  self.run_dir)
         shutil.rmtree(self.run_dir)
+
 
 class TestTrajectory(unittest.TestCase):
     """TestF"""
@@ -643,7 +695,7 @@ class TestTrajectory(unittest.TestCase):
             Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 4)
             Sx3, Sy3, Sz3 = N_body_spins(0.5, 3, 4)
             Sx4, Sy4, Sz4 = N_body_spins(0.5, 4, 4)
-            
+
             X = F.edint(T)
             A = X.ed_evs([Sx3, Sy3, Sz3])
             A_e = X.ed_energies()

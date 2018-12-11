@@ -25,19 +25,16 @@ H = [Sz12@Sz22+Sx12+Sx22+Sz12+Sz22] + [bulkH for _ in range(L-2)]
 W = L*[MPO_TFI(0, 0.25, 0.5, 0.5)]
 
 dt = 0.01
-t_fin = 100 
+t_fin = 100
 T = linspace(0, t_fin, int(t_fin//dt)+1)
 
 mps = fMPS().load('fixtures/product{}.npy'.format(L))
 
-Ds = [1, 2, 3, 4, 5, 6, 7, 8]
+Ds = [1]
 for D in Ds:
-    F = Trajectory(mps, H=H, W=W, continuous=True)
-    F.run_name = 'spectra/lyapunovs'
+    F = Trajectory().resume('spectra/lyapunovs')
+    #F = Trajectory(mps, H=H, W=W, continuous=True)
+    #F.run_name = 'spectra/lyapunovs'
     exps, lys = F.lyapunov(T, D, t_burn=0, order='low', initial_basis='eye')
-    fig, ax = plt.subplots(2, 1, sharex=True)
-    #ax[0].plot(lys)
+    #fig, ax = plt.subplots(2, 1, sharex=True)
     F.stop()
-    #ax[1].plot(av(lys[5:], dt))
-    #plt.show()
-

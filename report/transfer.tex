@@ -1,0 +1,62 @@
+\documentclass{article}
+
+\usepackage{physics}
+\usepackage{amsmath}
+
+\title{Transfer Report}
+\author{Fergus Barratt}
+
+
+\begin{document}
+\maketitle
+\section{Spin Wave calculation of the OTOC}
+%
+Start with XXZ hamiltonian
+\begin{equation}
+    H = -J \sum_i S_{i}^xS_{i+1}^x+S_{i}^yS_{i+1}^y+ \gamma S_{i}^zS_{i+1}^z
+\end{equation}
+%
+\subsection{Holstein-Primakoff}
+%
+\begin{align}
+    S_i^+ &= \sqrt{2S} \sqrt{1-\frac{n_i}{2S}} b\\
+    S_i^- &= \sqrt{2S}  b^\dagger \sqrt{1-\frac{n_i}{2S}}\\
+    S_i^z &= S - n_i
+\end{align}
+%
+The Hamiltonian is 
+\begin{align}
+    H &= \frac{-JNS^2\gamma}{2} - \frac{JS}{2}\sum_i(b_ib_{i+1}^\dagger+b_{i}^\dagger b_{i+1}-\gamma(b_i^\dagger b_i+b_{i+1}^\dagger b_{i+1}))\\
+    &+ \frac{J}{4}\sum_i(n_i b_i b_{i+1}^\dagger + b_i b_{i+1}^\dagger - n_i b_i^\dagger b_{i+1} - b_i^\dagger b_{i+1} n_{i+1} - 2\gamma n_i n_{i+1}) + \mathcal{O}\big(\frac{1}{S}\big)\nonumber
+\end{align}
+%
+\section{OTOC}
+%
+\begin{equation}
+    C_i(t) = \ev{\comm{S_i^z(0)}{S_i^z(t)}^2} = 1-\ev{S_i^z(0)S_i^z(t)S_i^z(0)S_i^z(t)} = 1-K_i(t)
+\end{equation}
+%
+\subsection{Spin Wave calculation}
+%
+Expand around classical saddle point. Let $R(t)\vec{l}(0)$ be the solution to the classical equations of motion, and write
+\begin{equation}
+    K_i(t) = R_{z\alpha}R_{z\beta} \ev{S_i^z(0)S_i^\alpha(t)S_i^z(0)S_i^\beta(t)} = \tr(M_i(t)\chi_i(t))
+\end{equation}
+where $S_i^\alpha(t)$ (and thus $\chi(t)$) is calculated using spin waves.
+%
+\subsubsection{$\mathcal{O}(S)$}
+%
+Free spin waves
+\begin{equation}
+    H = -\frac{JNS^2 \gamma}{2} + JS\sum_{k}(\gamma-\cos{k}) b_k^\dagger b_k
+\end{equation}
+Compute higher order terms with mean field - then will get anomalous terms.
+Choose as initial state $\ket{\psi} = b_i^\dagger \ket{\uparrow}^{\otimes N}$: $\ev{H}-E_0 = 2J\gamma$ - can use $\gamma$ to put in middle of spectrum. Then 
+%
+\begin{equation}
+    \chi_i^{\alpha\beta}(t) = -\ev{S_i^\alpha(t)S_i^z(0)S_i^\beta}
+\end{equation}
+
+
+
+\end{document}

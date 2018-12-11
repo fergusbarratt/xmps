@@ -8,16 +8,16 @@ import unittest
 
 from numpy.random import rand, randint, randn
 from numpy.linalg import svd, inv, norm, cholesky as ch, qr
-from numpy.linalg import eig
+from numpy.linalg import eig, eigvalsh
 
 from numpy import array, concatenate, diag, dot, allclose, isclose, swapaxes as sw
 from numpy import identity, swapaxes, trace, tensordot, sum, prod, ones
 from numpy import real as re, stack as st, concatenate as ct, zeros, empty
-from numpy import split as chop, ones_like, save, load, zeros_like as zl 
+from numpy import split as chop, ones_like, save, load, zeros_like as zl
 from numpy import eye, cumsum as cs, sqrt, expand_dims as ed, imag as im
 from numpy import transpose as tra, trace as tr, tensordot as td, kron
 from numpy import mean, sign, angle, unwrap, exp, diff, pi, squeeze as sq
-from numpy import round, flipud, cos, sin, exp, arctan2, arccos
+from numpy import round, flipud, cos, sin, exp, arctan2, arccos, sign
 
 from scipy.linalg import null_space as null, orth, expm#, sqrtm as ch
 from scipy.linalg import polar
@@ -220,6 +220,51 @@ class fMPS(object):
                                         enumerate(self.data)))[0][0]
         return state
 
+    def random_with_energy_E(self, E, H, L, d, D, tol=1e-10, maxiters=100):
+        """random_with_energy_E: converges a random state to energy E within tol (quite slow)
+
+        :param E: energy
+        :param H: hamiltonian
+        :param L: Length of chain
+        :param d: local state space dimension
+        :param D: bond dimension"""
+        self = self.random(L, d, D).left_canonicalise()
+
+        dt = 0.1 
+        iters = 0
+        while abs(self.energy(H)-E)>tol:
+            if iters>maxiters:
+                raise Exception("Too many iterations")
+                break
+            iters+=1
+            dE = self.energy(H)-E
+            ddE = 10
+            if dE < 0:
+                while (self.energy(H)-E) < 0:
+                    if ddE<1e-5 and abs(dE)>1e-2:
+                        raise Exception("local minimum")
+                    self.data = (self+1j*dt*self.dA_dt(H)).left_canonicalise().data
+
+                    #print('up')
+                    ddE = abs((self.energy(H)-E)-dE)
+                    #print('ddE: ', ddE)
+                    dE = self.energy(H)-E
+                    #print('dE: ', dE)
+            else:
+                while (self.energy(H)-E) > 0:
+                    if ddE<1e-5 and abs(dE)>1e-2:
+                        raise Exception("local minimum")
+                    self.data = (self-1j*dt*self.dA_dt(H)).left_canonicalise().data
+
+                    #print('down')
+                    ddE = abs((self.energy(H)-E)-dE)
+                    #print('ddE: ', ddE)
+                    dE = self.energy(H)-E
+                    #print('dE: ', dE)
+
+            dt = dt/3
+        return self
+
     def random(self, L, d, D):
         """__init__
 
@@ -247,10 +292,10 @@ class fMPS(object):
                 self.data.append(ed(ed(array([cos(th/2), exp(1j*f)*sin(th/2)]), -1), -1))
             return self
 
-        fMPS = [rand(*((d,) + shape)) + 1j*rand(*((d,) + shape))
+        MPS = [randn(*((d,) + shape)) + 1j*randn(*((d,) + shape))
                 for shape in self.create_structure(L, d, D)]
         self.D = max([max(shape[1:]) for shape in self.create_structure(L, d, D)])
-        self.data = fMPS
+        self.data = MPS
         return self
 
     def create_structure(self, L, d, D):
@@ -849,7 +894,7 @@ class fMPS(object):
 
     def jac(self, H,
             as_matrix=True,
-            real_matrix=True, 
+            real_matrix=True,
             fix_vLs=True):
         """jac: calculate the jacobian of the current mps
         """
@@ -927,290 +972,291 @@ class fMPS(object):
                 Γ2_[ind(i_), ind(j_)] = Γ2_ij.reshape(prod(Γ2_ij.shape[:2]), -1)
 
         if not real_matrix:
-            return J1_, J2_+Γ2_
+            return J1_, J2_, Γ2_
         if not as_matrix:
             def gauge(G, i, j):
-                return ncon([G, inv(ch(l(i-1)))@vL(i), inv(ch(l(j-1)))@c(vL(j)), inv(ch(r(i))), inv(ch(r(j)))], 
+                return ncon([G, inv(ch(l(i-1)))@vL(i), inv(ch(l(j-1)))@c(vL(j)), inv(ch(r(i))), inv(ch(r(j)))],
                             [[1, 3, 2, 4], [-1, -2, 1], [-4, -5, 2], [-3, 3], [-6, 4]])
             def gauge_(G, i, j):
-                return ncon([G, inv(ch(l(i-1)))@vL(i), inv(ch(l(j-1)))@vL(j), inv(ch(r(i))), inv(ch(r(j)))], 
+                return ncon([G, inv(ch(l(i-1)))@vL(i), inv(ch(l(j-1)))@vL(j), inv(ch(r(i))), inv(ch(r(j)))],
                             [[1, 3, 2, 4], [-1, -2, 1], [-4, -5, 2], [-3, 3], [-6, 4]])
 
             return (lambda i, j: gauge(F1(i, j), i, j)), (lambda i, j: gauge_(F2(i, j)+Γ2(i, j), i, j))
-        
+
         J2_ = J2_ + Γ2_
 
         J = kron(Sz, re(J2_)) + kron(eye(2), re(J1_)) + kron(Sx, im(J2_)) + kron(-1j*Sy, im(J1_))
         return J
 
     def F1(self, i_, j_, H, envs=None, inv_envs=None, prs_vLs=None, fullH=False, testing=False, id=None):
-            '''<d_iψ|H|d_jψ>
-               Does some pretty dicey caching stuff to avoid recalculating anything'''
-            # if called with new id, need to recompute everything
-            # otherwise, we should look in the cache for computed values
-            id = id if id is not None else uuid.uuid4().hex
-            if self.id != id:
-                self.id = id
-                # initialize the memories 
-                # we only don't try the cache on the first call from jac
-                self.F1_i_mem_ = {}
-                self.F1_j_mem_ = {}
-                self.F1_tot_ij_mem = {}
-            else:
-                # read from cache: 
-                # have we cached this tensor?
-                if str(i_)+str(j_) in self.F1_tot_ij_mem:
-                    return self.F1_tot_ij_mem[str(i_)+str(j_)]
+        '''<d_iψ|H|d_jψ>
+        '''
+        # if called with new id, need to recompute everything
+        # otherwise, we should look in the cache for computed values
+        id = id if id is not None else uuid.uuid4().hex
+        if self.id != id:
+            self.id = id
+            # initialize the memories
+            # we only don't try the cache on the first call from jac
+            self.F1_i_mem_ = {}
+            self.F1_j_mem_ = {}
+            self.F1_tot_ij_mem = {}
+        else:
+            # read from cache:
+            # have we cached this tensor?
+            if str(i_)+str(j_) in self.F1_tot_ij_mem:
+                return self.F1_tot_ij_mem[str(i_)+str(j_)]
 
-                ## have we cached its conjugate?
-                if str(j_)+str(i_) in self.F1_tot_ij_mem:
-                    return c(tra(self.F1_tot_ij_mem[str(j_)+str(i_)], 
-                                 [2, 3, 0, 1]))
+            ## have we cached its conjugate?
+            if str(j_)+str(i_) in self.F1_tot_ij_mem:
+                return c(tra(self.F1_tot_ij_mem[str(j_)+str(i_)],
+                                [2, 3, 0, 1]))
 
-            L, d, A = self.L, self.d, self.data
-            l, r = self.get_envs() if envs is None else envs
-            prs_vLs = [self.left_null_projector(n, l, get_vL=True) for n in range(self.L)] if prs_vLs is None else prs_vLs
-            def pr(n): return prs_vLs[n][0]
-            def vL(n): return prs_vLs[n][1]
+        L, d, A = self.L, self.d, self.data
+        l, r = self.get_envs() if envs is None else envs
+        prs_vLs = [self.left_null_projector(n, l, get_vL=True) for n in range(self.L)] if prs_vLs is None else prs_vLs
+        def pr(n): return prs_vLs[n][0]
+        def vL(n): return prs_vLs[n][1]
 
-            if inv_envs is not None:
-                icr, icl, cr, cl = inv_envs
-            else:
-                icr, icl = [inv(ch(r(i))) for i in range(self.L)], [inv(ch(l(i))) for i in range(self.L)]
-                cr, cl = [ch(r(i)) for i in range(self.L)], [ch(l(i)) for i in range(self.L)]
+        if inv_envs is not None:
+            icr, icl, cr, cl = inv_envs
+        else:
+            icr, icl = [inv(ch(r(i))) for i in range(self.L)], [inv(ch(l(i))) for i in range(self.L)]
+            cr, cl = [ch(r(i)) for i in range(self.L)], [ch(l(i)) for i in range(self.L)]
 
-            def inv_ch_r(n): return icr[n]
-            def inv_ch_l(n): return icl[n]
-            def ch_r(n): return cr[n]
-            def ch_l(n): return cl[n]
+        def inv_ch_r(n): return icr[n]
+        def inv_ch_l(n): return icl[n]
+        def ch_r(n): return cr[n]
+        def ch_l(n): return cl[n]
 
-            if not fullH:
-                i, j = (j_, i_) if j_<i_ else (i_, j_)
-                gDi, gDi_1 = vL(i).shape[-1], A[i+1].shape[1] if i != self.L-1 else 1
-                gDj, gDj_1 = vL(j).shape[-1], A[j+1].shape[1] if j != self.L-1 else 1
-                G_ = 1j*zeros((gDi, gDi_1, gDj, gDj_1))
+        if not fullH:
+            i, j = (j_, i_) if j_<i_ else (i_, j_)
+            gDi, gDi_1 = vL(i).shape[-1], A[i+1].shape[1] if i != self.L-1 else 1
+            gDj, gDj_1 = vL(j).shape[-1], A[j+1].shape[1] if j != self.L-1 else 1
+            G_ = 1j*zeros((gDi, gDi_1, gDj, gDj_1))
+            d, Din_1, Di = self[i].shape
+
+            if not d*Din_1==Di:
+                H = [h.reshape(2, 2, 2, 2) for h in H]
+                if str(i) not in self.F1_i_mem_:
+                    # compute i properties, and store in cache
+                    Rd_ = ncon([inv_ch_l(i-1)@c(vL(i)), A[i]], [[1, -2, -3], [1, -1, -4]])
+                    Lbs_ = self.right_transfer(ncon([inv_ch_r(i), inv_ch_r(i)], [[-1, -3], [-2, -4]]), i, L-1)
+                    Rds_ = self.left_transfer(Rd_, 0, i)
+
+                    self.F1_i_mem_[str(i)] = (Lbs_, Rds_)
+                else:
+                    # read i properties from cache
+                    Lbs_, Rds_ = self.F1_i_mem_[str(i)]
+
+                if str(j) not in self.F1_j_mem_:
+                    # compute j properties, and store in cache
+                    Ru_ = ncon([inv_ch_l(j-1)@vL(j), c(A[j])@ch_r(j)], [[1, -1, -3], [1, -2, -4]])
+                    Rb_ = ncon([inv_ch_l(j-1)@c(vL(j)), inv_ch_l(j-1)@vL(j)], [[1, -1, -3], [1, -2, -4]])
+                    Rus_ = self.left_transfer(Ru_, 0, j)
+                    Rbs_ = self.left_transfer(Rb_, 0, j)
+
+                    self.F1_j_mem_[str(j)] = (Rus_, Rbs_)
+                else:
+                    # read j properties from cache
+                    Rus_, Rbs_ = self.F1_j_mem_[str(j)]
+
+                for m, h in reversed(list(enumerate(H))):
+                    if m > i:
+                        # from gauge symmetry
+                        if not i==j:
+                            continue
+                        else:
+                            Am, Am_1 = self.data[m:m+2]
+                            Kr_ = ncon([Am_1@r(m+1), c(Am_1), Am, c(Am), h], [[2,4,1], [3,5,1], [6,-1,4], [7,-2,5], [7,3,6,2]])
+                            #AAHAA
+                            Lbs__ = sum(cT(vL(i))@vL(i), axis=0)
+                            G_ += ncon([tr(Lbs_(m)@Kr_, 0, -1, -2), Lbs__], [[-2, -4], [-1, -3]])
+                    Am, Am_1 = self.data[m:m+2]
+                    if m==i:
+                        if j==i:
+                            # BAHBA
+                            G_ += ncon([vL(m), inv_ch_r(m)@Am_1@r(m+1)]+[h]+[c(vL(m)), inv_ch_r(m)@c(Am_1)],
+                                        [[5, 1, -3], [6, -4, 2], [5, 6, 3, 4], [3, 1, -1], [4, -2, 2]])
+
+                        elif j==i+1:
+                            # ABHBA
+                            G_ += ncon([Am, inv_ch_l(m)@vL(m+1)]+[h]+[ch_l(m-1)@c(vL(m)), inv_ch_r(m)@c(Am_1)@ch_r(m+1)],
+                                        [[5, 1, 2], [6, 2, -3], [5, 6, 3, 4], [3, 1, -1], [4, -2, -4]])
+                        else:
+                            # AAHBA
+                            O_ = ncon([ch_l(m-1)@Am, Am_1]+[h]+[c(vL(m)), inv_ch_r(m)@c(Am_1)],
+                                        [[3, 1, 2], [4, 2, -3], [3, 4, 5, 6], [5, 1, -1], [6, -2, -4]])
+
+                            G_+= tensordot(O_, Rus_(m+2), [[-1, -2], [0, 1]])
+                    elif m==i-1:
+                        if j==i:
+                            # ABHAB
+                            G_ += ncon([l(m-1)@Am, inv_ch_l(m)@vL(m+1)]+[h]+[c(Am), inv_ch_l(m)@c(vL(m+1))]+[eye(r(m+1).shape[0])],
+                                        [[7, 1, 2], [8, 2, -3], [5, 6, 7, 8], [5, 1, 3], [6, 3, -1], [-2, -4]])
+
+                        else:
+                            # AAHAB
+                            Q_ = ncon([l(m-1)@Am, Am_1]+[h]+[c(Am), inv_ch_l(m)@c(vL(m+1))],
+                                        [[4, 1, 2], [5, 2, -2], [4, 5, 6, 7], [6, 1, 3], [7, 3, -1]])
+
+                            G_ += tensordot(Q_, ncon([inv_ch_r(m+1), Rus_(m+2)], [[-2, 1], [-1, 1, -3, -4]]), [-1, 0])
+                    elif m<i:
+                        C = ncon([h]+[Am, Am_1], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
+                        K = ncon([l(m-1)@c(Am), c(Am_1)]+[C],
+                                    [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]])
+                        #AAHAA
+                        if i==j:
+                            G_ += ncon([tensordot(K, Rbs_(m+2), [[0, 1], [0, 1]]), eye(r(j).shape[0])], [[-1, -3], [-2, -4]])
+                        else:
+                            G_ += tensordot(tensordot(K, Rds_(m+2), [[0, 1], [0, 1]]),
+                                            ncon([Rus_(i+1), inv_ch_r(i)], [[-1, 2, -3, -4], [2, -2]]), [-1, 0])
+
+            if testing:
+                G = 1j*zeros((*A[i].shape, *A[j].shape))
                 d, Din_1, Di = self[i].shape
+                H = [h.reshape(2, 2, 2, 2) for h in H]
+
+                Rd = ncon([pr(i), A[i]], [[-3, -4, 1, -2], [1, -1, -5]])
+                Lb = ncon([l(i-1)]+[pr(i), pr(i), inv(r(i)), inv(r(i))], [[2, 3], [-1, -2, 1, 2], [1, 3, -4, -5], [-3, -7], [-6, -8]])
+                Ru = ncon([pr(j), c(A[j])], [[1, -1, -3, -4], [1, -2, -5]])
+                Rb = ncon([pr(j), pr(j), inv(r(j))], [[-3, -4, 1, -1], [1, -2, -6, -7], [-5, -8]])
+
+                Lbs = self.right_transfer(Lb, i, L-1)
+                Rds = self.left_transfer(Rd, 0, i)
+                Rus = self.left_transfer(Ru, 0, j)
+                Rbs = self.left_transfer(Rb, 0, j)
 
                 if not d*Din_1==Di:
-                    H = [h.reshape(*[self.d]*4) for h in H]
-                    if str(i) not in self.F1_i_mem_:
-                        # compute i properties, and store in cache
-                        Rd_ = ncon([inv_ch_l(i-1)@c(vL(i)), A[i]], [[1, -2, -3], [1, -1, -4]])
-                        Lbs_ = self.right_transfer(ncon([inv_ch_r(i), inv_ch_r(i)], [[-1, -3], [-2, -4]]), i, L-1)
-                        Rds_ = self.left_transfer(Rd_, 0, i)
-
-                        self.F1_i_mem_[str(i)] = (Lbs_, Rds_)
-                    else:
-                        # read i properties from cache
-                        Lbs_, Rds_ = self.F1_i_mem_[str(i)]
-
-                    if str(j) not in self.F1_j_mem_:
-                        # compute j properties, and store in cache
-                        Ru_ = ncon([inv_ch_l(j-1)@vL(j), c(A[j])@ch_r(j)], [[1, -1, -3], [1, -2, -4]])
-                        Rb_ = ncon([inv_ch_l(j-1)@c(vL(j)), inv_ch_l(j-1)@vL(j)], [[1, -1, -3], [1, -2, -4]])
-                        Rus_ = self.left_transfer(Ru_, 0, j)
-                        Rbs_ = self.left_transfer(Rb_, 0, j)
-
-                        self.F1_j_mem_[str(j)] = (Rus_, Rbs_)
-                    else:
-                        # read j properties from cache
-                        Rus_, Rbs_ = self.F1_j_mem_[str(j)]
-
                     for m, h in reversed(list(enumerate(H))):
                         if m > i:
                             # from gauge symmetry
                             if not i==j:
                                 continue
                             else:
+                                #AAHAA
                                 Am, Am_1 = self.data[m:m+2]
                                 Kr_ = ncon([Am_1@r(m+1), c(Am_1), Am, c(Am), h], [[2,4,1], [3,5,1], [6,-1,4], [7,-2,5], [7,3,6,2]])
-                                #AAHAA
-                                Lbs__ = sum(cT(vL(i))@vL(i), axis=0)
-                                G_ += ncon([tr(Lbs_(m)@Kr_, 0, -1, -2), Lbs__], [[-2, -4], [-1, -3]])
+                                G += tr(Lbs(m)@Kr_, 0, -1, -2)
+
                         Am, Am_1 = self.data[m:m+2]
+
                         if m==i:
                             if j==i:
                                 # BAHBA
-                                G_ += ncon([vL(m), inv_ch_r(m)@Am_1@r(m+1)]+[h]+[c(vL(m)), inv_ch_r(m)@c(Am_1)], 
-                                           [[5, 1, -3], [6, -4, 2], [5, 6, 3, 4], [3, 1, -1], [4, -2, 2]])
-
+                                G += ncon([l(m-1)]+[pr(m), inv(r(m))@Am_1@r(m+1)]+[h]+[pr(m), inv(r(m))@c(Am_1)],
+                                            [[5, 6], [1, 5, -4, -5], [2, -6, 7], [1, 2, 3, 4], [-1, -2, 3, 6], [4, -3, 7]],
+                                            [5, 6, 7, 1, 2, 3, 4])
                             elif j==i+1:
                                 # ABHBA
-                                G_ += ncon([Am, inv_ch_l(m)@vL(m+1)]+[h]+[ch_l(m-1)@c(vL(m)), inv_ch_r(m)@c(Am_1)@ch_r(m+1)], 
-                                           [[5, 1, 2], [6, 2, -3], [5, 6, 3, 4], [3, 1, -1], [4, -2, -4]])
+                                G += ncon([l(m-1)]+[Am, pr(m+1)]+[h]+[pr(m), inv(r(m))@c(Am_1)],
+                                            [[5, 6], [1, 6, 7], [2, 7, -4, -5], [1, 2, 3, 4], [-1, -2, 3, 5], [4, -3, -6]],
+                                            [5, 6, 1, 3, 7, 2, 4])
                             else:
                                 # AAHBA
-                                O_ = ncon([ch_l(m-1)@Am, Am_1]+[h]+[c(vL(m)), inv_ch_r(m)@c(Am_1)], 
-                                          [[3, 1, 2], [4, 2, -3], [3, 4, 5, 6], [5, 1, -1], [6, -2, -4]])
+                                O = ncon([l(m-1)@Am, Am_1]+[h]+[pr(m), inv(r(m))@c(Am_1)],
+                                            [[3, 6, 5], [4, 5, -4], [1, 2, 3, 4], [-1, -2, 1, 6], [2, -3, -5]]) #(A)ud
+                                G += tensordot(O, Rus(m+2), [[-1, -2], [0, 1]])
 
-                                G_+= tensordot(O_, Rus_(m+2), [[-1, -2], [0, 1]])
                         elif m==i-1:
                             if j==i:
                                 # ABHAB
-                                G_ += ncon([l(m-1)@Am, inv_ch_l(m)@vL(m+1)]+[h]+[c(Am), inv_ch_l(m)@c(vL(m+1))]+[eye(r(m+1).shape[0])],
-                                           [[7, 1, 2], [8, 2, -3], [5, 6, 7, 8], [5, 1, 3], [6, 3, -1], [-2, -4]])
+                                G += ncon([l(m-1)@Am, pr(m+1)]+[h]+[c(Am), pr(m+1)]+[inv(r(m+1))],
+                                            [[3, 5, 6], [4, 6, -4, -5], [1, 2, 3, 4], [1, 5, 7], [-1, -2, 2, 7], [-3, -6]],
+                                            [1, 2, 3, 4, 5, 6, 7]) #AA
 
                             else:
                                 # AAHAB
-                                Q_ = ncon([l(m-1)@Am, Am_1]+[h]+[c(Am), inv_ch_l(m)@c(vL(m+1))], 
-                                          [[4, 1, 2], [5, 2, -2], [4, 5, 6, 7], [6, 1, 3], [7, 3, -1]]) 
+                                Q = ncon([l(m-1)@Am, Am_1]+[h]+[c(Am), pr(m+1)],
+                                            [[3, 6, 5], [4, 5, -3], [1, 2, 3, 4], [1, 6, 7], [-1, -2, 2, 7]]) #(A)
+                                G += tensordot(Q, ncon([inv(r(m+1)), Rus(m+2)], [[-2, 1], [-1, 1, -3, -4, -5]]), [-1, 0])
 
-                                G_ += tensordot(Q_, ncon([inv_ch_r(m+1), Rus_(m+2)], [[-2, 1], [-1, 1, -3, -4]]), [-1, 0])
                         elif m<i:
+                            #AAHAA
                             C = ncon([h]+[Am, Am_1], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
                             K = ncon([l(m-1)@c(Am), c(Am_1)]+[C],
-                                     [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]])
-                            #AAHAA
+                                        [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]])
                             if i==j:
-                                G_ += ncon([tensordot(K, Rbs_(m+2), [[0, 1], [0, 1]]), eye(r(j).shape[0])], [[-1, -3], [-2, -4]])
+                                G += tensordot(K, Rbs(m+2), [[0, 1], [0, 1]])
                             else:
-                                G_ += tensordot(tensordot(K, Rds_(m+2), [[0, 1], [0, 1]]), 
-                                                ncon([Rus_(i+1), inv_ch_r(i)], [[-1, 2, -3, -4], [2, -2]]), [-1, 0])
+                                G += tensordot(K, tensordot(Rds(m+2), ncon([inv(r(i)), Rus(i+1)], [[-2, 1], [-1, 1, -3, -4, -5]]), [-1, 0]),
+                                                [[0, 1], [0, 1]])
+                        #AAHAA
+                        C = ncon([h]+[Am, Am_1], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
+                        K = ncon([c(l(m-1))@Am.conj(), Am_1.conj()]+[C],
+                                    [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]])
+                        # BAHBA
+                        M = ncon([l(m-1)]+[pr(m), inv(r(m))@Am_1]+[h]+[pr(m), inv(r(m))@c(Am_1)]+[r(m+1)],
+                                    [[5, 6], [1, 5, -4, -5], [2, -6, 7], [1, 2, 3, 4], [-1, -2, 3, 6], [4, -3, 8], [7, 8]])
+                        # ABHBA
+                        N = ncon([l(m-1)]+[Am, pr(m+1)]+[h]+[pr(m), r(m)@c(Am_1)],
+                                    [[5, 6], [1, 6, 7], [2, 7, -4, -5], [1, 2, 3, 4], [-1, -2, 3, 5], [4, -3, -6]])
+                        # AAHBA
+                        O = ncon([l(m-1)@Am, Am_1]+[h]+[pr(m), inv(r(m))@c(Am_1)],
+                                    [[3, 6, 5], [4, 5, -4], [1, 2, 3, 4], [-1, -2, 1, 6], [2, -3, -5]]) #(A)ud
+                        # ABHAB
+                        P = ncon([l(m-1)@Am, pr(m+1)]+[h]+[c(Am), pr(m+1)]+[r(m+1)],
+                                    [[3, 5, 6], [4, 6, -4, -5], [1, 2, 3, 4], [1, 5, 7], [-1, -2, 2, 7], [-3, -6]]) #AA
+                        # AAHAB
+                        Q = ncon([l(m-1)@Am, Am_1]+[h]+[c(Am), pr(m+1)],
+                                    [[3, 6, 5], [4, 5, -3], [1, 2, 3, 4], [1, 6, 7], [-1, -2, 2, 7]]) #(A)
+                        assert allclose(norm(td(M, l(m-1)@c(Am), [[0, 1, 2], [0, 1, 2]])), 0)
+                        assert allclose(norm(td(M, l(m-1)@Am, [[3, 4, 5], [0, 1, 2]])), 0)
+                        assert allclose(norm(td(N, l(m-1)@c(Am), [[0, 1, 2], [0, 1, 2]])), 0)
+                        assert allclose(norm(td(N, l(m)@Am_1, [[3, 4, 5], [0, 1, 2]])), 0)
+                        assert allclose(norm(td(O, l(m-1)@c(Am), [[0, 1, 2], [0, 1, 2]])), 0)
+                        assert allclose(norm(td(P, l(m)@c(Am_1), [[0, 1, 2], [0, 1, 2]])), 0)
+                        assert allclose(norm(td(P, l(m)@Am_1, [[3, 4, 5], [0, 1, 2]])), 0)
+                        assert allclose(norm(td(Q, l(m)@c(Am_1), [[0, 1, 2], [0, 1, 2]])), 0)
 
-                if testing:
-                    G = 1j*zeros((*A[i].shape, *A[j].shape))
-                    d, Din_1, Di = self[i].shape
-                    H = [h.reshape(*[self.d]*4) for h in H]
-
-                    Rd = ncon([pr(i), A[i]], [[-3, -4, 1, -2], [1, -1, -5]])
-                    Lb = ncon([l(i-1)]+[pr(i), pr(i), inv(r(i)), inv(r(i))], [[2, 3], [-1, -2, 1, 2], [1, 3, -4, -5], [-3, -7], [-6, -8]])
-                    Ru = ncon([pr(j), c(A[j])], [[1, -1, -3, -4], [1, -2, -5]])
-                    Rb = ncon([pr(j), pr(j), inv(r(j))], [[-3, -4, 1, -1], [1, -2, -6, -7], [-5, -8]])
-
-                    Lbs = self.right_transfer(Lb, i, L-1)
-                    Rds = self.left_transfer(Rd, 0, i)
-                    Rus = self.left_transfer(Ru, 0, j)
-                    Rbs = self.left_transfer(Rb, 0, j)
-
-                    if not d*Din_1==Di:
-                        for m, h in reversed(list(enumerate(H))):
-                            if m > i:
-                                # from gauge symmetry
-                                if not i==j:
-                                    continue
-                                else:
-                                    #AAHAA
-                                    Am, Am_1 = self.data[m:m+2]
-                                    Kr_ = ncon([Am_1@r(m+1), c(Am_1), Am, c(Am), h], [[2,4,1], [3,5,1], [6,-1,4], [7,-2,5], [7,3,6,2]])
-                                    G += tr(Lbs(m)@Kr_, 0, -1, -2)
-
-                            Am, Am_1 = self.data[m:m+2]
-
-                            if m==i:
-                                if j==i:
-                                    # BAHBA
-                                    G += ncon([l(m-1)]+[pr(m), inv(r(m))@Am_1@r(m+1)]+[h]+[pr(m), inv(r(m))@c(Am_1)],
-                                              [[5, 6], [1, 5, -4, -5], [2, -6, 7], [1, 2, 3, 4], [-1, -2, 3, 6], [4, -3, 7]],
-                                              [5, 6, 7, 1, 2, 3, 4])
-                                elif j==i+1:
-                                    # ABHBA
-                                    G += ncon([l(m-1)]+[Am, pr(m+1)]+[h]+[pr(m), inv(r(m))@c(Am_1)],
-                                             [[5, 6], [1, 6, 7], [2, 7, -4, -5], [1, 2, 3, 4], [-1, -2, 3, 5], [4, -3, -6]],
-                                             [5, 6, 1, 3, 7, 2, 4])
-                                else:
-                                    # AAHBA
-                                    O = ncon([l(m-1)@Am, Am_1]+[h]+[pr(m), inv(r(m))@c(Am_1)],
-                                             [[3, 6, 5], [4, 5, -4], [1, 2, 3, 4], [-1, -2, 1, 6], [2, -3, -5]]) #(A)ud
-                                    G += tensordot(O, Rus(m+2), [[-1, -2], [0, 1]])
-
-                            elif m==i-1:
-                                if j==i:
-                                    # ABHAB
-                                    G += ncon([l(m-1)@Am, pr(m+1)]+[h]+[c(Am), pr(m+1)]+[inv(r(m+1))],
-                                              [[3, 5, 6], [4, 6, -4, -5], [1, 2, 3, 4], [1, 5, 7], [-1, -2, 2, 7], [-3, -6]],
-                                              [1, 2, 3, 4, 5, 6, 7]) #AA
-
-                                else:
-                                    # AAHAB
-                                    Q = ncon([l(m-1)@Am, Am_1]+[h]+[c(Am), pr(m+1)],
-                                             [[3, 6, 5], [4, 5, -3], [1, 2, 3, 4], [1, 6, 7], [-1, -2, 2, 7]]) #(A)
-                                    G += tensordot(Q, ncon([inv(r(m+1)), Rus(m+2)], [[-2, 1], [-1, 1, -3, -4, -5]]), [-1, 0])
-
-                            elif m<i:
-                                #AAHAA
-                                C = ncon([h]+[Am, Am_1], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
-                                K = ncon([l(m-1)@c(Am), c(Am_1)]+[C],
-                                         [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]])
-                                if i==j:
-                                    G += tensordot(K, Rbs(m+2), [[0, 1], [0, 1]])
-                                else:
-                                    G += tensordot(K, tensordot(Rds(m+2), ncon([inv(r(i)), Rus(i+1)], [[-2, 1], [-1, 1, -3, -4, -5]]), [-1, 0]),
-                                                   [[0, 1], [0, 1]])
-                            #AAHAA
-                            C = ncon([h]+[Am, Am_1], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
-                            K = ncon([c(l(m-1))@Am.conj(), Am_1.conj()]+[C],
-                                     [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]])
-                            # BAHBA
-                            M = ncon([l(m-1)]+[pr(m), inv(r(m))@Am_1]+[h]+[pr(m), inv(r(m))@c(Am_1)]+[r(m+1)],
-                                      [[5, 6], [1, 5, -4, -5], [2, -6, 7], [1, 2, 3, 4], [-1, -2, 3, 6], [4, -3, 8], [7, 8]])
-                            # ABHBA
-                            N = ncon([l(m-1)]+[Am, pr(m+1)]+[h]+[pr(m), r(m)@c(Am_1)],
-                                     [[5, 6], [1, 6, 7], [2, 7, -4, -5], [1, 2, 3, 4], [-1, -2, 3, 5], [4, -3, -6]])
-                            # AAHBA
-                            O = ncon([l(m-1)@Am, Am_1]+[h]+[pr(m), inv(r(m))@c(Am_1)],
-                                     [[3, 6, 5], [4, 5, -4], [1, 2, 3, 4], [-1, -2, 1, 6], [2, -3, -5]]) #(A)ud
-                            # ABHAB
-                            P = ncon([l(m-1)@Am, pr(m+1)]+[h]+[c(Am), pr(m+1)]+[r(m+1)],
-                                     [[3, 5, 6], [4, 6, -4, -5], [1, 2, 3, 4], [1, 5, 7], [-1, -2, 2, 7], [-3, -6]]) #AA
-                            # AAHAB
-                            Q = ncon([l(m-1)@Am, Am_1]+[h]+[c(Am), pr(m+1)],
-                                     [[3, 6, 5], [4, 5, -3], [1, 2, 3, 4], [1, 6, 7], [-1, -2, 2, 7]]) #(A)
-                            assert allclose(norm(td(M, l(m-1)@c(Am), [[0, 1, 2], [0, 1, 2]])), 0)
-                            assert allclose(norm(td(M, l(m-1)@Am, [[3, 4, 5], [0, 1, 2]])), 0)
-                            assert allclose(norm(td(N, l(m-1)@c(Am), [[0, 1, 2], [0, 1, 2]])), 0)
-                            assert allclose(norm(td(N, l(m)@Am_1, [[3, 4, 5], [0, 1, 2]])), 0)
-                            assert allclose(norm(td(O, l(m-1)@c(Am), [[0, 1, 2], [0, 1, 2]])), 0)
-                            assert allclose(norm(td(P, l(m)@c(Am_1), [[0, 1, 2], [0, 1, 2]])), 0)
-                            assert allclose(norm(td(P, l(m)@Am_1, [[3, 4, 5], [0, 1, 2]])), 0)
-                            assert allclose(norm(td(Q, l(m)@c(Am_1), [[0, 1, 2], [0, 1, 2]])), 0)
-
-            elif fullH:
-                i, j = (i_, j_)
-                H = H.reshape([self.d, self.d]*self.L)
-                links = self.links(True)
-                bottom = [pr(m) if m==i else c(inv(r(m-1)))@a.conj() if m==i+1 else a.conj() for m, a in enumerate(A)]
-                top = [c(pr(m)) if m==j else c(inv(r(m-1)))@a.conj() if m==j+1 else a.conj() for m, a in enumerate(A)]
-                if i!=L-1 and j!=L-1:
-                    links[i] = links[i][:2] + [-1, -2]
-                    links[i+1][1] = -3
-                    links[L+1+j] = links[L+1+j][:2] + [-4, -5]
-                    links[L+1+j+1][1] = -6
-                elif i!=L-1:
-                    links[i] = links[i][:2] + [-1, -2]
-                    links[i+1][1] = -3
-                    links[L+1+j] = links[L+1+j][:2] + [-4, -5]
-                    links[L-1][-1] = -6
-                elif j!=L-1:
-                    links[i] = links[i][:2] + [-1, -2]
-                    links[2*L][-1] = -3
-                    links[L+1+j] = links[L+1+j][:2] + [-4, -5]
-                    links[L+1+j+1][1] = -6
-                else:
-                    links[i] = links[i][:2] + [-1, -2]
-                    links[L+1+j] = links[L+1+j][:2] + [-4, -5]
-                G = ncon(bottom+[H]+top, links)
-                if i==L-1 and j==L-1:
-                    G = ed(ed(G, -1), 2)
-                return G
+        elif fullH:
+            i, j = (i_, j_)
+            H = H.reshape([self.d, self.d]*self.L)
+            links = self.links(True)
+            bottom = [pr(m) if m==i else c(inv(r(m-1)))@a.conj() if m==i+1 else a.conj() for m, a in enumerate(A)]
+            top = [c(pr(m)) if m==j else c(inv(r(m-1)))@a.conj() if m==j+1 else a.conj() for m, a in enumerate(A)]
+            if i!=L-1 and j!=L-1:
+                links[i] = links[i][:2] + [-1, -2]
+                links[i+1][1] = -3
+                links[L+1+j] = links[L+1+j][:2] + [-4, -5]
+                links[L+1+j+1][1] = -6
+            elif i!=L-1:
+                links[i] = links[i][:2] + [-1, -2]
+                links[i+1][1] = -3
+                links[L+1+j] = links[L+1+j][:2] + [-4, -5]
+                links[L-1][-1] = -6
+            elif j!=L-1:
+                links[i] = links[i][:2] + [-1, -2]
+                links[2*L][-1] = -3
+                links[L+1+j] = links[L+1+j][:2] + [-4, -5]
+                links[L+1+j+1][1] = -6
+            else:
+                links[i] = links[i][:2] + [-1, -2]
+                links[L+1+j] = links[L+1+j][:2] + [-4, -5]
+            G = ncon(bottom+[H]+top, links)
+            if i==L-1 and j==L-1:
+                G = ed(ed(G, -1), 2)
+            return G
 
 
-            if testing:
-                # if testing is on, we compute the whole thing
-                # with more checks and in a different way
-                def gauge(G, i, j):
-                    return ncon([G, inv(ch(l(i-1)))@vL(i), inv(ch(l(j-1)))@c(vL(j)), inv(ch(r(i))), inv(ch(r(j)))], 
-                                [[1, 3, 2, 4], [-1, -2, 1], [-4, -5, 2], [-3, 3], [-6, 4]])
-                assert allclose(G, gauge(G_, i, j))
-                G = gauge(G_, i, j)
-                G = c(tra(G, [3, 4, 5, 0, 1, 2])) if j_<i_ else G
-                return G
+        if testing:
+            # if testing is on, we compute the whole thing
+            # with more checks and in a different way
+            def gauge(G, i, j):
+                return ncon([G, inv(ch(l(i-1)))@vL(i), inv(ch(l(j-1)))@c(vL(j)), inv(ch(r(i))), inv(ch(r(j)))],
+                            [[1, 3, 2, 4], [-1, -2, 1], [-4, -5, 2], [-3, 3], [-6, 4]])
+            assert allclose(G, gauge(G_, i, j))
+            G = gauge(G_, i, j)
+            G = c(tra(G, [3, 4, 5, 0, 1, 2])) if j_<i_ else G
+            return G
 
-            G_ = c(tra(G_, [2, 3, 0, 1])) if j_<i_ else G_
-            self.F1_tot_ij_mem[str(i_)+str(j_)] = G_
-            return G_
+        G_ = c(tra(G_, [2, 3, 0, 1])) if j_<i_ else G_
+        self.F1_tot_ij_mem[str(i_)+str(j_)] = G_
+        return G_
 
     def F2(self, i_, j_, H, envs=None, inv_envs=None, prs_vLs=None, fullH=False, testing=False, id=None):
-        '''<d_id_j ψ|H|ψ>'''
+        '''<d_id_j ψ|H|ψ>
+        '''
         id = id if id is not None else uuid.uuid4().hex
         if self.id_ != id:
             self.id_ = id
@@ -1220,14 +1266,14 @@ class fMPS(object):
             self.F2_i_mem_ = {}
             self.F2_tot_ij_mem = {}
         else:
-            # read from cache: 
+            # read from cache:
             # have we cached this tensor?
             if str(i_)+str(j_) in self.F2_tot_ij_mem:
                 return self.F2_tot_ij_mem[str(i_)+str(j_)]
 
             # have we cached its transpose?
             if str(j_)+str(i_) in self.F2_tot_ij_mem:
-                return tra(self.F2_tot_ij_mem[str(j_)+str(i_)], 
+                return tra(self.F2_tot_ij_mem[str(j_)+str(i_)],
                            [2, 3, 0, 1])
 
         L, d, A = self.L, self.d, self.data
@@ -1247,7 +1293,7 @@ class fMPS(object):
         def ch_l(n): return cl[n]
 
         i, j = (j_, i_) if j_<i_ else (i_, j_)
-        
+
         if i==j:
             if testing:
                 G = 1j*zeros((*A[i].shape, *A[j].shape))
@@ -1323,7 +1369,7 @@ class fMPS(object):
 
                         if m==i:
                             if j==i+1:
-                                G += ncon([l(m-1)@C, pr(i), dot(pr(j), inv(r(i)))], 
+                                G += ncon([l(m-1)@C, pr(i), dot(pr(j), inv(r(i)))],
                                           [[1, 2, 3, -6], [-1, -2, 1, 3], [-4, -5, 2, -3]])
                             else:
                                 L =  ncon([l(m-1)@C, pr(i), inv(r(i))@c(Am_1)], [[1, 2, 3, -4], [-1, -2, 1, 3], [2, -3, -5]]) # ud
@@ -1362,7 +1408,7 @@ class fMPS(object):
 
         if testing:
             def gauge(G, i, j):
-                return ncon([G, inv(ch(l(i-1)))@vL(i), inv(ch(l(j-1)))@vL(j), inv(ch(r(i))), inv(ch(r(j)))], 
+                return ncon([G, inv(ch(l(i-1)))@vL(i), inv(ch(l(j-1)))@vL(j), inv(ch(r(i))), inv(ch(r(j)))],
                             [[1, 3, 2, 4], [-1, -2, 1], [-4, -5, 2], [-3, 3], [-6, 4]])
             assert allclose(gauge(G_, i, j), G)
             G = tra(G, [3, 4, 5, 0, 1, 2]) if j_<i_ else G
@@ -1379,19 +1425,19 @@ class fMPS(object):
         id = id if id is not None else uuid.uuid4().hex
         if self.id__ != id:
             self.id__ = id
-            # initialize the memories 
+            # initialize the memories
             # we only don't try the cache on the first call from jac
             self.christ_ij_mem = {}
             self.christ_tot_ij_mem = {}
         else:
-            # read from cache: 
+            # read from cache:
             # have we cached this tensor?
             if str(i)+str(j)+str(k) in self.christ_tot_ij_mem:
                 return self.christ_tot_ij_mem[str(i)+str(j)+str(k)]
 
             ## have we cached its conjugate?
             if str(j)+str(i)+str(k) in self.christ_tot_ij_mem:
-                return tra(self.christ_tot_ij_mem[str(j)+str(i)+str(k)], 
+                return tra(self.christ_tot_ij_mem[str(j)+str(i)+str(k)],
                            [3, 4, 5, 0, 1, 2])
 
         L, d, A = self.L, self.d, self.data
@@ -1541,7 +1587,8 @@ class fMPS(object):
         elif type=='F2':
             if H is None:
                 raise Exception
-            J1, J2 = self.jac(H, real_matrix=False)
+            J1, J2, F = self.jac(H, real_matrix=False)
+            J2 = J2+F
             J1 = kron(eye(2), re(J1))+kron(-1j*Sy, im(J1))
             J2 = kron(Sz, re(J2)) + kron(Sx, im(J2))
             l, V = eig(J2)
@@ -1682,6 +1729,28 @@ class TestfMPS(unittest.TestCase):
         self.fixtures = [self.mps_0_2, self.mps_0_3, self.mps_0_4,
                          self.mps_0_5, self.mps_0_6, self.mps_0_7,
                          self.mps_0_8, self.mps_0_9]
+
+    def test_random_with_energy(self):
+        Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
+        Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
+
+        L = 6
+        d = 2
+        D = 1  
+
+        h = 4*Sz12@Sz22+2*Sx22+2*Sz22
+        h = (h+h.conj().T)/2
+        H = [h for _ in range(L-1)]
+        H[0] = H[0]+2*Sx12+2*Sz12
+
+        comH = sum([n_body(a, i, len(H), d=2) for i, a in enumerate(H)], axis=0)
+        v = eigvalsh(comH)
+        E = (max(v)-min(v))/2.5
+        
+        tol = 1e-10
+        mps = fMPS().random_with_energy_E(E, H, L, d, D, 1e-10)
+        self.assertTrue(abs(mps.energy(H)-E)<tol)
+        
 
     def test_energy_2(self):
         """test_energy_2: 2 spins: energy of random hamiltonian matches full H"""
@@ -2247,7 +2316,8 @@ class TestfMPS(unittest.TestCase):
     def test_jac_eye(self):
         mps = self.mps_0_2
         H = [eye(4)]
-        J1, J2 = mps.jac(H, True, False)
+        J1, J2, F = mps.jac(H, True, False)
+        J2 = J2+F
         self.assertTrue(allclose(J1, -1j*eye(3)))
         self.assertTrue(allclose(J2, 0))
         J = mps.jac(H, True, True)
@@ -2255,7 +2325,8 @@ class TestfMPS(unittest.TestCase):
 
         mps = self.mps_0_3
         H = [eye(4)/2, eye(4)/2]
-        J1, J2 = mps.jac(H, True, False)
+        J1, J2, F = mps.jac(H, True, False)
+        J2 = J2+F
         J = mps.jac(H, True, True)
         self.assertTrue(allclose(J1, -1j*eye(7)))
         self.assertTrue(allclose(J2, 0))
@@ -2263,7 +2334,8 @@ class TestfMPS(unittest.TestCase):
 
         mps = self.mps_0_4
         H = [eye(4)/3, eye(4)/3, eye(4)/3]
-        J1, J2 = mps.jac(H, True, False)
+        J1, J2, F = mps.jac(H, True, False)
+        J2 = J2+F
         J = mps.jac(H, True, True)
         self.assertTrue(allclose(J1, -1j*eye(15)))
         self.assertTrue(allclose(J2, 0))
@@ -2275,16 +2347,18 @@ class TestfMPS(unittest.TestCase):
 
         mps = self.mps_0_3.left_canonicalise()
         H = [Sz1@Sz2+Sx1, Sz1@Sz2+Sx1+Sx2]
-        J1, J2 = mps.jac(H, True, False)
+        J1, J2, F = mps.jac(H, True, False)
+        J2 = J2+F
         self.assertTrue(allclose(J1+J1.conj().T, 0))
         from numpy import nonzero
         for L in range(2, 7):
             mps = fMPS().random(L, 2, 2**L).left_canonicalise()
-            N = 10 
+            N = 10
             for _ in range(N):
                 H = [randn(4, 4)+1j*randn(4, 4) for _ in range(L-1)]
                 H = [h+h.conj().T for h in H]
-                J1, J2 = mps.jac(H, True, False)
+                J1, J2, F = mps.jac(H, True, False)
+                J2 = J2+F
                 self.assertTrue(allclose(J1,-J1.conj().T))
                 J2[abs(J2)<1e-10]=0
                 if not allclose(J2, 0):
