@@ -27,9 +27,11 @@ In this project, we investigate the role of the world at large in three differen
           We build on some earlier work in this area, and compare to standard tools for evaluating quantum chaos.
 \end{enumerate}
 %
+%%
 \section{Failure of Adiabatic Quantum Computation}\label{sec:failure}
-%
+%%
 \subsection{Introduction}
+%
 Adiabatic Quantum Computation (AQC) is an alternative (equivalent~\cite{Aharonov2004}) paradigm of quantum computation.
 We prepare the ground state of some easily accessed Hamiltonian.
 If we tune the parameters in the hamiltonian sufficiently slowly, then by the adiabatic theorem~\cite{born1928adiabatic} the system will remain in the ground state of the time varying hamiltonian.
@@ -181,18 +183,18 @@ We conclude that the dynamical phase transition and the failure of adiabatic qua
 \end{figure}
 
 %
-\subsection{Keldysh Field Theory \& the Lindblad Equation}\label{sec:open}
+\section{Keldysh Field Theory \& the Lindblad Equation}\label{sec:open}
 %
-\subsubsection{Introduction}
+\subsection{Introduction}
 The Lindblad equation has become the standard tool for treating Markovian open quantum systems. 
 Keldysh Field Theory allows us to write field theoretic descriptions of open quantum systems. 
 In general the two represent distinct ways of describing open quantum systems - nevertheless, for consistency they must each be derivable from the other. 
 In the following we derive the Lindblad Equation from a Keldysh Field Theory.
-\subsubsection{Action}
+\subsection{Action}
 The Keldysh action for linear coupling via operators $\hat{\mathcal{L}}_\mu$ to a local, quadratic bath is
-    \begin{equation}
-        S = \int_t^{t'}\left[ \dd{s} L[\vec{\varphi}_s] +  \sum_{\mu, \gamma} \left(\alpha_{\mu, \gamma}\vec{\mathcal{L}}^\dagger_\mu \hat{\sigma}_3 \vec{\varphi}_r^\gamma + \alpha_{\mu, \gamma}^* \vec{\varphi}^{\gamma\dagger}_r \hat{\sigma}_3 \vec{\mathcal{L}}_\mu \right) + \sum_\gamma \vec{\varphi}^{\gamma\dagger}_r(s) \mathcal{G}_{\gamma}^{-1}(s) \vec{\varphi}_r^\gamma(s)\right].
-    \end{equation}
+\begin{equation}
+    S = \int_t^{t'}\left[ \dd{s} L[\vec{\varphi}_s] +  \sum_{\mu, \gamma} \left(\alpha_{\mu, \gamma}\vec{\mathcal{L}}^\dagger_\mu \hat{\sigma}_3 \vec{\varphi}_r^\gamma + \alpha_{\mu, \gamma}^* \vec{\varphi}^{\gamma\dagger}_r \hat{\sigma}_3 \vec{\mathcal{L}}_\mu \right) + \sum_\gamma \vec{\varphi}^{\gamma\dagger}_r(s) \mathcal{G}_{\gamma}^{-1}(s) \vec{\varphi}_r^\gamma(s)\right].
+\end{equation}
 where the correlators are given by
 \begin{equation}
     \mathcal{G}_{\gamma}(t, t') 
@@ -286,10 +288,12 @@ expanding both sides to order $\varepsilon$, performing a number of gaussian int
     \partial_t \hat{\rho}(t) = -i \comm{H}{\hat{\rho}(t)} + \sum_\mu J_\mu\left( \mathcal{L}_\mu\hat{\rho}(t)\mathcal{L}_\mu^\dagger - \frac{1}{2} \acomm{\mathcal{L}_\mu^\dagger\mathcal{L}_\mu}{\hat{\rho}(t)}\right)\nonumber
 \end{equation}
 the Lindblad equations.
-%
+%%
 \section{Lyapunov Spectra in Matrix Product State Simulations}\label{sec:chaos}
+%%
 %
 \subsection{Introduction}
+%
 According to the classical definition, chaos is precluded in quantum systems by the unitarity of the Schr\"odinger equation.
 Quantum evolution does show signatures of chaos however, and the role of classical chaos in i.e.\ thermalization is performed in other ways.
 In this section we build on the work of Ref.~\cite{Andrew}, in which a connection is made between classical chaotic dynamics and thermalisation via Lyapunov spectra extracted in several semiclassical limits.
@@ -354,7 +358,10 @@ For nearest neighbour hamiltonians without anomalous terms:
     F_{ij}(t)&= \frac{1}{N} \sum_k e^{-i(\omega_k t - k(j-j'))}\\
     G &= 0
 \end{align}
-note that $F$ is unitary for all time for all time. 
+note that $F$ is unitary for all time - in fact this is generically the case. 
+It leads to $(a^\dagger a)(t) = a^\dagger a$. 
+In general however $(a^\dagger a)(t) = (a^\dagger a)(0)+(aa^\dagger)(0)+F^*(t)G(t)(a^\dagger a^\dagger)(0) + G^*(t)F(t)(a a)(0)$.
+
 Writing the spin operators in the HP basis, with $L = F+G, R=F-G$,
 \begin{align}
     \vec{S}_x(t) &= L^R(t)\vec{S}_x + R^I(t)\vec{S}_y\\
