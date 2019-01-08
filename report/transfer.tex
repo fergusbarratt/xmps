@@ -23,7 +23,7 @@ In this project, we investigate the role of the world at large in three differen
     \item We introduce a useful connection between different ways of treating the environment.
     \item Classical systems exhibit dynamical chaos - an exponential sensitivity to initial conditions. 
           In quantum systems classical chaos is impossible.
-          What role does the standard tool for characterising dynamical chaos - the lyapunov spectrum - play in the quantum case?
+          What role does the standard tool for characterising dynamical chaos - the Lyapunov spectrum - play in the quantum case?
           We build on some earlier work in this area, and compare to standard tools for evaluating quantum chaos.
 \end{enumerate}
 %
@@ -287,7 +287,7 @@ expanding both sides to order $\varepsilon$, performing a number of gaussian int
 \begin{equation}
     \partial_t \hat{\rho}(t) = -i \comm{H}{\hat{\rho}(t)} + \sum_\mu J_\mu\left( \mathcal{L}_\mu\hat{\rho}(t)\mathcal{L}_\mu^\dagger - \frac{1}{2} \acomm{\mathcal{L}_\mu^\dagger\mathcal{L}_\mu}{\hat{\rho}(t)}\right)\nonumber
 \end{equation}
-the Lindblad equations.
+the Lindblad equation.
 %%
 \section{Lyapunov Spectra in Matrix Product State Simulations}\label{sec:chaos}
 %%
@@ -298,18 +298,73 @@ According to the classical definition, chaos is precluded in quantum systems by 
 Quantum evolution does show signatures of chaos however, and the role of classical chaos in i.e.\ thermalization is performed in other ways.
 In this section we build on the work of Ref.~\cite{Andrew}, in which a connection is made between classical chaotic dynamics and thermalisation via Lyapunov spectra extracted in several semiclassical limits.
 %
+\subsubsection{Matrix Product States and the Time Dependent Variational Principle}
+%
+{\it Matrix Product States: } The Hilbert space of many-body spin systems is huge - it grows as $d^N$, where $d$ is the local Hilbert Space dimension and $N$ is the number of spins.
+Really its too big for a lot of purposes, since physically we are often interested in low energy behaviour in locally interacting systems.
+If the interactions are local i.e. we have a local Hamiltonian, the low energy states ought to be local. 
+This is indeed what we find, and locality shows up in their convenient expression as Matrix Product States (hereinafter MPS):
+\begin{equation}
+    \ket{\psi} = \sum_{\vec{\sigma}} A_1^{\sigma_1}A_2^{\sigma_2}\dots A_N^{\sigma_N} \ket{\vec{\sigma}}.\label{eq:MPS}
+\end{equation}
+$A_i^{\sigma_i}$ is a set of matrices associated with site $i$, indexed by $\sigma_i$.
+By convenient, we mean that the size of the matrices required to approximate a local ground state exponentially well does not grow exponentially with the size of the system.
+This dimension we call $D$, the bond dimension of the MPS.
+%
+Given a description of the computationally accessible (and hopefully physical) bit of Hilbert space, we would like to be able to do something - compute ground states, real time dynamics, correlation functions etc.
+Methods exist to do all of these things with some degree of computational speed, accuracy and naturalness. 
+%
+
+{\noindent \it Time Dependent Variational Principle: } For quantifying chaos we are interested in real time evolution. 
+There exists a particularly natural way to simulate real time dynamics of MPS, called the Time Dependent Variational Principle (hereinafter TDVP).
+The core of the TDVP lies in the proper interpretation of MPS as a manifold embedded in Hilbert space, and an understanding of the tangent space to that manifold REF[Osborne].
+In the following we subsume all the indices of the of a tensor $A^{\sigma_i}$ in eq.~\ref{eq:MPS} into a single composite index $i$.
+By the chain rule, we might write the Schr\"odinger equation as
+\begin{equation}
+    i \dot{A_i} \ket{\partial_i\psi} = H\ket{\psi}.
+\end{equation}
+We should be careful though, since the right hand side does not lie in the tangent space to the MPS manifold. 
+Really we need some sort of continuous projection of the Schr\"odinger equation.
+The projector onto the tangent space basis $\ketbra{\partial_j\psi}{\partial_j\psi}$ works
+\begin{equation}
+    i \dot{A_i} \braket{\partial_j\psi}{\partial_i\psi} = \mel{\partial_j\psi}{H}{\psi}\label{eq:TDVP}
+\end{equation}
+giving us the defining equation of the TDVP for MPS\footnote{Its not obvious that all the quantities in eq.~\ref{eq:TDVP} can be computed generically and efficiently. They can.REF[Haegeman]}
+In fact the projector doesn't just work, it gives the optimal projection of the vector $H\ket{\psi}$ onto the tangent space (in that it minimises the norm of the overlap with $H\ket{\psi}$).
+This fact leads to several crucial properties
+\begin{itemize}
+    \item The equations eq.~\ref{eq:TDVP} are Hamiltonian for the components of the tensors $A_i$ - the energy $\ev{H}{\psi}$ is conserved. 
+    \item Conserved quantities of the dynamics, provided they are captured by the reduced manifold, are also conserved by eq.~\ref{eq:TDVP}.
+\end{itemize}
+%
 \subsubsection{Lyapunov Exponents and the Lyapunov Spectrum}
 %
 The Lyapunov exponents characterise the rate of growth of infinitesimal perturbations to an initial condition.
+For a dynamical system
+\begin{equation}
+    \dot{\vec{x}} = \vec{f}(\vec{x})
+\end{equation}
+a small perturbation evolves as $\dot{\dd{\vec{x}}} = J(x) \dd{\vec{x}} $
+where $J_{ij}(x) = \partial_i f_j(\vec{x})$.
+Write the solution to this equation as $\dd{\vec{x}}(t)= M(t) \dd{\vec{x}}(0)$.
+The Lyapunov spectrum is defined as
+\begin{equation}
+    \vec{\lambda} = \mathrm{spec}\left(\lim_{t\rightarrow\infty}\log(M(t)^T M(t))^{\frac{1}{2}}\right)
+\end{equation}
+and the components $\lambda_i$ are the Lyapunov exponents.
+The unitarity of the Schr\"odinger equation means all the Lyapunov exponents are 0.
+The TDVP, while Hamiltonian, is nonlinear and nonunitary. 
+Expanding eq.~\ref{eq:TDVP} to first order (after a reparametrisation $\braket{\partial_i\psi}{\partial_j\psi}={I}_{ij}$) gives
+\begin{equation}
+    i \dot{\dd{A}}_i = \mel{\partial_i\partial_j\psi}{H}{\psi} \overline{\dd{A}}_j+\mel{\partial_i\psi}{H}{\partial_j\psi}\dd{A}_j\label{eq:linTDVP}
+\end{equation}
+and the natural generalisation of $J$ and thus $M$.
+The numerical computation of the Lyapunov spectrum is a complex subject and well covered in REF[Bennetin].
 %
-\subsubsection{Matrix Product States and the Time Dependent Variational Principle}
-%
-Matrix Product States (hereinafter MPS) provide a convenient parametrisation of wavefunctions in 1 dimension.
-%
-\subsubsection{Entanglement Growth and the Out of Time Ordered Correlator}
+\subsubsection{What can Lyapunov Exponents tell us? Entanglement Growth and the Out of Time Ordered Correlator}
 %
 Thermalization in classical systems is driven by classical chaos. 
-In quantum systems, it is believed that the growth of entanglement serves to scramble nonlocal information and thermalise local operators. 
+In quantum systems, the growth of entanglement serves to scramble local accessible information and thermalise local operators. 
 It should be possible to connect the two approaches, and in particular there should be a connection between the rate of growth of entanglement and the Lyapunov spectrum. 
 We verified numerically the following conjecture
 \begin{equation}
@@ -319,9 +374,9 @@ for the rate of growth of the von Neumann entanglement entropy at time $t$.
 $S_{KS}$ is the Kolmogorov-Sinai Entropy: the sum of the positive Lyapunov Exponents. 
 $D(t)$ is the smallest bond dimension that captures the dynamics exactly at time $t$.
 %
-\subsubsection{Spin Waves}
+\subsubsection{Why do Lyapunov Exponents give us entanglement growth? Spin Waves}
 %
-The TDVP is the saddle point of a Matrix Product state field theory.
+The TDVP is the saddle point of a Matrix Product state field theory REF[Andrew].
 We can expand around this saddle point, and include quadratic fluctuations.
 For $D=1$, this is a spin wave expansion.
 In general, after expanding the Hamiltonian to quadratic order in the Holstein-Primakoff bosonic operators at time $t$, 
@@ -335,6 +390,7 @@ where the vector should be understood as having both site indices and operator i
     A_{ij}(t) &= \mel{\partial_i\psi}{H}{\partial_j\psi}\\
     B_{ij}(t) &= \mel{\partial_i\partial_j\psi}{H}{\psi}.
 \end{align}
+The components are the constituents of eq.~\ref{eq:linTDVP}, and in particular the anomalous contribution here generates chaos there.
 Such a hamiltonian can be diagonalised at each time by a bogoliubov transformation~\cite{colpa}
 \begin{equation}
     H = \sum_r \omega_r \gamma_r^\dagger \gamma_r
@@ -358,7 +414,7 @@ For nearest neighbour hamiltonians without anomalous terms:
     F_{ij}(t)&= \frac{1}{N} \sum_k e^{-i(\omega_k t - k(j-j'))}\\
     G &= 0
 \end{align}
-note that $F$ is unitary for all time - in fact this is generically the case. 
+note that $F$ is unitary for all time.
 It leads to $(a^\dagger a)(t) = a^\dagger a$. 
 In general however $(a^\dagger a)(t) = (a^\dagger a)(0)+(aa^\dagger)(0)+F^*(t)G(t)(a^\dagger a^\dagger)(0) + G^*(t)F(t)(a a)(0)$.
 
