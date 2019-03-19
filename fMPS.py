@@ -8,7 +8,7 @@ import unittest
 
 from numpy.random import rand, randint, randn
 from numpy.linalg import svd, inv, norm, cholesky as ch, qr
-from numpy.linalg import eig
+from numpy.linalg import eig, eigvalsh
 
 from numpy import array, concatenate, diag, dot, allclose, isclose, swapaxes as sw
 from numpy import identity, swapaxes, trace, tensordot, sum, prod, ones
@@ -17,7 +17,7 @@ from numpy import split as chop, ones_like, save, load, zeros_like as zl
 from numpy import eye, cumsum as cs, sqrt, expand_dims as ed, imag as im
 from numpy import transpose as tra, trace as tr, tensordot as td, kron
 from numpy import mean, sign, angle, unwrap, exp, diff, pi, squeeze as sq
-from numpy import round, flipud, cos, sin, exp, arctan2, arccos
+from numpy import round, flipud, cos, sin, exp, arctan2, arccos, sign
 
 from scipy.linalg import null_space as null, orth, expm#, sqrtm as ch
 from scipy.linalg import polar
@@ -220,6 +220,51 @@ class fMPS(object):
                                         enumerate(self.data)))[0][0]
         return state
 
+    def random_with_energy_E(self, E, H, L, d, D, tol=1e-10, maxiters=100):
+        """random_with_energy_E: converges a random state to energy E within tol (quite slow)
+
+        :param E: energy
+        :param H: hamiltonian
+        :param L: Length of chain
+        :param d: local state space dimension
+        :param D: bond dimension"""
+        self = self.random(L, d, D).left_canonicalise()
+
+        dt = 0.1
+        iters = 0
+        while abs(self.energy(H)-E)>tol:
+            if iters>maxiters:
+                raise Exception("Too many iterations")
+                break
+            iters+=1
+            dE = self.energy(H)-E
+            ddE = 10
+            if dE < 0:
+                while (self.energy(H)-E) < 0:
+                    if ddE<1e-5 and abs(dE)>1e-2:
+                        raise Exception("local minimum")
+                    self.data = (self+1j*dt*self.dA_dt(H)).left_canonicalise().data
+
+                    #print('up')
+                    ddE = abs((self.energy(H)-E)-dE)
+                    #print('ddE: ', ddE)
+                    dE = self.energy(H)-E
+                    #print('dE: ', dE)
+            else:
+                while (self.energy(H)-E) > 0:
+                    if ddE<1e-5 and abs(dE)>1e-2:
+                        raise Exception("local minimum")
+                    self.data = (self-1j*dt*self.dA_dt(H)).left_canonicalise().data
+
+                    #print('down')
+                    ddE = abs((self.energy(H)-E)-dE)
+                    #print('ddE: ', ddE)
+                    dE = self.energy(H)-E
+                    #print('dE: ', dE)
+
+            dt = dt/3
+        return self
+
     def random(self, L, d, D):
         """__init__
 
@@ -247,10 +292,10 @@ class fMPS(object):
                 self.data.append(ed(ed(array([cos(th/2), exp(1j*f)*sin(th/2)]), -1), -1))
             return self
 
-        fMPS = [rand(*((d,) + shape)) + 1j*rand(*((d,) + shape))
+        MPS = [randn(*((d,) + shape)) + 1j*randn(*((d,) + shape))
                 for shape in self.create_structure(L, d, D)]
         self.D = max([max(shape[1:]) for shape in self.create_structure(L, d, D)])
-        self.data = fMPS
+        self.data = MPS
         return self
 
     def create_structure(self, L, d, D):
@@ -603,7 +648,7 @@ class fMPS(object):
             l, r = self.get_envs()
             e = []
             for m, h in enumerate(H):
-                h = h.reshape(2, 2, 2, 2)
+                h = h.reshape(*[self.d]*4)
                 C = ncon([h]+self.data[m:m+2], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]])
                 e.append(ncon([c(l(m-1))@self.data[m].conj(), self.data[m+1].conj()@c(r(m+1))]+[C], [[1, 3, 4], [2, 4, 5], [1, 2, 3, 5]]))
             return re(sum(e))
@@ -663,7 +708,7 @@ class fMPS(object):
         l, r = self.l, self.r
         def vR(n): return self.right_null_projector(n, r, True)[1]
 
-        H = [h.reshape(2, 2, 2, 2) for h in H]
+        H = [h.reshape(*[self.d]*4) for h in H]
         def G(m):
             C = ncon([H[m]]+[l(m-1)@A[m], A[m+1]@r(m+1)], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
             return ncon([c(vL(m)), c(vR(m+1)), C], [[1, 3, -1], [2, -2, 4], [1, 2, 3, 4]])
@@ -713,7 +758,7 @@ class fMPS(object):
         L, d, A, D = self.L, self.d, self.data, self.D
         def vR(n): return self.right_null_projector(n, r, True)[1]
 
-        H = [h.reshape(2, 2, 2, 2) for h in H]
+        H = [h.reshape(*[self.d]*4) for h in H]
         def G(m):
             return ncon([l(m-1)@A[m], A[m+1]@r(m+1), H[m], c(vL(m)), c(vR(m+1))],
                         [[2, 1, 4], [6, 4, 8], [3, 6, 2, 7], [3, 1, -1], [7, -2, 8]])
@@ -1258,7 +1303,7 @@ class fMPS(object):
 
             G_ = 1j*zeros((gDi, gDi_1, gDj, gDj_1))
         elif not fullH:
-            H = [h.reshape(2, 2, 2, 2) for h in H]
+            H = [h.reshape(*[self.d]*4) for h in H]
             # new stuff
             gDi, gDi_1 = vL(i).shape[-1], A[i+1].shape[1] if i != self.L-1 else 1
             gDj, gDj_1 = vL(j).shape[-1], A[j+1].shape[1] if j != self.L-1 else 1
@@ -1542,7 +1587,8 @@ class fMPS(object):
         elif type=='F2':
             if H is None:
                 raise Exception
-            J1, J2 = self.jac(H, real_matrix=False)
+            J1, J2, F = self.jac(H, real_matrix=False)
+            J2 = J2+F
             J1 = kron(eye(2), re(J1))+kron(-1j*Sy, im(J1))
             J2 = kron(Sz, re(J2)) + kron(Sx, im(J2))
             l, V = eig(J2)
@@ -1683,6 +1729,28 @@ class TestfMPS(unittest.TestCase):
         self.fixtures = [self.mps_0_2, self.mps_0_3, self.mps_0_4,
                          self.mps_0_5, self.mps_0_6, self.mps_0_7,
                          self.mps_0_8, self.mps_0_9]
+
+    def test_random_with_energy(self):
+        Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
+        Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
+
+        L = 6
+        d = 2
+        D = 1
+
+        h = 4*Sz12@Sz22+2*Sx22+2*Sz22
+        h = (h+h.conj().T)/2
+        H = [h for _ in range(L-1)]
+        H[0] = H[0]+2*Sx12+2*Sz12
+
+        comH = sum([n_body(a, i, len(H), d=2) for i, a in enumerate(H)], axis=0)
+        v = eigvalsh(comH)
+        E = (max(v)-min(v))/2.5
+
+        tol = 1e-10
+        mps = fMPS().random_with_energy_E(E, H, L, d, D, 1e-10)
+        self.assertTrue(abs(mps.energy(H)-E)<tol)
+
 
     def test_energy_2(self):
         """test_energy_2: 2 spins: energy of random hamiltonian matches full H"""
@@ -2248,7 +2316,8 @@ class TestfMPS(unittest.TestCase):
     def test_jac_eye(self):
         mps = self.mps_0_2
         H = [eye(4)]
-        J1, J2 = mps.jac(H, True, False)
+        J1, J2, F = mps.jac(H, True, False)
+        J2 = J2+F
         self.assertTrue(allclose(J1, -1j*eye(3)))
         self.assertTrue(allclose(J2, 0))
         J = mps.jac(H, True, True)
@@ -2256,7 +2325,8 @@ class TestfMPS(unittest.TestCase):
 
         mps = self.mps_0_3
         H = [eye(4)/2, eye(4)/2]
-        J1, J2 = mps.jac(H, True, False)
+        J1, J2, F = mps.jac(H, True, False)
+        J2 = J2+F
         J = mps.jac(H, True, True)
         self.assertTrue(allclose(J1, -1j*eye(7)))
         self.assertTrue(allclose(J2, 0))
@@ -2264,7 +2334,8 @@ class TestfMPS(unittest.TestCase):
 
         mps = self.mps_0_4
         H = [eye(4)/3, eye(4)/3, eye(4)/3]
-        J1, J2 = mps.jac(H, True, False)
+        J1, J2, F = mps.jac(H, True, False)
+        J2 = J2+F
         J = mps.jac(H, True, True)
         self.assertTrue(allclose(J1, -1j*eye(15)))
         self.assertTrue(allclose(J2, 0))
@@ -2276,7 +2347,8 @@ class TestfMPS(unittest.TestCase):
 
         mps = self.mps_0_3.left_canonicalise()
         H = [Sz1@Sz2+Sx1, Sz1@Sz2+Sx1+Sx2]
-        J1, J2 = mps.jac(H, True, False)
+        J1, J2, F = mps.jac(H, True, False)
+        J2 = J2+F
         self.assertTrue(allclose(J1+J1.conj().T, 0))
         from numpy import nonzero
         for L in range(2, 7):
@@ -2285,7 +2357,8 @@ class TestfMPS(unittest.TestCase):
             for _ in range(N):
                 H = [randn(4, 4)+1j*randn(4, 4) for _ in range(L-1)]
                 H = [h+h.conj().T for h in H]
-                J1, J2 = mps.jac(H, True, False)
+                J1, J2, F = mps.jac(H, True, False)
+                J2 = J2+F
                 self.assertTrue(allclose(J1,-J1.conj().T))
                 J2[abs(J2)<1e-10]=0
                 if not allclose(J2, 0):

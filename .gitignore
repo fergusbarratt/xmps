@@ -6,6 +6,8 @@ images/
 notes/
 runs.md
 notes/
+poster/
+*.npy
 
 # Byte-compiled / optimized / DLL files
 *.swp

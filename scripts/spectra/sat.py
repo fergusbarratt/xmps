@@ -11,6 +11,7 @@ from numpy import ceil, real as re, cumsum as cs, arange as ar, array, sqrt
 from numpy import log2
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+mpl.style.use('ggplot')
 from tdvp.tdvp_fast import MPO_TFI
 from scipy.interpolate import interp1d
 from scipy.optimize import curve_fit

@@ -17,9 +17,9 @@ from numpy import load, isclose, allclose, zeros_like as zl, prod, imag as im
 from numpy import log, abs, diag, cumsum as cs, arange as ar, eye, kron as kr
 from numpy import cross, dot, kron, split, concatenate as ct, isnan, isinf
 from numpy import trace as tr, zeros, printoptions, tensordot, trace, save
-from numpy import sign, block, sqrt, max
+from numpy import sign, block, sqrt, max, sort
 from numpy.random import randn
-from numpy.linalg import inv, svd, eig
+from numpy.linalg import inv, svd, eig, eigvalsh
 from numpy.linalg import det, qr
 import numpy as np
 
@@ -207,8 +207,7 @@ class Trajectory(object):
         self.mps = fMPS().left_from_state(self.psi.reshape([self.mps.d]*self.mps.L))
         return self
 
-
-    def lyapunov2(self, T, D=None):
+    def lyapunov2(self, T, D=None, t_burn=0):
         self.has_run_lyapunov = True
         H = self.H
         has_mpo = self.W is not None
@@ -226,18 +225,21 @@ class Trajectory(object):
                 self.rk4int(linspace(0, 1, 100))
 
         dt = T[1]-T[0]
-        self.lys = []
+        _, J2, _ = self.mps.jac(H, real_matrix=False)
+        Js = zl(kron(Sz, J2))*1j
         for t in tqdm(range(len(T))):
             J1, J2, Γ2 = self.mps.jac(H, real_matrix=False)
-            J2 = kron(Sz, re(J2))+kron(Sz, im(J2))
-            self.lys.append(eig(J2)[0])
-            self.mps = self.invfree4(self.mps, dt, H)
+            J2 = J2+Γ2
+            Js += kron(Sz, re(J2))+kron(Sz, im(J2))
+            if has_mpo:
+                vL = self.mps.new_vL
 
-        self.lys = array(self.lys)
-        self.exps = 1/dt*cs(self.lys, axis=0)/ed(ar(1, len(self.lys)+1), 1)
-        return self.lys, self.exps
+                self.mps = self.invfree4(self.mps, dt, H)
 
+                self.mps.old_vL = vL
+                self.vL = vL
 
+        return eigvalsh(Js)
 
     def lyapunov(self, T, D=None,
                  just_max=False,
@@ -315,19 +317,24 @@ class Trajectory(object):
 
         if hasattr(self, 'lys'):
             self.lys = ct([self.lys, array(lys)])
-            self.lys_ = ct([self.lys_, array(lys_)])
+            if hasattr(self, 'lys_'):
+                self.lys_ = ct([self.lys_, array(lys_)])
         else:
             self.lys = array(lys)
             self.lys_ = array(lys_)
 
         if just_max:
             self.q = q
-            self.exps = cs(self.lys, axis=0)/ar(1, len(self.lys)+1)
+            k = 200
+            self.exps = (1/dt)*cs(self.lys, axis=0)[k:]/ar(1, len(self.lys)+1-k)
         else:
             self.Q = Q
-            self.exps = cs(self.lys, axis=0)/ed(ar(1, len(self.lys)+1), 1)
+            self.exps = (1/dt)*cs(self.lys[10:], axis=0)/ed(ar(1, len(self.lys)+1), 1)[10:]
 
-        return self.exps, self.lys, self.lys_
+        if hasattr(self, 'lys_'):
+            return self.exps, self.lys, self.lys_
+        else:
+            return self.exps, self.lys
 
     def ed_OTOC(self, T, ops):
         """ed_OTOC: -<[W(t), V(0)], [W(t), V(0)]>
@@ -433,6 +440,8 @@ class Trajectory(object):
     def clear(self):
         self.mps_history = []
         self.mps = self.mps_0.copy()
+        if hasattr(self, 'lys'):
+            delattr(self, 'lys')
 
     def save(self, loc='data/', exps=True, clear=True):
         assert self.mps_history
@@ -476,13 +485,16 @@ class Trajectory(object):
             pickle.dump(self.H, f)
         with open(os.path.join(run_dir, name+'_mpo'), 'wb') as f:
             pickle.dump(self.W, f)
-        with open(os.path.join(run_dir, name+'_vL'), 'wb') as f:
-            pickle.dump(self.vL, f)
+        if hasattr(self, 'vL'):
+            with open(os.path.join(run_dir, name+'_vL'), 'wb') as f:
+                pickle.dump(self.vL, f)
 
         if self.has_run_lyapunov:
             save(os.path.join(run_dir, name+'_inst_exps'), self.lys)
-            save(os.path.join(run_dir, name+'_inst_exps_'), self.lys_)
-            save(os.path.join(run_dir, name+'_basis'), self.Q)
+            if hasattr(self, 'lys_'):
+                save(os.path.join(run_dir, name+'_inst_exps_'), self.lys_)
+            if hasattr(self, 'Q'):
+                save(os.path.join(run_dir, name+'_basis'), self.Q)
         return run_dir
 
     def resume(self, run_name, loc='data', n=None, lys=True):
