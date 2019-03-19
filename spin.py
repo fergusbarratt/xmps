@@ -1,9 +1,81 @@
+import numpy as np
 from numpy import array, allclose, sqrt, zeros, reshape
 from numpy import tensordot, kron, identity, diag, arange
 from itertools import product
 from functools import reduce
 from math import log as logd, sqrt
 
+def ρA(u, keep, dims, optimize=False):
+    """Calculate the partial trace of an outer product
+    https://scicomp.stackexchange.com/questions/30052/calculate-partial-trace-of-an-outer-product-in-python
+    ρ_a = Tr_b(|u><u|)
+
+    Parameters
+    ----------
+    u : array
+        Vector to use for outer product
+    keep : array
+        An array of indices of the spaces to keep after
+        being traced. For instance, if the space is
+        A x B x C x D and we want to trace out B and D,
+        keep = [0,2]
+    dims : array
+        An array of the dimensions of each space.
+        For instance, if the space is A x B x C x D,
+        dims = [dim_A, dim_B, dim_C, dim_D]
+
+    Returns
+    -------
+    ρ_a : 2D array
+        Traced matrix
+    """
+    if not keep:
+        return np.outer(u, u.conj())
+    keep = np.asarray(keep)
+    dims = np.asarray(dims)
+    Ndim = dims.size
+    Nkeep = np.prod(dims[keep])
+
+    idx1 = [i for i in range(Ndim)]
+    idx2 = [Ndim+i if i in keep else i for i in range(Ndim)]
+    u = u.reshape(dims)
+    rho_a = np.einsum(u, idx1, u.conj(), idx2, optimize=optimize)
+    return rho_a.reshape(Nkeep, Nkeep)
+
+def partial_trace(rho, keep, dims, optimize=False):
+    """Calculate the partial trace
+    https://scicomp.stackexchange.com/questions/30052/calculate-partial-trace-of-an-outer-product-in-python
+    ρ_a = Tr_b(ρ)
+
+    Parameters
+    ----------
+    ρ : 2D array
+        Matrix to trace
+    keep : array
+        An array of indices of the spaces to keep after
+        being traced. For instance, if the space is
+        A x B x C x D and we want to trace out B and D,
+        keep = [0,2]
+    dims : array
+        An array of the dimensions of each space.
+        For instance, if the space is A x B x C x D,
+        dims = [dim_A, dim_B, dim_C, dim_D]
+
+    Returns
+    -------
+    ρ_a : 2D array
+        Traced matrix
+    """
+    keep = np.asarray(keep)
+    dims = np.asarray(dims)
+    Ndim = dims.size
+    Nkeep = np.prod(dims[keep])
+
+    idx1 = [i for i in range(Ndim)]
+    idx2 = [Ndim+i if i in keep else i for i in range(Ndim)]
+    rho_a = rho.reshape(np.tile(dims,2))
+    rho_a = np.einsum(rho_a, idx1+idx2, optimize=optimize)
+    return rho_a.reshape(Nkeep, Nkeep)
 
 def levi_civita(dim):
     """levi_civita symbol rank dim
@@ -161,6 +233,10 @@ def ladders(S):
                               [0       , 0 , sqrt(3) , 0]])
     return [ladder(S, pm) for pm in [-1, 1]]
 
+def paulis(S):
+    Sx, Sy, Sz = spins(0.5)
+    return 2*Sx, 2*Sy, 2*Sz
+
 def N_body_spins(S, i, N):
     """N_body_spiNs: S_x^i etc. -> local spiN operators with ideNtities 
        teNsored iN oN either side
@@ -170,6 +246,16 @@ def N_body_spins(S, i, N):
     :param N: leNgth of chaiN 
     """
     return [n_body(s, i, N) for s in spins(S)]
+
+def N_body_paulis(S, i, N):
+    """N_body_spiNs: S_x^i etc. -> local pauli operators with ideNtities 
+       teNsored iN oN either side
+
+    :param S: spiN
+    :param i: site for local spiN operator: 1-iNdexed
+    :param N: leNgth of chaiN 
+    """
+    return [n_body(s, i, N) for s in paulis(S)]
 
 def N_body_ladders(S, i, N):
     """N_body_ladders: S_+^i etc. -> local spiN ladder operators 
@@ -196,6 +282,17 @@ def CR(Sx, Sy, Sz):
     for j, k in product(range(3), range(3)):
         satisfied = satisfied and allclose(comm(S[j], S[k]), 
                                            tensordot(eps[j, k]*1j, S, [0, 0]))
+    return satisfied   
+
+def pCR(Sx, Sy, Sz):
+    """CR: Determine if a set of spin operators satisfy spin commutation relations
+    """
+    S = [Sx, Sy, Sz]
+    satisfied = True 
+    eps = levi_civita(3)
+    for i, j in product(range(3), range(3)):
+        satisfied = satisfied and allclose(comm(S[i], S[j]), 
+                                           tensordot(2*eps[i, j, :]*1j, S, [0, 0]))
     return satisfied   
 
 class spinHamiltonians(object):
@@ -267,3 +364,4 @@ class spinHamiltonians(object):
             return [1/2*SS + 1/6 * SS@SS + 1/3]*(N-1)
 
 assert all([CR(*spins(S)) for S in [0.5, 1, 1.5, 2., 2.5, 3]])
+assert all([pCR(*paulis(S)) for S in [0.5, 1, 1.5]])

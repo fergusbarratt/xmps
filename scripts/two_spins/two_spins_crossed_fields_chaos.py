@@ -18,7 +18,7 @@ t_fin = 10
 T = linspace(0, t_fin, int(t_fin//dt)+1)
 
 tens_0_2 = load('fixtures/mat2x2.npy')
-mps = fMPS().left_from_state(tens_0_2).left_canonicalise()
+mps = fMPS().left_from_state(tens_0_2).left_canonicalise(1)
 F = Trajectory(mps)
 
 M = load('M.npy')

@@ -7,7 +7,13 @@ from scipy.optimize import curve_fit
 from scipy.interpolate import interp1d
 mpl.style.use('ggplot')
 
-ls = load('data/spectra/maxs.npy')
+ls = []
+for D in range(1, 9):
+    x = load('data/spectra/run_6/lyapunovs_L6_D{}_N80000.npy'.format(D))
+    ls.append(sum(abs(x[-1]))/2)
+
+S = load('data/S.npy')
+
 def g(x, a, b):
     return a*x**b+2
 def h(x, a, b):
@@ -34,5 +40,5 @@ ax[2].plot(F)
 ax[2].set_title('$D(t)$', loc='right')
 ax[3].plot(log(F))
 plt.tight_layout()
-plt.savefig('images/spectra/lDt.pdf')
+#plt.savefig('images/spectra/lDt.pdf')
 plt.show()

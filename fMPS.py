@@ -733,11 +733,6 @@ class fMPS(object):
         self.ε = ε # store last projection error on mps
         return ε
 
-    def should_expand(self, H, dt, threshold):
-        """should_expand the manifold?
-        """
-        return self.projection_error(H, dt) > threshold
-
     def expand(self, D_):
         """expand - just pad with zeros"""
         from numpy import pad
@@ -746,6 +741,11 @@ class fMPS(object):
             self[m] = pad(self[m], list(zip([0, 0, 0], (0, *tuple(array(sh_)-array(sh))))), 'constant')
         self.D = D_
         return self.left_canonicalise(minD=False)
+
+    def should_expand(self, H, dt, threshold):
+        """should_expand the manifold?
+        """
+        return self.projection_error(H, dt) > threshold
 
     def dynamical_expand(self, H, dt, D_, threshold=1e-8):
         """dynamical_expand: expand bond dimension to D_ during timestep dt with H

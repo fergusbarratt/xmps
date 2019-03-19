@@ -45,7 +45,7 @@ L = 6
 mpss = Trajectory(fMPS().load('fixtures/product{}.npy'.format(L)),
                   H=listH,
                   W=L*[MPO_TFI(0, 0.25, 0.5, 0.5)]).invfreeint(
-                          linspace(0, 300, 300), 'high').mps_list()
+                          linspace(0, 300, 10), 'high').mps_list()
 e = []
 for mps in mpss:
     psi = mps.recombine().reshape(-1)
@@ -65,12 +65,12 @@ for mps in mpss:
 #save('data/S', λ)
 
 fig, ax = plt.subplots(1, 1, sharex=True)
-ax.plot(T[1:], array(Ls).T)
-ax.plot(T[1:],  mean(array(Ls), axis=0), c='black', label='$\\overline{S_E(t)}$')
+ax.plot(T, array(Ls).T)
+ax.plot(T,  mean(array(Ls), axis=0), c='black', label='$\\overline{S_E(t)}$')
 ax.set_ylabel('$S_E(t)$')
 ax.set_xlabel('t')
 plt.legend()
 
-fig.savefig('images/sat/S.pdf')
-save('data/S', mean(array(Ls), axis=0))
+#fig.savefig('images/sat/S.pdf')
+#save('data/S', mean(array(Ls), axis=0))
 plt.show()
