@@ -4,9 +4,12 @@ parentdir = os.path.dirname(currentdir)
 sys.path.insert(0,parentdir)
 from numpy import load, cumsum as cs, arange as ar, expand_dims as ed
 from numpy import array, log, save, exp, vectorize, linspace, log
+from numpy import exp, unique
 from scipy.optimize import curve_fit
-from scipy.interpolate import interp1d
+from scipy.interpolate import interp1d, InterpolatedUnivariateSpline
+from functools import reduce
 import matplotlib as mpl
+mpl.rc('text', usetex=True)
 
 import matplotlib.pyplot as plt
 plt.style.use('ggplot')
@@ -107,10 +110,38 @@ fig, ax = plt.subplots(1, 1)
 ax.plot(numdiff(S), label ='$\partial_t S_E(t)$')
 ax.plot(ks(rm(D(S)))/factor, label='$S_{KS}(D(t))/(D(t)^2)$')
 ax.set_xlabel('$t$')
-plt.legend()
-plt.savefig('images/sat/dS_Ks.pdf')
+plt.legend(prop={'size': 20})
+plt.savefig('/Users/fergusbarratt/Desktop/dS_Ks.pdf')
 plt.show()
 
+ts = [0]
+for Di in Ds:
+    if len(rm(D(S))[rm(D(S))==Di]!=0):
+        ts.append(ts[-1]+len(rm(D(S))[rm(D(S))==Di]))
+ts.append(len(rm(D(S))))
+ts = ts[1:]
+
+xs = array(list(unique(rm(D(S))))[1:]+[8])
+
+dS = InterpolatedUnivariateSpline(ts, ks(xs)/array(xs)**2, k=2)
+
+plt.scatter([0]+ts, dS(array([0]+ts)))
+plt.plot(ks(rm(D(S)))/factor)
+plt.show()
+T_ = range(len(rm(D(S))))
+#plt.plot(dS(T)*1.7)
+#plt.plot(ks(D(S))/factor)
+#plt.show()
+
+fig, ax = plt.subplots(1, 1)
+ax.plot(numdiff(S), label ='$\partial_t S_E(t)$')
+ax.plot(T_, dS(T_), label='$S_{KS}(D(t))/(D(t)^2)$ (smoothed)')
+ax.set_xlabel('$t$')
+plt.legend(prop={'size': 17})
+plt.savefig('/Users/fergusbarratt/Desktop/dS_Ks_smooth.pdf')
+plt.show()
+
+raise Exception
 fig, ax = plt.subplots(1, 1)
 ax.plot(numdiff(log(C[1:])[10:]), label='$\partial_t ln(C(t)$')
 #ax.plot(ks(rm(D(S)))/factor, label='$S_{KS}(D(t))/(D(t)^2)$')

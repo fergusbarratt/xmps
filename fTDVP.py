@@ -10,7 +10,7 @@ from tensor import get_null_space, H as cT, C as c
 from ncon import ncon
 from tdvp.tdvp_fast import tdvp, MPO_TFI
 
-from spin import N_body_spins, spins, comm, n_body
+from spin import N_body_spins, spins, comm, n_body, partial_trace
 from numpy import array, linspace, real as re, reshape, sum, swapaxes as sw
 from numpy import tensordot as td, squeeze, trace as tr, expand_dims as ed
 from numpy import load, isclose, allclose, zeros_like as zl, prod, imag as im
@@ -129,8 +129,8 @@ class Trajectory(object):
                        requires a MPO - MPO_TFI/MPO_XXZ from tdvp
                        remember my ed thing has Sx = 1/2 Sx etc. for some reason
 
-        :param T:
-        :param D:
+        :param T: list of time steps
+        :param D: bond dimension to run simulation at
         """
         assert self.W is not None
         mps, H = self.mps, self.H
@@ -390,15 +390,19 @@ class Trajectory(object):
         return Ws
 
     def mps_list(self):
+        if hasattr(self, 'ed_history') and not self.mps_history:
+            for x in tqdm(self.ed_history):
+                mps = fMPS().left_from_state(x.reshape([self.mps.d]*self.mps.L)).left_canonicalise()
+                self.mps_history.append(mps.serialize(real=True))
         assert self.mps_history
         L, d, D = self.mps.L, self.mps.d, self.mps.D
-        return list(map(lambda x: fMPS().deserialize(x, L, d, D, real=True), self.mps_history))
+        return list(map(lambda x: fMPS().deserialize(x, L, d, D, real=True).left_canonicalise(), self.mps_history))
 
     def mps_evs(self, ops, site):
         assert self.mps_history
         L, d, D = self.mps.L, self.mps.d, self.mps.D
         return array([mps.Es(ops, site)
-                    for mps in map(lambda x: fMPS().deserialize(x, L, d, D, real=True), self.mps_history)])
+                     for mps in map(lambda x: fMPS().deserialize(x, L, d, D, real=True), self.mps_history)])
 
     def mps_energies(self):
         assert self.H is not None
@@ -421,17 +425,28 @@ class Trajectory(object):
         if hasattr(self, 'ed_history'):
             sch = []
             mpss = []
+            print('calculating mps from ed...')
             for x in tqdm(self.ed_history):
                 mps = fMPS().left_from_state(x.reshape([self.mps.d]*self.mps.L))
                 sch.append([diag(x) for x in mps.left_canonicalise().Ls])
-            return sch[1:]
+            return sch
         else:
             assert self.mps_history
             L, d, D = self.mps.L, self.mps.d, self.mps.D
             sch = []
             for mps in map(lambda x: fMPS().deserialize(x, L, d, D, real=True), self.mps_history):
                 sch.append([diag(x) for x in mps.left_canonicalise().Ls])
-            return sch[1:]
+            return sch
+
+    def von_neumann(self, i=None):
+        sch = array(self.schmidts())
+        S_max = array([max(sum([-re(s@log(s)) for s in S])) for S in sch])
+        return S_max
+
+    def renyi(self):
+        sch = array(self.schmidts())
+        R = array([max([-1/2*log(sum(s**2)) for s in S]) for S in sch])
+        return R
 
     def ed_evs(self, ops):
         assert hasattr(self, "ed_history")
@@ -526,7 +541,6 @@ class Trajectory(object):
     def delete(self):
         print('deleting...',  self.run_dir)
         shutil.rmtree(self.run_dir)
-
 
 class TestTrajectory(unittest.TestCase):
     """TestF"""
