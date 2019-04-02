@@ -23,15 +23,15 @@ from scipy.linalg import null_space as null, orth, expm#, sqrtm as ch
 from scipy.linalg import polar
 from scipy.sparse.linalg import LinearOperator, aslinearoperator
 
-from tests import is_right_canonical, is_right_env_canonical, is_full_rank
-from tests import is_left_canonical, is_left_env_canonical, has_trace_1
+from .tests import is_right_canonical, is_right_env_canonical, is_full_rank
+from .tests import is_left_canonical, is_left_env_canonical, has_trace_1
 
-from tensor import H as cT, truncate_A, truncate_B, diagonalise, rank, mps_pad
-from tensor import C as c, lanczos_expm, tr_svd, T
-from tensor import rdot, ldot, structure
-from left_transfer import lt as lt_
+from .tensor import H as cT, truncate_A, truncate_B, diagonalise, rank, mps_pad
+from .tensor import C as c, lanczos_expm, tr_svd, T
+from .tensor import rdot, ldot, structure
+from .left_transfer import lt as lt_
 
-from spin import n_body, N_body_spins, spins
+from .spin import n_body, N_body_spins, spins
 from copy import deepcopy, copy
 from functools import reduce
 from itertools import product
@@ -42,7 +42,7 @@ import uuid
 Sx, Sy, Sz = spins(0.5)
 Sx, Sy, Sz = 2*Sx, 2*Sy, 2*Sz
 
-from ncon import ncon as ncon
+from .ncon import ncon as ncon
 #def ncon(*args): return nc(*args, check_indices=False)
 
 class fMPS(object):

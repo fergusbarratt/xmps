@@ -2,7 +2,7 @@
 from numpy import trace, dot, allclose, identity, array, diag, count_nonzero
 from numpy import isclose, tensordot, squeeze, inf, sum, abs
 from numpy.linalg import norm
-from tensor import H
+from .tensor import H
 
 
 def clip(mats, tol):
