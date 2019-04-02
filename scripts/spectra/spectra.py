@@ -10,7 +10,7 @@ from spin import N_body_spins, spins, n_body
 from numpy import load, linspace, save, sum
 import matplotlib.pyplot as plt
 from tdvp.tdvp_fast import MPO_TFI, MPO_XXZ
-from numpy.linalg import eigvals
+from numpy.linalg import eigvals, det
 from numpy import abs, kron, eye, array, block, real, imag, min
 Sx, Sy, Sz = spins(0.5)
 sigma_z = 2*Sz
@@ -36,7 +36,7 @@ t_burn = 0.1
 #(100, 10)
 
 mps = fMPS().load('fixtures/product{}.npy'.format(L)).right_canonicalise()
-mps = fMPS().random(L, 2, 1).left_canonicalise()
+mps = fMPS().random(L, 2, 2).left_canonicalise()
 J1, J2, g = mps.jac(H, real_matrix=False)
 H = 1j*block([[J1, J2], [J2.conj(), J1]])
 Omega = sympmat(H.shape[0]//2)
@@ -54,7 +54,6 @@ for D in Ds:
 
     F = Trajectory(mps, H=H, W=W)
     F.run_name = 'spectra/lyapunovs'
-
 
     exps, lys, _ = F.lyapunov(T, D, t_burn=t_burn)
 

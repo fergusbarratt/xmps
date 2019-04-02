@@ -336,6 +336,30 @@ class Trajectory(object):
         else:
             return self.exps, self.lys
 
+    def ts_int(self, T, D=None,
+               order='high'):
+        H = self.H
+        assert self.W is not None
+
+        dt = T[1]-T[0]
+        Q = eye(self.mps.jac(H).shape[0])
+        self.Ms = [Q]
+
+        for t in tqdm(range(len(T))):
+            J = self.mps.jac(H)
+            self.Ms.append(expm_multiply(J*dt, self.Ms[-1]))
+
+            vL = self.mps.new_vL
+
+            if order=='high':
+                self.mps = self.invfree4(self.mps, dt, H)
+            elif order=='low':
+                self.mps = self.invfree(self.mps, dt, H)
+
+            self.mps.old_vL = vL
+
+        return self
+
     def ed_OTOC(self, T, ops):
         """ed_OTOC: -<[W(t), V(0)], [W(t), V(0)]>
 

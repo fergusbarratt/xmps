@@ -30,7 +30,7 @@ loc = Sx1+Sz1, Sx2+Sz2
 listH = [ent+loc[0]+loc[1]] + [ent+loc[1] for _ in range(L-2)]
 fullH = sum([n_body(a, i, len(listH), d=2) for i, a in enumerate(listH)], axis=0)
 T = linspace(0, 2, 100)
-D = 2 
+D = 3 
 A = fMPS().random(L, 2, D).left_canonicalise()
 As_ = Trajectory(A,
                 H=listH,
@@ -88,10 +88,11 @@ fig.subplots_adjust(top=0.92)
 
 #ax[L].plot(T, As.renyi())
 #ax[L].plot(T, As_.renyi())
-ax[L].plot(T, [bosonic_renyi(M, range(total_bosons[L//2])) for M in Ms])
-
-ax[L].plot(T, As.von_neumann()/D**2)
-ax[L].plot(T, As_.von_neumann()/D**2)
+ax[L].plot(T, [bosonic_renyi(M, range(total_bosons[L//2]))/D**2 for M in Ms])
+Avn = As.renyi()
+Avn_ = As_.renyi()
+ax[L].plot(T, Avn-Avn[0])
+ax[L].plot(T, Avn_-Avn_[0])
 ax[L].set_ylabel('$S_E$')
 #plt.savefig('images/OTOC/D={}.pdf'.format(D), bbox_inches='tight')
 plt.show()
