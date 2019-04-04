@@ -152,7 +152,7 @@ class fMPS(object):
         return self.__mul__(1/other)
 
     def __str__(self):
-        return 'Matrix Product State: L={}, d={}, D={}'.format(self.L, self.d, self.D)
+        return 'fMPS: L={}, d={}, D={}'.format(self.L, self.d, self.D)
 
     def left_from_state(self, state):
         """left_from_state: generate left canonical mps from state tensor

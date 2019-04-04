@@ -165,8 +165,6 @@ class iMPS(object):
     def __str__(self):
         return 'iMPS: d={}, D={}'.format(self.d, self.D)
 
-    def __call__(self
-
     def random(self, d, D, period=1):
         """random: generate d*period normal random matrices of dimension DxD
 
@@ -268,7 +266,7 @@ class iMPS(object):
         """norm: should always return 1 since E c=None canonicalises"""
         return self.E(identity(self.d), c=None)
 
-    def serialize(self, real=False)
+    def serialize(self, real=False):
         pass
 
 class ivMPS(object):
