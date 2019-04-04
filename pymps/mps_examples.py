@@ -1,9 +1,9 @@
 import unittest
-from fMPS import fMPS
-from iMPS import iMPS
+from .fMPS import fMPS
+from .iMPS import iMPS
 from numpy import zeros, array, isclose, allclose, pad, sqrt, stack, identity
-from tensor import H
-from spin import spins, ladders
+from .tensor import H
+from .spin import spins, ladders
 
 Sx, Sy, Sz = spins(0.5)
 
