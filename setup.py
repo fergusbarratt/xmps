@@ -1,4 +1,13 @@
-from distutils.core import setup
+from setuptools import setup
 from Cython.Build import cythonize
 
-setup(ext_modules = cythonize("left_transfer.pyx"))
+setup(name='tmps',
+      version='0.1',
+      description='mps tangent space methods',
+      url = 'https://github.com/fergusbarratt/mps',
+      author='Fergus Barratt',
+      author_email='fergus.barratt@kcl.ac.uk',
+      license='GPL',
+      packages=['pymps'],
+      zip_safe=False
+)
