@@ -1,20 +1,23 @@
 import unittest
+
 from numpy.random import rand, randint, randn
 from numpy import diag, dot, tensordot, transpose, allclose, real, imag
 from numpy import all, eye, isclose, reshape, swapaxes, trace as tr
 from numpy import concatenate, array, stack, sum, identity, zeros, abs
 from numpy import sqrt, real_if_close, around, prod, sign, newaxis
 from numpy.linalg import cholesky, eigvals, svd, inv, norm
-from copy import copy
-from tensor import H, C, r_eigenmatrix, l_eigenmatrix, get_null_space, p
-from tensor import basis_iterator, T, rotate_to_hermitian
-from itertools import product
-from scipy.optimize import root
-import matplotlib as mp
-import matplotlib.pyplot as plt
 from scipy.sparse.linalg import LinearOperator, eigs as arnoldi
 from scipy.linalg import svd as svd_s, cholesky as cholesky_s
-from spin import spins
+
+from copy import copy
+
+from itertools import product
+import matplotlib as mp
+import matplotlib.pyplot as plt
+
+from .tensor import H, C, r_eigenmatrix, l_eigenmatrix, get_null_space, p
+from .tensor import basis_iterator, T, rotate_to_hermitian
+from .spin import spins
 Sx, Sy, Sz = spins(0.5)
 
 class TransferMatrix(object):
@@ -63,7 +66,6 @@ class TransferMatrix(object):
 
         return real_if_close(eta), l/sqrt(n), r/sqrt(n)
 
-
 class iMPS(object):
     """infinite MPS"""
 
@@ -108,6 +110,7 @@ class iMPS(object):
         A = self.data[0]
 
         eta, v_l, v_r = self.transfer_matrix().eigs(l0, r0)
+        self.l, self.r = v_l, v_r
 
         X = cholesky_s(v_r, lower=True, check_finite=False, overwrite_a=True)
         Y = cholesky_s(v_l, lower=True, check_finite=False, overwrite_a=True)
@@ -138,6 +141,9 @@ class iMPS(object):
         else:
             self.canonical = hand
             return self
+
+    def create_structure(self, d, D, p=1):
+        return [(d, D, D)]*p
 
     def eigs(self, l0=None, r0=None):
         """eigs: dominant eigenvectors and values of the transfer matrix."""
@@ -177,6 +183,8 @@ class iMPS(object):
     def norm(self):
         """norm: should always return 1 since E c=None canonicalises"""
         return self.E(identity(self.d), c=None)
+
+
 
 class ivMPS(object):
     """infinite vidal MPS"""
@@ -418,7 +426,6 @@ class TestiMPS(unittest.TestCase):
             # After applying 10 canonicalisations
             self.assertTrue(allclose(I__, 1))
             self.assertTrue(allclose(Ss__, Ss_))
-
 
 def suite(iMPS=True):
     suite = []

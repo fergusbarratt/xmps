@@ -298,7 +298,7 @@ class fMPS(object):
         self.data = MPS
         return self
 
-    def create_structure(self, L, d, D):
+    def create_structure(self, L, d, D, phys=False):
         """create_structure: generate the structure of a OBC fMPS
 
         :param L: Length
@@ -320,7 +320,10 @@ class fMPS(object):
         else:
             structure = left + [(left[-1][-1], transpose(left[::-1])[0][0])] +\
                         transpose(left[::-1])
-        return structure
+        if phys:
+            return [(self.d, *st) for st in structure]
+        else:
+            return structure
 
     def right_canonicalise(self, D=None, testing=False, sweep_back=True, minD=True):
         """right_canonicalise: bring internal fMPS to right canonical form,
@@ -1568,7 +1571,7 @@ class fMPS(object):
         else:
             return shapes
 
-    def tangent_space_basis(self, type='F2', H=None):
+    def tangent_space_basis(self, type='eye', H=None):
         """ return a tangent space basis
         """
         if type=='eye' or type=='rand':
@@ -1750,7 +1753,6 @@ class TestfMPS(unittest.TestCase):
         tol = 1e-10
         mps = fMPS().random_with_energy_E(E, H, L, d, D, 1e-10)
         self.assertTrue(abs(mps.energy(H)-E)<tol)
-
 
     def test_energy_2(self):
         """test_energy_2: 2 spins: energy of random hamiltonian matches full H"""
