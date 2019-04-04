@@ -83,6 +83,90 @@ class iMPS(object):
             self.data = data
             self.canonical = canonical
 
+    def __call__(self, k):
+        """__call__: 1-based indexing
+
+        :param k: item to get
+        """
+        return self.data[k+1]
+
+    def __getitem__(self, k):
+        """__getitem__: 0-based indexing
+
+        :param k: item to get
+        """
+        return self.data[k]
+
+    def __setitem__(self, key, value):
+        """__setitem__
+        """
+        self.data[key] = value
+
+    def __eq__(self, other):
+        """__eq__
+
+        :param other:
+        """
+        return array(
+            [allclose(a, b) for a, b in zip(self.data, other.data)]).all()
+
+    def __ne__(self, other):
+        """__ne__
+
+        :param other:
+        """
+        return not self.__eq__(other)
+
+    def __len__(self):
+        """__len__"""
+        return len(self.data)
+
+    def __add__(self, other):
+        """__add__: This is not how to add two MPS: it's itemwise addition.
+                    A hack for time evolution.
+
+        :param other: MPS with arrays to add
+        """
+        return iMPS([a+b for a, b in zip(self.data, other.data)])
+
+    def __sub__(self, other):
+        """__sub: This is not how to subtract two MPS: it's itemwise addition.
+                    A hack for time evolution.
+
+        :param other: MPS with arrays to subtract
+        """
+        return iMPS([a-b for a, b in zip(self.data, other.data)])
+
+    def __mul__(self, other):
+        """__mul__: This is not multiplying an MPS by a scalar: it's itemwise:
+                    Hack for time evolution.
+                    Multiplication by other**L
+
+        :param other: scalar to multiply
+        """
+        return iMPS([other*a for a in self.data])
+
+    def __rmul__(self, other):
+        """__rmul__: right scalar multiplication
+
+        :param other: scalar to multiply
+        """
+        return self.__mul__(other)
+
+    def __truediv__(self, other):
+        """__mul__: This is not multiplying an MPS by a scalar: it's itemwise:
+                    Hack for time evolution.
+                    Multiplication by other**L
+
+        :param other: scalar to multiply
+        """
+        return self.__mul__(1/other)
+
+    def __str__(self):
+        return 'iMPS: d={}, D={}'.format(self.d, self.D)
+
+    def __call__(self
+
     def random(self, d, D, period=1):
         """random: generate d*period normal random matrices of dimension DxD
 
@@ -184,7 +268,8 @@ class iMPS(object):
         """norm: should always return 1 since E c=None canonicalises"""
         return self.E(identity(self.d), c=None)
 
-
+    def serialize(self, real=False)
+        pass
 
 class ivMPS(object):
     """infinite vidal MPS"""
