@@ -5,6 +5,7 @@ from numpy import diag, dot, tensordot, transpose, allclose, real, imag
 from numpy import all, eye, isclose, reshape, swapaxes, trace as tr
 from numpy import concatenate, array, stack, sum, identity, zeros, abs
 from numpy import sqrt, real_if_close, around, prod, sign, newaxis
+from numpy import concatenate as ct, split as chop
 from numpy.linalg import cholesky, eigvals, svd, inv, norm
 from scipy.sparse.linalg import LinearOperator, eigs as arnoldi
 from scipy.linalg import svd as svd_s, cholesky as cholesky_s
@@ -165,6 +166,9 @@ class iMPS(object):
     def __str__(self):
         return 'iMPS: d={}, D={}'.format(self.d, self.D)
 
+    def copy(self):
+        return iMPS(self.data.copy())
+
     def random(self, d, D, period=1):
         """random: generate d*period normal random matrices of dimension DxD
 
@@ -267,7 +271,31 @@ class iMPS(object):
         return self.E(identity(self.d), c=None)
 
     def serialize(self, real=False):
-        pass
+        """serialize: return a vector with mps data in it"""
+        vec = ct([a.reshape(-1) for a in self])
+        if real:
+            return ct([vec.real, vec.imag])
+        else:
+            return vec
+        
+    def deserialize(self, vec, d, D, p=1, real=False):
+        """deserialize: take a vector with mps data (from serialize),
+                        make MPS
+
+        :param vec: vector to deserialize
+        :param d: local hilbert space dimension
+        :param D: bond dimension
+        :param p: unit cell
+        """
+        if real:
+            vec = reduce(lambda x, y: x+1j*y, chop(vec, 2))
+        self.p, self.d, self.D = p, d, D
+        structure = [x for x in self.create_structure(d, D, p)]
+        self.data = []
+        for shape in structure:
+            self.data.append(vec[:prod(shape)].reshape(shape))
+            _, vec = chop(vec, [prod(shape)])
+        return self
 
 class ivMPS(object):
     """infinite vidal MPS"""

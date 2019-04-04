@@ -660,7 +660,7 @@ class fMPS(object):
 
     def serialize(self, real=False):
         """serialize: return a vector with mps data in it"""
-        vec = concatenate([a.reshape(-1) for a in self])
+        vec = ct([a.reshape(-1) for a in self])
         if real:
             return ct([vec.real, vec.imag])
         else:
