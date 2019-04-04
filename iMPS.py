@@ -1,11 +1,12 @@
 import unittest
 
 from numpy.random import rand, randint, randn
-from numpy import diag, dot, tensordot, transpose, allclose, real, imag
+from numpy import diag, dot, tensordot, transpose, allclose
+from numpy import real as re, imag as im
 from numpy import all, eye, isclose, reshape, swapaxes, trace as tr
 from numpy import concatenate, array, stack, sum, identity, zeros, abs
 from numpy import sqrt, real_if_close, around, prod, sign, newaxis
-from numpy import concatenate as ct, split as chop
+from numpy import concatenate as ct, split as chop, save, load
 from numpy.linalg import cholesky, eigvals, svd, inv, norm
 from scipy.sparse.linalg import LinearOperator, eigs as arnoldi
 from scipy.linalg import svd as svd_s, cholesky as cholesky_s
@@ -296,6 +297,21 @@ class iMPS(object):
             self.data.append(vec[:prod(shape)].reshape(shape))
             _, vec = chop(vec, [prod(shape)])
         return self
+
+    def store(self, filename):
+        """store in file
+        :param filename: filename to store in
+        """
+        save(filename, ct([array([self.d, self.D, self.p]), self.serialize()]))
+
+    def load(self, filename):
+        """load from file
+
+        :param filename: filename to load from
+        """
+        params, arr = chop(load(filename), [3])
+        self.d, self.D, self.p = map(lambda x: int(re(x)), params)
+        return self.deserialize(arr, self.d, self.D, self.p)
 
 class ivMPS(object):
     """infinite vidal MPS"""
