@@ -4,7 +4,7 @@ from numpy.random import rand, randint, randn
 from numpy import diag, dot, tensordot, transpose, allclose
 from numpy import real as re, imag as im
 from numpy import all, eye, isclose, reshape, swapaxes, trace as tr
-from numpy import concatenate, array, stack, sum, identity, zeros, abs
+from numpy import concatenate, array, stack, sum, identity, zeros, abs 
 from numpy import sqrt, real_if_close, around, prod, sign, newaxis
 from numpy import concatenate as ct, split as chop, save, load
 from numpy.linalg import cholesky, eigvals, svd, inv, norm

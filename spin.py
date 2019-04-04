@@ -1,6 +1,8 @@
 import numpy as np
 from numpy import array, allclose, sqrt, zeros, reshape
+from numpy import block, eye, trace
 from numpy import tensordot, kron, identity, diag, arange
+from scipy.sparse.linalg import expm
 from itertools import product
 from functools import reduce
 from math import log as logd, sqrt
@@ -267,6 +269,77 @@ def N_body_ladders(S, i, N):
     """
     return [n_body(s, i, N) for s in ladders(S)]
 
+def swap_rows(A, i, j):
+    B = A.copy()
+    B[[i, j]] = B[[j, i]]
+    return B
+
+def lambdas(S=0.5):
+    """lambdas: generators of SU(4)
+    :param S: spin
+    """
+    if S!=0.5:
+        raise NotImplementedError
+    else:
+        Sx, Sy, Sz = paulis(0.5)
+        O = zeros((2, 2))
+        λ1 = block([[Sx, O], [O, O]])
+        λ2 = block([[Sy, O], [O, O]])
+        λ3 = block([[Sz, O], [O, O]])
+        λ4 = array([[0, 0, 1, 0], 
+                    [0, 0, 0, 0], 
+                    [1, 0, 0, 0], 
+                    [0, 0, 0, 0]])
+        λ5 = array([[0, 0, -1j, 0], 
+                    [0, 0, 0, 0], 
+                    [1j, 0, 0, 0], 
+                    [0, 0, 0, 0]])
+        λ6 = array([[0, 0, 0, 0], 
+                    [0, 0, 1, 0], 
+                    [0, 1, 0, 0], 
+                    [0, 0, 0, 0]])
+        λ7 = array([[0, 0, 0, 0], 
+                    [0, 0, -1j, 0], 
+                    [0, 1j, 0, 0], 
+                    [0, 0, 0, 0]])
+        λ8 = array([[1, 0, 0, 0], 
+                    [0, 1, 0, 0], 
+                    [0, 0, -2, 0], 
+                    [0, 0, 0, 0]])*(1/sqrt(3))
+        λ9 = array([[0, 0, 0, 1], 
+                    [0, 0, 0, 0], 
+                    [0, 0, 0, 0], 
+                    [1, 0, 0, 0]])
+        λ10 = array([[0, 0, 0, -1j], 
+                     [0, 0, 0, 0], 
+                     [0, 0, 0, 0], 
+                     [1j, 0, 0, 0]])
+        λ11 = array([[0, 0, 0, 0], 
+                     [0, 0, 0, 1], 
+                     [0, 0, 0, 0], 
+                     [0, 1, 0, 0]])
+        λ12 = array([[0, 0, 0, 0], 
+                     [0, 0, 0, -1j], 
+                     [0, 0, 0, 0], 
+                     [0, 1j, 0, 0]])
+        λ13 = array([[0, 0, 0, 0], 
+                     [0, 0, 0, 0], 
+                     [0, 0, 0, 1], 
+                     [0, 0, 1, 0]])
+        λ14 = array([[0, 0, 0, 0], 
+                     [0, 0, 0, 0], 
+                     [0, 0, 0, -1j], 
+                     [0, 0, 1j, 0]])
+        λ15 = array([[1, 0, 0, 0], 
+                     [0, 1, 0, 0], 
+                     [0, 0, 1, 0], 
+                     [0, 0, 0, -3]])*(1/sqrt(6))
+
+        return array([λ1, λ2, λ3, λ4, λ5, λ6, λ7, λ8, λ9, λ10, λ11, λ12, λ13, λ14, λ15])
+
+def U4(v):
+    return expm(-1j*tensordot(v, lambdas(), [0, 0]))
+
 def comm(A, B):
     return A@B - B@A
 
@@ -285,7 +358,7 @@ def CR(Sx, Sy, Sz):
     return satisfied   
 
 def pCR(Sx, Sy, Sz):
-    """CR: Determine if a set of spin operators satisfy spin commutation relations
+    """CR: Determine if a set of pauli operators satisfy pauli commutation relations
     """
     S = [Sx, Sy, Sz]
     satisfied = True 
@@ -295,7 +368,7 @@ def pCR(Sx, Sy, Sz):
                                            tensordot(2*eps[i, j, :]*1j, S, [0, 0]))
     return satisfied   
 
-class spinHamiltonians(object):
+def spinHamiltonians(object):
     """1d spin Hamiltonians"""
     def __init__(self, S, finite=True):
         """__init__"""
@@ -365,3 +438,7 @@ class spinHamiltonians(object):
 
 assert all([CR(*spins(S)) for S in [0.5, 1, 1.5, 2., 2.5, 3]])
 assert all([pCR(*paulis(S)) for S in [0.5, 1, 1.5]])
+
+op = lambdas(0.5)
+assert all([allclose(trace(o), 0) for o in op])
+assert all([allclose(trace(o@o), 2) for o in op])
