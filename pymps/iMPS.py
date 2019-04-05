@@ -229,6 +229,12 @@ class iMPS(object):
             self.canonical = hand
             return self
 
+    def left_canonicalise(self):
+        return self.canonicalise('l')
+
+    def right_canonicalise(self):
+        return self.canonicalise('r')
+
     def create_structure(self, d, D, p=1):
         return [(d, D, D)]*p
 

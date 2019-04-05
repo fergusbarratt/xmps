@@ -104,6 +104,11 @@ class TestiMPS(unittest.TestCase):
             A = l_case.data[0]
             self.assertTrue(allclose(tensordot(H(A), A, [[0, -1], [0, 1]]), identity(case.D)))
 
+    def test_canonicalisation_unique(self):
+        for case in self.rand_cases:
+            l_mps = case.copy().canonicalise('l')
+
+            
     def test_iMPS_eigs(self):
         for case in self.rand_cases:
             eta, l, r = case.transfer_matrix().eigs()
