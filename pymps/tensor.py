@@ -54,8 +54,9 @@ def unitary_extension(Q, D=None):
     else:
         Q_ = Q
 
-    if D > Q_.shape[0]:
-        Q_ = direct_sum(Q_, eye(D-Q_.shape[0]))
+    if D is not None:
+        if D > Q_.shape[0]:
+            Q_ = direct_sum(Q_, eye(D-Q_.shape[0]))
 
     return Q_
 
