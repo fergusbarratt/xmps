@@ -6,10 +6,13 @@ from scipy.linalg import qr, expm, norm
 from numpy.linalg import eig as neig, eigvals, svd, inv
 from numpy import swapaxes, count_nonzero, diag, insert, pad, dot, argmax, sqrt
 from numpy import allclose, array, tensordot, transpose, all, identity, squeeze
-from numpy import isclose, mean, sign, kron, zeros, conj, max
+from numpy import isclose, mean, sign, kron, zeros, conj, max, concatenate, eye
+from numpy import block
 from itertools import product
 import scipy as sp
 from scipy.sparse.linalg import LinearOperator, expm_multiply
+from scipy.linalg import null_space
+
 from time import time
 
 try:
@@ -29,8 +32,104 @@ except:
     def lanczos_expm(A, v, t):
         return expm_multiply(A, v, t)
 
-def direct_sum(basis1, basis2):
-    return [ct([b1, b2]) for b1, b2 in product(basis1, basis2)]
+def direct_sum(A, B):
+    (a1, a2), (b1, b2) = A.shape, B.shape
+    O = zeros((a2, b1))
+    return block([[A, O], [O.T, B]])
+    
+def haar_unitary(n):
+    return qr(randn(n, n)+1j*randn(n, n))[0]
+
+def unitary_extension(Q, D=None):
+    '''extend an isometry to a unitary (doesn't check its an isometry)'''
+    s = Q.shape
+    flipped=False
+    N1 = null_space(Q)
+    N2 = null_space(Q.conj().T)
+    
+    if s[0]>s[1]:
+        Q_ = concatenate([Q, N2], 1)
+    elif s[0]<s[1]:
+        Q_ = concatenate([Q.conj().T, N1], 1).conj().T
+    else:
+        Q_ = Q
+
+    if D > Q_.shape[0]:
+        Q_ = direct_sum(Q_, eye(D-Q_.shape[0]))
+
+    return Q_
+
+def ρA(u, keep, dims, optimize=False):
+    """Calculate the partial trace of an outer product
+    https://scicomp.stackexchange.com/questions/30052/calculate-partial-trace-of-an-outer-product-in-python
+    ρ_a = Tr_b(|u><u|)
+
+    Parameters
+    ----------
+    u : array
+        Vector to use for outer product
+    keep : array
+        An array of indices of the spaces to keep after
+        being traced. For instance, if the space is
+        A x B x C x D and we want to trace out B and D,
+        keep = [0,2]
+    dims : array
+        An array of the dimensions of each space.
+        For instance, if the space is A x B x C x D,
+        dims = [dim_A, dim_B, dim_C, dim_D]
+
+    Returns
+    -------
+    ρ_a : 2D array
+        Traced matrix
+    """
+    if not keep:
+        return np.outer(u, u.conj())
+    keep = np.asarray(keep)
+    dims = np.asarray(dims)
+    Ndim = dims.size
+    Nkeep = np.prod(dims[keep])
+
+    idx1 = [i for i in range(Ndim)]
+    idx2 = [Ndim+i if i in keep else i for i in range(Ndim)]
+    u = u.reshape(dims)
+    rho_a = np.einsum(u, idx1, u.conj(), idx2, optimize=optimize)
+    return rho_a.reshape(Nkeep, Nkeep)
+
+def partial_trace(rho, keep, dims, optimize=False):
+    """Calculate the partial trace
+    https://scicomp.stackexchange.com/questions/30052/calculate-partial-trace-of-an-outer-product-in-python
+    ρ_a = Tr_b(ρ)
+
+    Parameters
+    ----------
+    ρ : 2D array
+        Matrix to trace
+    keep : array
+        An array of indices of the spaces to keep after
+        being traced. For instance, if the space is
+        A x B x C x D and we want to trace out B and D,
+        keep = [0,2]
+    dims : array
+        An array of the dimensions of each space.
+        For instance, if the space is A x B x C x D,
+        dims = [dim_A, dim_B, dim_C, dim_D]
+
+    Returns
+    -------
+    ρ_a : 2D array
+        Traced matrix
+    """
+    keep = np.asarray(keep)
+    dims = np.asarray(dims)
+    Ndim = dims.size
+    Nkeep = np.prod(dims[keep])
+
+    idx1 = [i for i in range(Ndim)]
+    idx2 = [Ndim+i if i in keep else i for i in range(Ndim)]
+    rho_a = rho.reshape(np.tile(dims,2))
+    rho_a = np.einsum(rho_a, idx1+idx2, optimize=optimize)
+    return rho_a.reshape(Nkeep, Nkeep)
 
 def T(tensor):
     """T: transpose last two indices of tensor
@@ -451,5 +550,17 @@ class TestTensorTools(unittest.TestCase):
         print('op: ', t2-t1)
         print(norm(v__-v_))
 
+def test_unitary_extension():
+    Qs = [qr(randn(4, 4)+1j*randn(4, 4))[0][:2, :] for _ in range(100)]+\
+         [qr(randn(4, 4)+1j*randn(4, 4))[0][:, :2] for _ in range(100)]
+    ues = [unitary_extension(Q, 5) for Q in Qs]
+    assert allclose([norm(eye(5)-u@u.conj().T) for u in ues], 0)
+    assert allclose([norm(eye(5)-u.conj().T@u) for u in ues], 0)
+    
+    assert allclose([norm(Q-u[:2, :4]) for Q, u in list(zip(Qs, ues))[:100]], 0)
+    assert allclose([norm(Q-u[:4, :2]) for Q, u in list(zip(Qs, ues))[100:]], 0)
+    print('Complete')
+
 if __name__ == '__main__':
+    test_unitary_extension()
     unittest.main(verbosity=1)
