@@ -107,7 +107,15 @@ class TestiMPS(unittest.TestCase):
     def test_canonicalisation_unique(self):
         for case in self.rand_cases:
             l_mps = case.copy().canonicalise('l')
-
+            A = l_mps.copy()
+            A_ = l_mps.canonicalise('l')
+            for _ in range(10):
+                A_= A_.canonicalise('l')
+            _, l, r = A.eigs()
+            _, l_, r_ = A_.eigs()
+           # print(norm(l-l_))
+           # print(norm(r-r_))
+           # print(r, l)
             
     def test_iMPS_eigs(self):
         for case in self.rand_cases:

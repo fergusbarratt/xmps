@@ -65,8 +65,9 @@ class TransferMatrix(object):
                 rotate_to_hermitian(l.reshape(A.shape[1:]))/sign(l[0]))
 
         n = tr(l @ r)
+        q = tr(l@l)
 
-        return real_if_close(eta), l/sqrt(n), r/sqrt(n)
+        return real_if_close(eta), l*sqrt(q)/sqrt(n), r/sqrt(q*n)
 
 class iMPS(object):
     """infinite MPS"""
@@ -168,7 +169,10 @@ class iMPS(object):
         return 'iMPS: d={}, D={}'.format(self.d, self.D)
 
     def copy(self):
-        return iMPS(self.data.copy())
+        A = iMPS(self.data.copy())
+        if hasattr(self, 'r') or hasattr(self, 'l'):
+            A.l, A.r = self.l, self.r
+        return A
 
     def random(self, d, D, period=1):
         """random: generate d*period normal random matrices of dimension DxD
@@ -318,6 +322,8 @@ class iMPS(object):
         params, arr = chop(load(filename), [3])
         self.d, self.D, self.p = map(lambda x: int(re(x)), params)
         return self.deserialize(arr, self.d, self.D, self.p)
+
+class i
 
 class ivMPS(object):
     """infinite vidal MPS"""

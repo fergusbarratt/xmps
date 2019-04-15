@@ -1,11 +1,27 @@
 import numpy as np
 from numpy import array, allclose, sqrt, zeros, reshape
 from numpy import block, eye, trace
-from numpy import tensordot, kron, identity, diag, arange
+from numpy import tensordot, kron, identity, diag, arange, allclose
 from scipy.sparse.linalg import expm
 from itertools import product
 from functools import reduce
 from math import log as logd, sqrt
+
+
+def is_swap_symmetric(U):
+    return allclose(U-swap_antisymmetrise(U), 0)
+
+def swap_symmetrise(U):
+    return (U+swap()@U@swap())/2
+
+def swap_antisymmetrise(U):
+    return (U+swap()@U@swap())/2
+
+def swap():
+    return array([[1, 0, 0, 0],
+                  [0, 0, 1, 0],
+                  [0, 1, 0, 0], 
+                  [0, 0, 0, 1]])
 
 def levi_civita(dim):
     """levi_civita symbol rank dim
@@ -202,72 +218,6 @@ def swap_rows(A, i, j):
     B[[i, j]] = B[[j, i]]
     return B
 
-def lambdas(S=0.5):
-    """lambdas: generators of SU(4)
-    :param S: spin
-    """
-    if S!=0.5:
-        raise NotImplementedError
-    else:
-        Sx, Sy, Sz = paulis(0.5)
-        O = zeros((2, 2))
-        λ1 = block([[Sx, O], [O, O]])
-        λ2 = block([[Sy, O], [O, O]])
-        λ3 = block([[Sz, O], [O, O]])
-        λ4 = array([[0, 0, 1, 0], 
-                    [0, 0, 0, 0], 
-                    [1, 0, 0, 0], 
-                    [0, 0, 0, 0]])
-        λ5 = array([[0, 0, -1j, 0], 
-                    [0, 0, 0, 0], 
-                    [1j, 0, 0, 0], 
-                    [0, 0, 0, 0]])
-        λ6 = array([[0, 0, 0, 0], 
-                    [0, 0, 1, 0], 
-                    [0, 1, 0, 0], 
-                    [0, 0, 0, 0]])
-        λ7 = array([[0, 0, 0, 0], 
-                    [0, 0, -1j, 0], 
-                    [0, 1j, 0, 0], 
-                    [0, 0, 0, 0]])
-        λ8 = array([[1, 0, 0, 0], 
-                    [0, 1, 0, 0], 
-                    [0, 0, -2, 0], 
-                    [0, 0, 0, 0]])*(1/sqrt(3))
-        λ9 = array([[0, 0, 0, 1], 
-                    [0, 0, 0, 0], 
-                    [0, 0, 0, 0], 
-                    [1, 0, 0, 0]])
-        λ10 = array([[0, 0, 0, -1j], 
-                     [0, 0, 0, 0], 
-                     [0, 0, 0, 0], 
-                     [1j, 0, 0, 0]])
-        λ11 = array([[0, 0, 0, 0], 
-                     [0, 0, 0, 1], 
-                     [0, 0, 0, 0], 
-                     [0, 1, 0, 0]])
-        λ12 = array([[0, 0, 0, 0], 
-                     [0, 0, 0, -1j], 
-                     [0, 0, 0, 0], 
-                     [0, 1j, 0, 0]])
-        λ13 = array([[0, 0, 0, 0], 
-                     [0, 0, 0, 0], 
-                     [0, 0, 0, 1], 
-                     [0, 0, 1, 0]])
-        λ14 = array([[0, 0, 0, 0], 
-                     [0, 0, 0, 0], 
-                     [0, 0, 0, -1j], 
-                     [0, 0, 1j, 0]])
-        λ15 = array([[1, 0, 0, 0], 
-                     [0, 1, 0, 0], 
-                     [0, 0, 1, 0], 
-                     [0, 0, 0, -3]])*(1/sqrt(6))
-
-        return array([λ1, λ2, λ3, λ4, λ5, λ6, λ7, λ8, λ9, λ10, λ11, λ12, λ13, λ14, λ15])
-
-def U4(v):
-    return expm(-1j*tensordot(v, lambdas(), [0, 0]))
-
 def comm(A, B):
     return A@B - B@A
 
@@ -366,6 +316,140 @@ def spinHamiltonians(object):
 
 assert all([CR(*spins(S)) for S in [0.5, 1, 1.5, 2., 2.5, 3]])
 assert all([pCR(*paulis(S)) for S in [0.5, 1, 1.5]])
+
+# From here on out it's Lie algebraish
+def lambdas(S=0.5):
+    """lambdas: generators of SU(4)
+    :param S: spin
+    """
+    if S!=0.5:
+        raise NotImplementedError
+    else:
+        Sx, Sy, Sz = paulis(0.5)
+        O = zeros((2, 2))
+        λ1 = block([[Sx, O], [O, O]])
+        λ2 = block([[Sy, O], [O, O]])
+        λ3 = block([[Sz, O], [O, O]])
+        λ4 = array([[0, 0, 1, 0], 
+                    [0, 0, 0, 0], 
+                    [1, 0, 0, 0], 
+                    [0, 0, 0, 0]])
+        λ5 = array([[0, 0, -1j, 0], 
+                    [0, 0, 0, 0], 
+                    [1j, 0, 0, 0], 
+                    [0, 0, 0, 0]])
+        λ6 = array([[0, 0, 0, 0], 
+                    [0, 0, 1, 0], 
+                    [0, 1, 0, 0], 
+                    [0, 0, 0, 0]])
+        λ7 = array([[0, 0, 0, 0], 
+                    [0, 0, -1j, 0], 
+                    [0, 1j, 0, 0], 
+                    [0, 0, 0, 0]])
+        λ8 = array([[1, 0, 0, 0], 
+                    [0, 1, 0, 0], 
+                    [0, 0, -2, 0], 
+                    [0, 0, 0, 0]])*(1/sqrt(3))
+        λ9 = array([[0, 0, 0, 1], 
+                    [0, 0, 0, 0], 
+                    [0, 0, 0, 0], 
+                    [1, 0, 0, 0]])
+        λ10 = array([[0, 0, 0, -1j], 
+                     [0, 0, 0, 0], 
+                     [0, 0, 0, 0], 
+                     [1j, 0, 0, 0]])
+        λ11 = array([[0, 0, 0, 0], 
+                     [0, 0, 0, 1], 
+                     [0, 0, 0, 0], 
+                     [0, 1, 0, 0]])
+        λ12 = array([[0, 0, 0, 0], 
+                     [0, 0, 0, -1j], 
+                     [0, 0, 0, 0], 
+                     [0, 1j, 0, 0]])
+        λ13 = array([[0, 0, 0, 0], 
+                     [0, 0, 0, 0], 
+                     [0, 0, 0, 1], 
+                     [0, 0, 1, 0]])
+        λ14 = array([[0, 0, 0, 0], 
+                     [0, 0, 0, 0], 
+                     [0, 0, 0, -1j], 
+                     [0, 0, 1j, 0]])
+        λ15 = array([[1, 0, 0, 0], 
+                     [0, 1, 0, 0], 
+                     [0, 0, 1, 0], 
+                     [0, 0, 0, -3]])*(1/sqrt(6))
+
+        return array([λ1, λ2, λ3, λ4, λ5, λ6, λ7, λ8, λ9, λ10, λ11, λ12, λ13, λ14, λ15])
+
+def slambdas(S=0.5):
+    """slambdas: generators of swap symmetric subspace.
+                 should prove this!
+
+    :param S:
+    """
+    if S!=0.5:
+        raise NotImplementedError
+    else:
+        Sx, Sy, Sz = paulis(0.5)
+        I = eye(2)
+        return array([kron(Sx, Sx), 
+                      kron(Sy, Sy), 
+                      kron(Sz, Sz), 
+                      kron(Sx, Sy) + kron(Sy, Sx),
+                      kron(Sx, Sz) + kron(Sz, Sx),
+                      kron(Sy, Sz) + kron(Sz, Sy),
+                      kron(Sx, I) + kron(I, Sx),  
+                      kron(Sy, I) + kron(I, Sy),
+                      kron(Sz, I) + kron(I, Sz)])
+         
+def antiferro():
+    """Make an SU(2) spinor"""
+    sp1, sm1 = N_body_ladders(0.5, 1, 2) # these are (sigmax+ isigmay) /2 = Sx+iSy
+    sp2, sm2 = N_body_ladders(0.5, 2, 2)
+    zp1, zm1 = (0.5*eye(4)+sz1), (0.5*eye(4)-sz1)
+    zp2, zm2 = (0.5*eye(4)+sz2), (0.5*eye(4)-sz2)
+    n_x = (sp1@sm2 + sm1@sp2)
+    n_y = -1j*(sp1@sm2 - sm1@sp2)
+    n_z = (sz2-sz1)/2
+    return array([n_x, n_y, n_z])
+
+def ferro():
+    """Make another SU(2) spinor"""
+    sp1, sm1 = N_body_ladders(0.5, 1, 2) # these are (sigmax+ isigmay) /2 = Sx+iSy
+    sp2, sm2 = N_body_ladders(0.5, 2, 2)
+    zp1, zm1 = (0.5*eye(4)+sz1), (0.5*eye(4)-sz1)
+    zp2, zm2 = (0.5*eye(4)+sz2), (0.5*eye(4)-sz2)
+    m_x = (sp1@sp2 + sm1@sm2)
+    m_y = 1j*(sp1@sp2-sm1@sm2)
+    m_z = (sz1+sz2)/2
+    return array([m_x, m_y, m_z])
+
+def locals():
+    """local spinors"""
+    Sx, Sy, Sz = spins(0.5)
+    I = eye(2)
+    return array([kron(I, Sx), kron(I, Sy), kron(I, Sz),
+                  kron(Sx, I), kron(Sy, I), kron(Sz, I)])
+
+def U1(v):
+    """U1 local unitary
+    """
+    return expm(-1j*tensordot(v, locals[:3], [0, 0]))
+
+def U2(v):
+    """U2 local unitary
+    """
+    return expm(-1j*tensordot(v, locals[3:], [0, 0]))
+
+def U4(v):
+    """U4 two site unitary
+    """
+    return expm(-1j*tensordot(v, lambdas(), [0, 0]))
+
+def U4s(v):
+    """U4s two site symmetric unitary
+    """
+    return expm(-1j*tensordot(v, slambdas(), [0, 0]))
 
 op = lambdas(0.5)
 assert all([allclose(trace(o), 0) for o in op])
