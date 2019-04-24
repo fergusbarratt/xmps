@@ -7,7 +7,6 @@ from itertools import product
 from functools import reduce
 from math import log as logd, sqrt
 
-
 def is_swap_symmetric(U):
     return allclose(U-swap_antisymmetrise(U), 0)
 
@@ -454,3 +453,7 @@ def U4s(v):
 op = lambdas(0.5)
 assert all([allclose(trace(o), 0) for o in op])
 assert all([allclose(trace(o@o), 2) for o in op])
+
+Sx1, Sy1, Sz1 = N_body_spins(1/2, 1, 2)
+Sx2, Sy2, Sz2 = N_body_spins(1/2, 2, 2)
+

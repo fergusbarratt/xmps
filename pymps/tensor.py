@@ -32,6 +32,11 @@ except:
     def lanczos_expm(A, v, t):
         return expm_multiply(A, v, t)
 
+def eye_like(A):
+    """eye_like: identity same shape as A
+    """
+    return eye(A.shape[0])
+
 def direct_sum(A, B):
     (a1, a2), (b1, b2) = A.shape, B.shape
     O = zeros((a2, b1))

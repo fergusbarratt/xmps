@@ -19,8 +19,8 @@ import matplotlib as mp
 import matplotlib.pyplot as plt
 
 from pymps.tensor import H, C, r_eigenmatrix, l_eigenmatrix, get_null_space, p
-from pymps.tensor import basis_iterator, T, rotate_to_hermitian
-from pymps.spin import spins
+from pymps.tensor import basis_iterator, T, rotate_to_hermitian, eye_like
+from pymps.spin import spins, N_body_spins
 Sx, Sy, Sz = spins(0.5)
 
 class TestTransferMatrix(unittest.TestCase):
@@ -65,7 +65,7 @@ class TestiMPS(unittest.TestCase):
 
     def setUp(self):
         N = 5
-        D_min, D_max = 10, 11
+        D_min, D_max = 2, 3 
         d_min, d_max = 2, 3
         p_min, p_max = 1, 2  # always 1 for now
         self.rand_cases = [iMPS().random(randint(d_min, d_max),
@@ -76,6 +76,36 @@ class TestiMPS(unittest.TestCase):
                                             randint(D_min, D_max),
                                             period=randint(p_min, p_max))
                              for _ in range(N)]
+
+    def test_tangent_space(self):
+        from numpy import real, imag, trace as tr, array
+        import matplotlib.pyplot as plt
+        A = self.rand_cases[0]
+        pr, vL = A.left_null_projector(True)
+        V = vL.reshape(-1, vL.shape[-1])
+        self.assertTrue(allclose(eye_like(V.T), V.conj().T@V))
+
+        Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
+        Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
+        def H(λ): return [-4*Sz12@Sz22+2*λ*(Sx12+Sx22)]
+        λ = 5
+        def H(λ): return [Sz12@Sz22+Sx12@Sx22+Sy12@Sy12]
+
+        O, l, r, K = A.I_EP(H(λ), testing=True)
+        fun = norm(O(concatenate([real(K.reshape(-1)), imag(K.reshape(-1))])))
+        print(fun)
+        self.assertTrue(abs(norm(O(concatenate([real(K.reshape(-1)), imag(K.reshape(-1))]))))<1e-5)
+        self.assertTrue(allclose(tr(K@r), 0))
+        
+        dt = 0.1
+        rs = []
+        for _ in range(500):
+            A = (A+dt*A.dA_dt(H(λ))).left_canonicalise()
+            rs.append(A.Es([2*Sx, 2*Sy, 2*Sz]))
+            print(A.energy(H(λ)))
+
+        plt.plot(array(rs))
+        plt.show()
 
     def test_canonicalise_conditions(self):
         for case in self.rand_cases:
@@ -113,9 +143,8 @@ class TestiMPS(unittest.TestCase):
                 A_= A_.canonicalise('l')
             _, l, r = A.eigs()
             _, l_, r_ = A_.eigs()
-           # print(norm(l-l_))
-           # print(norm(r-r_))
-           # print(r, l)
+            self.assertTrue(allclose(l, l_))
+            self.assertTrue(allclose(r, r_))
             
     def test_iMPS_eigs(self):
         for case in self.rand_cases:
@@ -133,7 +162,10 @@ class TestiMPS(unittest.TestCase):
             self.assertTrue(allclose(I_, 1))
 
             for _ in range(10):
-                case.canonicalise()
+                hands = ['l', 'm', 'r', None]
+                for hand in hands:
+                    if hand is not None:
+                        case.canonicalise(hand)
 
             I__ = case.E(identity(2))
             Ss__ = array([case.E(op) for op in ops])

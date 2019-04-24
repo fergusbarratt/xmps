@@ -10,6 +10,11 @@ from numpy import concatenate as ct, split as chop, save, load
 from numpy.linalg import cholesky, eigvals, svd, inv, norm
 from scipy.sparse.linalg import LinearOperator, eigs as arnoldi
 from scipy.linalg import svd as svd_s, cholesky as cholesky_s
+from scipy.linalg import null_space as null
+from numpy.linalg import inv, cholesky as ch
+from numpy import swapaxes as sw
+from .tensor import C as c, H as cT
+from .ncon import ncon
 
 from copy import copy
 
@@ -246,6 +251,46 @@ class iMPS(object):
         """eigs: dominant eigenvectors and values of the transfer matrix."""
         return self.transfer_matrix().eigs(l0, r0)
 
+    def Es(self, ops, c=None):
+        """E: calculate expectation of single site operator
+
+        :param op: operator to compute expectation of
+        :param c: canonicalisation of current state.
+                  Should be in ['l', 'm', 'r', None].
+                  If None, decompose to vidal then use that.
+        """
+        ret = []
+        if c == 'm':
+            L = self.L
+            A = self.data[0]
+            for op in ops:
+                ret.append(real_if_close(sum(L @ A * tensordot(op, C(A) @ L, [1, 0]))))
+            return ret
+        if c == 'r':
+            L = self.L
+            A = self.data[0]
+            for op in ops:
+                ret.append(real_if_close(sum(A * tensordot(op, L**2 @ C(A), [1, 0]))))
+            return ret
+        if c == 'l':
+            L = self.L
+            A = self.data[0]
+            for op in ops:
+                ret.append(real_if_close(sum(A @ L**2 * tensordot(op, C(A), [1, 0]))))
+            return ret
+
+        if c is None:
+            G, L = self.canonicalise(to_vidal=True).data[0]
+            circle = tr(G.dot(L).dot(L).dot(H(G)).dot(L).dot(L), axis1=1, axis2=3)
+            #  - L - G - L -
+            # |      |0     |       |0
+            # |    circle   |,      op
+            # |      |1     |       |1
+            #  - L - G - L -
+            for op in ops:
+                ret.append(real_if_close(tr(circle @ op)))
+            return ret
+
     def E(self, op, c=None):
         """E: calculate expectation of single site operator
 
@@ -323,7 +368,100 @@ class iMPS(object):
         self.d, self.D, self.p = map(lambda x: int(re(x)), params)
         return self.deserialize(arr, self.d, self.D, self.p)
 
-class i
+    def left_null_projector(self, get_vL=False):
+        """left_null_projector:           |
+                         - inv(sqrt(l)) - vL = vL- inv(sqrt(l))-
+                                               |
+        replaces A in TDVP
+        """
+        _, l, _ = self.eigs()
+        L_ = sw(cT(self[0])@ch(l), 0, 1)
+        L = L_.reshape(-1, self.d*L_.shape[-1])
+        vL = null(L).reshape((self.d, L.shape[1]//self.d, -1))
+
+        pr = ncon([inv(ch(l))@vL, inv(ch(l))@c(vL)], [[-1, -2, 1], [-3, -4, 1]])
+        if get_vL:
+            return pr, vL
+        return pr
+
+    def I_EP(self, H, testing=False):
+        from numpy import trace as tr, reshape, real, imag, concatenate
+        from scipy.optimize import root
+        _, l, r = self.eigs()
+        d, D = self.d, self.D
+        h = H[0].reshape(d, d, d, d)
+        A = self.data[0]
+
+        def RHS():
+            C = ncon([h]+[A, A], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
+            K = ncon([l@A.conj(), A.conj()]+[C], [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]]) #AAHAA
+            K -= l*tr(K@r)
+            return K
+
+        def O(K, RHS):
+            """O: function of which K should be the root
+            scipy root doesn't work with complex numbers or ndim matrices (maybe)
+            takes a list of length 2*mps.D**2, with first half real parts, second
+            half imaginary parts. 
+            returns list in the same format
+
+            :param K: guess for K. for correct K will return zeros
+            """
+            K = reshape(K[:D**2]+1j*K[D**2:], (D, D))
+
+            def LHS(K):
+                return K-sum(cT(A)@K@A, axis=0) + l*tr(K@r)
+
+            O_n = reshape(LHS(K) - RHS , (D**2,))
+            O_n = concatenate([real(O_n), imag(O_n)])
+            return O_n
+
+        K0 = (randn(D, D)+1j*randn(D, D)).reshape(D**2)
+        K0 = concatenate([real(K0), imag(K0)])
+
+        K = root(O, K0, args=(RHS(),), method='hybr', tol=1e-10).x
+        K = reshape(K[:D**2]+1j*K[D**2:], (D, D))
+        if testing: 
+            def O_(K):
+                return O(K, RHS())
+            return O_, l, r, K
+        return K
+
+    def energy(self, H):
+        d, D = self.d, self.D
+        h = H[0].reshape(d, d, d, d)
+        A = self.data[0]
+        _, l, r = self.eigs()
+
+        C = ncon([h]+[A, A], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
+
+        K = ncon([l@A.conj(), A.conj()]+[C], [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]]) #AAHAA
+        self.e = tr(K@r)
+        return self.e
+
+    def dA_dt(self, H):
+        from numpy import zeros_like as zl
+        d, D = self.d, self.D
+        h = H[0].reshape(d, d, d, d)
+        A = self.data[0]
+        _, l, r = self.eigs()
+
+        C = ncon([h]+[A, A], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
+
+        K = ncon([l@A.conj(), A.conj()]+[C], [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]]) #AAHAA
+        self.e = tr(K@r)
+
+        pr = self.left_null_projector()
+
+        R = ncon([pr, A], [[-3, -4, 1, -2], [1, -1, -5]])
+        K = self.I_EP(H)
+
+        B = -1j*zl(A)
+        B += -1j*ncon([l@C@r, pr, inv(r)@A.conj()], [[3, 4, 1, 2], [-1, -2, 3, 1], [4, -3, 2]])
+        B += -1j*ncon([l@A.conj(), pr]+[C], [[1, 3, 4], [-1, -2, 2, 4], [1, 2, 3, -3]])
+        B += -1j *ncon([K, R], [[1, 2], [1, 2, -1, -2, -3]])
+
+        return iMPS([B])
 
 class ivMPS(object):
     """infinite vidal MPS"""
