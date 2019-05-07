@@ -81,6 +81,10 @@ def n_body(op, i, n, d=None):
     return tensor(l)
 
 def spins(S):
+    """spins
+
+    :param S:
+    """
     """spins. returns [Sx, Sy, Sz] for spin S
 
     :param S: spin - must be in [0.5, 1, 1.5]
@@ -400,27 +404,30 @@ def slambdas(S=0.5):
                       kron(Sx, I) + kron(I, Sx),  
                       kron(Sy, I) + kron(I, Sy),
                       kron(Sz, I) + kron(I, Sz)])
+
+Sx1, Sy1, Sz1 = N_body_spins(1/2, 1, 2)
+Sx2, Sy2, Sz2 = N_body_spins(1/2, 2, 2)
          
 def antiferro():
     """Make an SU(2) spinor"""
     sp1, sm1 = N_body_ladders(0.5, 1, 2) # these are (sigmax+ isigmay) /2 = Sx+iSy
     sp2, sm2 = N_body_ladders(0.5, 2, 2)
-    zp1, zm1 = (0.5*eye(4)+sz1), (0.5*eye(4)-sz1)
-    zp2, zm2 = (0.5*eye(4)+sz2), (0.5*eye(4)-sz2)
+    zp1, zm1 = (0.5*eye(4)+Sz1), (0.5*eye(4)-Sz1)
+    zp2, zm2 = (0.5*eye(4)+Sz2), (0.5*eye(4)-Sz2)
     n_x = (sp1@sm2 + sm1@sp2)
     n_y = -1j*(sp1@sm2 - sm1@sp2)
-    n_z = (sz2-sz1)/2
+    n_z = -(Sz1-Sz2)
     return array([n_x, n_y, n_z])
 
 def ferro():
     """Make another SU(2) spinor"""
     sp1, sm1 = N_body_ladders(0.5, 1, 2) # these are (sigmax+ isigmay) /2 = Sx+iSy
     sp2, sm2 = N_body_ladders(0.5, 2, 2)
-    zp1, zm1 = (0.5*eye(4)+sz1), (0.5*eye(4)-sz1)
-    zp2, zm2 = (0.5*eye(4)+sz2), (0.5*eye(4)-sz2)
+    zp1, zm1 = (0.5*eye(4)+Sz1), (0.5*eye(4)-Sz1)
+    zp2, zm2 = (0.5*eye(4)+Sz2), (0.5*eye(4)-Sz2)
     m_x = (sp1@sp2 + sm1@sm2)
     m_y = 1j*(sp1@sp2-sm1@sm2)
-    m_z = (sz1+sz2)/2
+    m_z = (Sz1+Sz2)/2
     return array([m_x, m_y, m_z])
 
 def locals():
@@ -453,7 +460,4 @@ def U4s(v):
 op = lambdas(0.5)
 assert all([allclose(trace(o), 0) for o in op])
 assert all([allclose(trace(o@o), 2) for o in op])
-
-Sx1, Sy1, Sz1 = N_body_spins(1/2, 1, 2)
-Sx2, Sy2, Sz2 = N_body_spins(1/2, 2, 2)
 

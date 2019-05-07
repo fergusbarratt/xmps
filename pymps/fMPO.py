@@ -3,12 +3,13 @@ from numpy.random import randint, rand
 from numpy import zeros, identity, array, swapaxes, dot, tensordot
 from numpy import transpose, diag, prod, kron, allclose
 from numpy.linalg import svd
-from tensor import H, C
-from qmb import sigmap, sigmam, sigmaz
-from fMPS import fMPS
 from scipy.sparse.linalg import eigsh as lanczos, LinearOperator
 import matplotlib.pyplot as plt
-from tests import is_left_canonical, is_right_canonical
+
+from pymps.tensor import H, C
+from pymps.qmb import sigmap, sigmam, sigmaz
+from pymps.fMPS import fMPS
+from pymps.tests import is_left_canonical, is_right_canonical
 
 class effH(object):
     def __init__(self, W, A, k, L, R):

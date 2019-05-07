@@ -1,18 +1,14 @@
-import os, sys, inspect
-currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
-parentdir = os.path.dirname(currentdir)
-sys.path.insert(0,os.path.dirname(parentdir))
+from pymps.fTDVP import Trajectory
+from pymps.fMPS import fMPS
+from pymps.spin import N_body_spins, spins, n_body
+from pymps.tdvp.tdvp_fast import MPO_TFI
 
-from fTDVP import Trajectory
-from fMPS import fMPS
-from spin import N_body_spins, spins, n_body
 from numpy import load, linspace, save, sum, array, concatenate as ct, stack as st, log, exp
 from numpy import ceil, real as re, cumsum as cs, arange as ar, array, sqrt
 from numpy import mean
 from numpy import log2
 import matplotlib.pyplot as plt
 import matplotlib as mpl
-from tdvp.tdvp_fast import MPO_TFI
 from scipy.interpolate import interp1d
 from scipy.optimize import curve_fit
 mpl.style.use('ggplot')
@@ -42,7 +38,7 @@ L = 6
 
 
 # generate a list of product states with the same energy
-mpss = Trajectory(fMPS().load('fixtures/product{}.npy'.format(L)),
+mpss = Trajectory(fMPS().load('../../testing/fixtures/product{}.npy'.format(L)),
                   H=listH,
                   W=L*[MPO_TFI(0, 0.25, 0.5, 0.5)]).invfreeint(
                           linspace(0, 300, 10), 'high').mps_list()

@@ -7,11 +7,11 @@ from numpy.linalg import eig as neig, eigvals, svd, inv
 from numpy import swapaxes, count_nonzero, diag, insert, pad, dot, argmax, sqrt
 from numpy import allclose, array, tensordot, transpose, all, identity, squeeze
 from numpy import isclose, mean, sign, kron, zeros, conj, max, concatenate, eye
-from numpy import block
+from numpy import block, real, imag
 from itertools import product
 import scipy as sp
 from scipy.sparse.linalg import LinearOperator, expm_multiply
-from scipy.linalg import null_space
+from scipy.linalg import null_space, rq
 
 from time import time
 
@@ -31,6 +31,43 @@ try:
 except:
     def lanczos_expm(A, v, t):
         return expm_multiply(A, v, t)
+
+def embed(v):
+    '''put matrix in form
+              ↑ ↑
+              | |
+              ___
+               v
+              ___
+              | |
+      '''
+    v = v.reshape(1, -1)/norm(v)
+    vs = null_space(v).conj().T
+    return concatenate([v, vs], 0).T
+
+def deembed(u):
+    '''matrix out of form
+              ↑ ↑
+              | |
+              ___
+               v   
+              ___
+              | |
+      '''
+    return (u@array([1, 0, 0, 0])).reshape(2, 2)
+
+def uqr(A):
+    '''Unique qr decomposition'''
+    q, r = qr(A, mode='economic')
+    O = diag(sign(diag(r)))
+    return q@O, O@r
+
+def urq(A):
+    '''Unique rq decomposition'''
+    r, q = rq(A, mode='economic')
+    q_, r_ = qr(A, mode='economic')
+    O = diag(sign(diag(r)))
+    return r@O, O@q
 
 def eye_like(A):
     """eye_like: identity same shape as A
@@ -453,7 +490,6 @@ class TestTensorTools(unittest.TestCase):
                         for m in range(d):
                             for n in range(d):
                                 self.assertTrue(isclose(H[loc_3((i, j), (k, l), (m, n), 2)], M[i, j]*M[k, l]*M[m, n]))
-                                print(H_[i, k, m, j, l, n]-M[i, j]*M[k, l]*M[m, n])
 
     def test_TT(self):
         for tensor in self.tensors:
@@ -539,34 +575,19 @@ class TestTensorTools(unittest.TestCase):
                             for n in range(d):
                                 self.assertTrue(isclose(H[i, j, k, l, m, n], M[i, j]*M[k, l]*M[m, n]))
 
-    def test_expm(self):
-        N = 1000
-        A = randn(N, N)*1j
-        B = LinearOperator(A.shape, matvec=lambda w: A.dot(w))
-        v = randn(N)*1j
-        t = 0.1
-        t1 = time()
-        v__ = expm(A*t)@v
-        t2 = time()
-        print('\nfull: ', t2-t1)
+    def test_unitary_extension(self):
+        Qs = [qr(randn(4, 4)+1j*randn(4, 4))[0][:2, :] for _ in range(100)]+\
+             [qr(randn(4, 4)+1j*randn(4, 4))[0][:, :2] for _ in range(100)]
+        ues = [unitary_extension(Q, 5) for Q in Qs]
+        self.assertTrue(allclose([norm(eye(5)-u@u.conj().T) for u in ues], 0))
+        self.assertTrue(allclose([norm(eye(5)-u.conj().T@u) for u in ues], 0))
 
-        t1 = time()
-        v_  = lanczos_expm(B, v, t)
-        t2 = time()
-        print('op: ', t2-t1)
-        print(norm(v__-v_))
+        self.assertTrue(allclose([norm(Q-u[:2, :4]) for Q, u in list(zip(Qs, ues))[:100]], 0))
+        self.assertTrue(allclose([norm(Q-u[:4, :2]) for Q, u in list(zip(Qs, ues))[100:]], 0))
 
-def test_unitary_extension():
-    Qs = [qr(randn(4, 4)+1j*randn(4, 4))[0][:2, :] for _ in range(100)]+\
-         [qr(randn(4, 4)+1j*randn(4, 4))[0][:, :2] for _ in range(100)]
-    ues = [unitary_extension(Q, 5) for Q in Qs]
-    assert allclose([norm(eye(5)-u@u.conj().T) for u in ues], 0)
-    assert allclose([norm(eye(5)-u.conj().T@u) for u in ues], 0)
-    
-    assert allclose([norm(Q-u[:2, :4]) for Q, u in list(zip(Qs, ues))[:100]], 0)
-    assert allclose([norm(Q-u[:4, :2]) for Q, u in list(zip(Qs, ues))[100:]], 0)
-    print('Complete')
+    def test_embed_deembed(self):
+        v = randn(2, 2)+1j*randn(2, 2)
+        self.assertTrue(isclose(norm(deembed(embed(v))-v/norm(v)), 0))
 
 if __name__ == '__main__':
-    test_unitary_extension()
     unittest.main(verbosity=1)

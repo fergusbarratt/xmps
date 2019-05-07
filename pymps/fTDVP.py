@@ -10,7 +10,7 @@ from .fMPS import fMPS
 from .tensor import get_null_space, H as cT, C as c
 from .ncon import ncon
 from .tdvp.tdvp_fast import tdvp, MPO_TFI
-from .spin import N_body_spins, spins, comm, n_body, partial_trace
+from .spin import N_body_spins, spins, comm, n_body
 
 from numpy import array, linspace, real as re, reshape, sum, swapaxes as sw
 from numpy import tensordot as td, squeeze, trace as tr, expand_dims as ed

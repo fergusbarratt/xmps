@@ -1,10 +1,6 @@
-import os, sys, inspect
-currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
-parentdir = os.path.dirname(currentdir)
-sys.path.insert(0,parentdir)
 from numpy import load, cumsum as cs, arange as ar, expand_dims as ed
 from numpy import array, log, save, exp, vectorize, linspace, log
-from numpy import exp, unique
+from numpy import exp, unique, linspace
 from scipy.optimize import curve_fit
 from scipy.interpolate import interp1d, InterpolatedUnivariateSpline
 from functools import reduce
@@ -38,14 +34,14 @@ Y = []
 # load all the entanglement entropies - time average, and add last element to Y
 Ds = array([2, 3, 4, 5, 6, 7])
 for D in Ds:
-    X = load('data/S_{}.npy'.format(D))
+    X = load('../../data/S_{}.npy'.format(D))
     T = linspace(0, 300, len(X))
     plt.plot(T, X, label=str(D))
     Y.append(av(X)[-1])
 plt.ylabel('$S_E(t)$')
 plt.xlabel('$t$')
 plt.legend()
-plt.savefig('images/sat/entanglement.pdf')
+plt.savefig('../../images/sat/entanglement.pdf')
 plt.show()
 
 dat = array(Y)
@@ -67,12 +63,12 @@ D = vectorize(D)
 plt.scatter(D(dat), dat)
 plt.xlabel('$D$')
 plt.ylabel('Saturation $S_E$')
-plt.savefig('images/sat/sat_SE_vs_D.pdf')
+plt.savefig('../../images/sat/sat_SE_vs_D.pdf')
 plt.show()
 
 # Functions for maximum lyapunov exponent and kolmogorov sinai entropy
 Ds_ = array([1, 2, 3, 4, 5, 6, 7, 8])
-lamb = load('data/exps.npy')
+lamb = load('../../data/exps.npy')
 max_l = array(list(map(max, map(abs, lamb))))
 ks = array(list(map(sum, map(abs, lamb))))/2
 
@@ -85,12 +81,12 @@ ax.scatter(Ds_, max_l(Ds_), label='$\lambda_{max}(D)$', marker='x')
 ax.scatter(Ds_, ks(Ds_), label='$S_{KS}(D)$', marker='x')
 ax.legend()
 ax.set_xlabel('$D$')
-fig.savefig('images/sat/lambda_max_ks.pdf')
+fig.savefig('../../images/sat/lambda_max_ks.pdf')
 plt.show()
 
 fig, ax = plt.subplots(2, 2, sharex=True)
-C = load('data/otocs.npy')
-S = load('data/S.npy')
+C = load('../../data/otocs.npy')
+S = load('../../data/S.npy')
 factor = (rm(D(S)))**2
 ax[0][0].plot(numdiff(C))
 ax[0][0].set_title('$\partial_t C(t)$')
@@ -103,16 +99,25 @@ ax[0][1].set_title('$\partial_t S_E(t)$')
 ax[0][1].set_xlabel('$t$')
 ax[1][1].set_xlabel('$t$')
 plt.tight_layout()
-plt.savefig('images/sat/diffC_otoc_lambda_S_ks.pdf')
+plt.savefig('../../images/sat/diffC_otoc_lambda_S_ks.pdf')
 plt.show()
 
+#########################################################################
+#########################################################################
+#########################################################################
 fig, ax = plt.subplots(1, 1)
-ax.plot(numdiff(S), label ='$\partial_t S_E(t)$')
-ax.plot(ks(rm(D(S)))/factor, label='$S_{KS}(D(t))/(D(t)^2)$')
-ax.set_xlabel('$t$')
-plt.legend(prop={'size': 20})
+T = linspace(0, 100, 1001)
+ax.plot(T[:998], numdiff(S), label ='$\partial_t S_E(t)$')
+ax.plot(T[:999], ks(rm(D(S)))/factor, label='$S_{KS}(D(t))/(D(t)^2)$')
+ax.set_xlabel('$t$', fontsize=15)
+plt.xticks(fontsize=15)
+plt.yticks(fontsize=15)
+plt.legend(prop={'size': 16})
 plt.savefig('/Users/fergusbarratt/Desktop/dS_Ks.pdf')
 plt.show()
+#########################################################################
+#########################################################################
+#########################################################################
 
 ts = [0]
 for Di in Ds:
@@ -126,6 +131,7 @@ xs = array(list(unique(rm(D(S))))[1:]+[8])
 dS = InterpolatedUnivariateSpline(ts, ks(xs)/array(xs)**2, k=2)
 
 plt.scatter([0]+ts, dS(array([0]+ts)))
+T = linspace(0, 100, 1001)
 plt.plot(ks(rm(D(S)))/factor)
 plt.show()
 T_ = range(len(rm(D(S))))

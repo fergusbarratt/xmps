@@ -1,5 +1,4 @@
 import unittest
-from pymps.iMPS import iMPS, ivMPS, TransferMatrix
 
 from numpy.random import rand, randint, randn
 from numpy import diag, dot, tensordot, transpose, allclose
@@ -19,9 +18,52 @@ import matplotlib as mp
 import matplotlib.pyplot as plt
 
 from pymps.tensor import H, C, r_eigenmatrix, l_eigenmatrix, get_null_space, p
+from pymps.tensor import C as c, H as cT
 from pymps.tensor import basis_iterator, T, rotate_to_hermitian, eye_like
-from pymps.spin import spins, N_body_spins
+from pymps.iMPS import iMPS, ivMPS, TransferMatrix, Map
+from pymps.spin import spins
+
 Sx, Sy, Sz = spins(0.5)
+
+class TestMap(unittest.TestCase):
+    """TestTransferMatrix"""
+
+    def setUp(self):
+        N = 10 
+        D_min, D_max = 10, 11
+        d_min, d_max = 2, 3
+        p_min, p_max = 1, 2  # always 1 for now
+        self.rand_cases1 = [iMPS().random(randint(d_min, d_max),
+                                         randint(D_min, D_max),
+                                         period=randint(p_min, p_max))
+                           for _ in range(N)]
+
+        self.rand_cases2 = [iMPS().random(randint(d_min, d_max),
+                                         randint(D_min, D_max),
+                                         period=randint(p_min, p_max))
+                           for _ in range(N)]
+
+        self.maps = [Map(case1[0], case2[0])
+                                  for case1, case2 in zip(self.rand_cases1, self.rand_cases2)]
+
+    def test_Maps(self):
+        for tm in self.maps:
+            r = rand(tm.shape[1])
+            full_tm = transpose(tensordot(tm.A, C(tm.B), [0, 0]), [0, 2, 1, 3]).reshape(tm.shape)
+            self.assertTrue(allclose(full_tm @ r, tm.mv(r)))
+            self.assertTrue(allclose(r @ full_tm, tm.mvr(r)))
+
+    def test_Map_operators(self):
+        for tm in self.maps:
+            r = rand(tm.shape[1])
+            full_tm = transpose(tensordot(tm.A, C(tm.B), [0, 0]), [0, 2, 1, 3]).reshape(tm.shape)
+            self.assertTrue(allclose(full_tm @ r, tm.aslinearoperator() @ (r)))
+            self.assertTrue(allclose(r @ full_tm, tm.aslinearoperator().H @ r))
+
+    def test_fixed_points(self):
+        for tm in self.maps:
+            η, r = tm.right_fixed_point()
+            η, l = tm.left_fixed_point()
 
 class TestTransferMatrix(unittest.TestCase):
     """TestTransferMatrix"""
@@ -64,8 +106,8 @@ class TestiMPS(unittest.TestCase):
     """TestiMPS"""
 
     def setUp(self):
-        N = 5
-        D_min, D_max = 2, 3 
+        N = 3
+        D_min, D_max = 4, 5
         d_min, d_max = 2, 3
         p_min, p_max = 1, 2  # always 1 for now
         self.rand_cases = [iMPS().random(randint(d_min, d_max),
@@ -77,9 +119,35 @@ class TestiMPS(unittest.TestCase):
                                             period=randint(p_min, p_max))
                              for _ in range(N)]
 
+    def test_mixed(self):
+        from numpy import sum, tensordot as td
+        from numpy.linalg import inv
+        A = self.rand_cases[0]
+        d, D = A.d, A.D
+        AL, L, λ = A._lmixed()
+        self.assertTrue(allclose(sum(cT(AL)@AL, axis=0), eye(D)))
+        self.assertTrue(allclose(inv(L)@AL@L, 1/λ*A))
+
+        AR, R, λ = A._rmixed()
+        self.assertTrue(allclose(sum(AR@cT(AR), axis=0), eye(D)))
+        self.assertTrue(allclose(R@AR@inv(R), 1/λ*A))
+
+        AR, C, λ = iMPS([AL])._rmixed()
+        self.assertTrue(allclose(sum(AR@cT(AR), axis=0), eye(D)))
+        self.assertTrue(allclose(C@AR@inv(C), 1/λ*AL))
+
+        AL, AR, C = A.mixed()
+        AL, AR, C = AL.data[0], AR.data[0], C
+        self.assertTrue(allclose(sum(cT(AL)@AL, axis=0), eye(D)))
+        self.assertTrue(allclose(sum(AR@cT(AR), axis=0), eye(D)))
+        self.assertTrue(allclose(C@AR@inv(C), 1/λ*AL))
+
+    @unittest.skip()
     def test_tangent_space(self):
         from numpy import real, imag, trace as tr, array
         import matplotlib.pyplot as plt
+        from pymps.spin import N_body_spins
+
         A = self.rand_cases[0]
         pr, vL = A.left_null_projector(True)
         V = vL.reshape(-1, vL.shape[-1])
@@ -87,21 +155,27 @@ class TestiMPS(unittest.TestCase):
 
         Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
         Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
-        def H(λ): return [-4*Sz12@Sz22+2*λ*(Sx12+Sx22)]
-        λ = 5
-        def H(λ): return [Sz12@Sz22+Sx12@Sx22+Sy12@Sy12]
+        #def H(λ): return [-4*Sz12@Sz22+2*λ*(Sx12+Sx22)]
+        λ = 1
+        def H(λ): return [Sz12@Sz22+λ*(Sx12+Sx22)]
 
-        O, l, r, K = A.I_EP(H(λ), testing=True)
+        O, l, r, K = A.Lh(H(λ), testing=True)
         fun = norm(O(concatenate([real(K.reshape(-1)), imag(K.reshape(-1))])))
-        print(fun)
         self.assertTrue(abs(norm(O(concatenate([real(K.reshape(-1)), imag(K.reshape(-1))]))))<1e-5)
         self.assertTrue(allclose(tr(K@r), 0))
-        
-        dt = 0.1
+
+        O, l, r, K = A.Rh(H(λ), testing=True)
+        self.assertTrue(abs(norm(O(concatenate([real(K.reshape(-1)), imag(K.reshape(-1))]))))<1e-5)
+        self.assertTrue(allclose(tr(l@K), 0))
+
+        dt = -0.1j
+        A.update(H(λ), dt)
+        raise Exception
         rs = []
         for _ in range(500):
-            A = (A+dt*A.dA_dt(H(λ))).left_canonicalise()
-            rs.append(A.Es([2*Sx, 2*Sy, 2*Sz]))
+            A, _, _ = (A+dt*A.dA_dt(H(λ))).mixed(1e-5)
+            ops = spins((A.d-1)/2)
+            rs.append(A.Es(ops))
             print(A.energy(H(λ)))
 
         plt.plot(array(rs))
@@ -153,21 +227,21 @@ class TestiMPS(unittest.TestCase):
 
     def test_canonicalise_EVs(self):
         for case in self.rand_cases:
-            ops = [Sx, Sy, Sz]
+            ops = spins((case.d-1)/2)
             case.canonicalise()
-            I_ = case.E(identity(2))
+            I_ = case.E(identity(case.d))
             Ss_ = array([case.E(op) for op in ops])
 
             # Norm is 1
             self.assertTrue(allclose(I_, 1))
 
-            for _ in range(10):
+            for _ in range(3):
                 hands = ['l', 'm', 'r', None]
                 for hand in hands:
                     if hand is not None:
                         case.canonicalise(hand)
 
-            I__ = case.E(identity(2))
+            I__ = case.E(identity(case.d))
             Ss__ = array([case.E(op) for op in ops])
 
             # Norm conserved, operator expectations don't change
@@ -181,8 +255,7 @@ class TestiMPS(unittest.TestCase):
             for hand in hands:
                 if hand is not None:
                     case.canonicalise(hand)
-                self.assertTrue(isclose(case.E(identity(2), hand), 1))
-
+                self.assertTrue(isclose(case.E(identity(case.d), hand), 1))
 
     def test_v_canonicalise_conditions(self):
         for case in self.rand_v_cases:
@@ -202,9 +275,9 @@ class TestiMPS(unittest.TestCase):
 
     def test_v_canonicalise_EVs(self):
         for case in self.rand_v_cases:
-            ops = [Sx, Sy, Sz]
+            ops = spins((case.d-1)/2)
             case.canonicalise()
-            I_ = case.E(identity(2))
+            I_ = case.E(identity(case.d))
             Ss_ = array([case.E(op) for op in ops])
 
             # Norm is 1
@@ -213,7 +286,7 @@ class TestiMPS(unittest.TestCase):
             for _ in range(10):
                 case.canonicalise()
 
-            I__ = case.E(identity(2))
+            I__ = case.E(identity(case.d))
             Ss__ = array([case.E(op) for op in ops])
 
             # Norm conserved, operator expectations don't change

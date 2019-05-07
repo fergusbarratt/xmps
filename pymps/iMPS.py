@@ -1,20 +1,22 @@
 import unittest
 
 from numpy.random import rand, randint, randn
+from numpy import zeros_like as zl
 from numpy import diag, dot, tensordot, transpose, allclose
-from numpy import real as re, imag as im
+from numpy import trace as tr, reshape, real, imag, concatenate
+from numpy import real as re, imag as im, copy, swapaxes as sw
 from numpy import all, eye, isclose, reshape, swapaxes, trace as tr
 from numpy import concatenate, array, stack, sum, identity, zeros, abs 
 from numpy import sqrt, real_if_close, around, prod, sign, newaxis
 from numpy import concatenate as ct, split as chop, save, load
+
 from numpy.linalg import cholesky, eigvals, svd, inv, norm
+from numpy.linalg import inv, cholesky as ch
+
 from scipy.sparse.linalg import LinearOperator, eigs as arnoldi
 from scipy.linalg import svd as svd_s, cholesky as cholesky_s
 from scipy.linalg import null_space as null
-from numpy.linalg import inv, cholesky as ch
-from numpy import swapaxes as sw
-from .tensor import C as c, H as cT
-from .ncon import ncon
+from scipy.optimize import root
 
 from copy import copy
 
@@ -23,9 +25,79 @@ import matplotlib as mp
 import matplotlib.pyplot as plt
 
 from .tensor import H, C, r_eigenmatrix, l_eigenmatrix, get_null_space, p
+from .tensor import H as cT, C as c, T
 from .tensor import basis_iterator, T, rotate_to_hermitian
+from .tensor import C as c, H as cT, uqr, urq
+
+from .ncon import ncon
 from .spin import spins
 Sx, Sy, Sz = spins(0.5)
+
+class Map(object):
+    """Map: transfer matrix with A and B"""
+
+    def __init__(self, A, B):
+        self.A, self.B = A, B
+        self.d, self.D, _ = A.shape
+        self.shape = A.shape[1]**2, A.shape[2]**2
+        self.dtype = A.dtype
+
+    def full_matrix():
+        return transpose(tensordot(self.A, 
+                                  c(self.B), [0, 0]), 
+                         [0, 2, 1, 3]).reshape(self.shape)
+
+    def mv(self, r):
+        """mv: TM @ v
+
+        :param r: vector to multiply
+        """
+        d, D = self.d, self.D
+        A = self.A
+        B = self.B
+        r = r.reshape(D, D)
+        return sum(A@r@cT(B), axis=0).reshape(D**2)
+
+    def mvr(self, l):
+        """mvr: v@TM
+
+        :param l: vector to multiply
+        """
+        d, D = self.d, self.D
+        A, B = self.A, self.B
+        l = l.reshape(D, D)
+        return c(sum(T(A)@c(l)@c(B), axis=0).reshape(D**2))
+
+    def aslinearoperator(self):
+        """return linear operator representation - for arnoldi etc."""
+        return LinearOperator(self.shape, matvec=self.mv, rmatvec=self.mvr)
+
+    def right_fixed_point(self, r0=None, tol=0):
+        d, D = self.d, self.D
+        if r0 is not None:
+            r0 = r0.reshape(D**2)
+        η, r = arnoldi(self.aslinearoperator(), k=1, v0=r0, tol=tol)
+        r = r.reshape(D, D)
+        return η, r/tr(r@r)
+
+    def left_fixed_point(self, l0=None, tol=0):
+        d, D = self.d, self.D
+        if l0 is not None:
+            l0 = l0.reshape(D**2)
+        η, l = arnoldi(self.aslinearoperator().H, k=1, v0=l0, tol=tol)
+        l = l.reshape(D, D)
+        return η, l/tr(l@l)
+
+    def is_right_eigenvector(self, r, λ=1):
+        d, D = self.d, self.D
+        r_ = self.aslinearoperator()@r.reshape(D**2)
+        return allclose(r, λ*r_.reshape(D, D))
+
+    def is_left_eigenvector(self, l, λ=1):
+        d, D = self.d, self.D
+        l_ = self.aslinearoperator().H@l.reshape(D**2)
+        l_ = l_.reshape(D, D)
+        return allclose(l, λ*l_.reshape(D, D))
 
 class TransferMatrix(object):
     """TransferMatrix: Transfer matrix class - implements efficient matrix vector products."""
@@ -42,7 +114,7 @@ class TransferMatrix(object):
         """
         A = self.A
         r = r.reshape(A.shape[1:])
-        return sum(A @ T(C(A) @ T(r)), axis=0).reshape(prod(A.shape[1:]))
+        return sum(A @ r @ cT(A), axis=0).reshape(prod(A.shape[1:]))
 
     def mvr(self, l):
         """mvr: TM.H @ v
@@ -70,7 +142,7 @@ class TransferMatrix(object):
                 rotate_to_hermitian(l.reshape(A.shape[1:]))/sign(l[0]))
 
         n = tr(l @ r)
-        q = tr(l@l)
+        q = 1#tr(l@l)
 
         return real_if_close(eta), l*sqrt(q)/sqrt(n), r/sqrt(q*n)
 
@@ -197,6 +269,71 @@ class iMPS(object):
         assert self.period == 1
         return [TransferMatrix(A) for A in self.data][0]
 
+    def _lmixed(self, η=1e-10, L0=None):
+        '''canonicalisation algorithm described in https://arxiv.org/pdf/1810.07006.pdf'''
+        d, D = self.d, self.D
+        A = self.data[0]
+
+        if L0 is not None:
+            L = L0
+        else:
+            L = randn(D, D)
+        L /= norm(L)
+
+        L_ = copy(L)
+        AL, L = uqr((L@A).reshape(d*D, D))
+        λ = norm(L)
+        L /= λ
+        δ = norm(L-L_)
+        while δ > η:
+            #E = Map(A, AL.reshape(d, D, D))
+            #_, L = E.right_fixed_point()
+            #_, L = uqr(L)
+
+            L_ = copy(L)
+
+            AL, L = uqr((L@A).reshape(d*D, D))
+            λ = norm(L)
+            L /= λ
+            δ = norm(L-L_)
+        AL = AL.reshape(d, D, D)
+        return AL, L, λ
+
+    def _rmixed(self, η=1e-10, R0=None):
+        '''canonicalisation algorithm described in https://arxiv.org/pdf/1810.07006.pdf'''
+        d, D = self.d, self.D
+        A = self.data[0]
+
+        if R0 is not None:
+            R = R0
+        else:
+            R = randn(D, D)
+
+        R /= norm(R)
+
+        R_ = copy(R)
+        R, AR = urq((A@R).transpose([1, 0, 2]).reshape(D, d*D))
+        λ = norm(R)
+        R /= λ
+        δ = norm(R-R_)
+        while δ > η:
+            #_, L = Map(A, AL.reshape(d, D, D)).left_fixed_point(l0=L, tol=δ/10)
+            #_, L = uqr(L)
+            R_ = copy(R)
+            R, AR = urq((A@R).transpose([1, 0, 2]).reshape(D, d*D))
+            λ = norm(R)
+            R /= λ
+            δ = norm(R-R_)
+
+        AR = AR.reshape(D, d, D).transpose([1, 0, 2])
+        return AR, R, λ
+
+    def mixed(self, η=1e-14):
+        '''canonicalisation algorithm described in https://arxiv.org/pdf/1810.07006.pdf'''
+        AL, _, λ = self._lmixed(η)
+        AR, C, _ = iMPS([AL])._rmixed(η)
+        return iMPS([AL]), iMPS([AR]), C
+
     def canonicalise(self, hand='r', l0=None, r0=None, to_vidal=False):
         """canonicalise. See vidal paper.
         This collection of transposes and conjugates makes L_ work
@@ -251,6 +388,41 @@ class iMPS(object):
         """eigs: dominant eigenvectors and values of the transfer matrix."""
         return self.transfer_matrix().eigs(l0, r0)
 
+    def get_envs():
+        _, self.l, self.r = self.eigs()
+        return self.l, self.r
+
+    def E(self, op, c=None):
+        """E: calculate expectation of single site operator
+
+        :param op: operator to compute expectation of
+        :param c: canonicalisation of current state.
+                  Should be in ['l', 'm', 'r', None].
+                  If None, decompose to vidal then use that.
+        """
+        if c == 'm':
+            L = self.L
+            A = self.data[0]
+            return real_if_close(sum(L @ A * tensordot(op, C(A) @ L, [1, 0])))
+        if c == 'r':
+            L = self.L
+            A = self.data[0]
+            return real_if_close(sum(A * tensordot(op, L**2 @ C(A), [1, 0])))
+        if c == 'l':
+            L = self.L
+            A = self.data[0]
+            return real_if_close(sum(A @ L**2 * tensordot(op, C(A), [1, 0])))
+
+        if c is None:
+            G, L = self.canonicalise(to_vidal=True).data[0]
+            circle = tr(G.dot(L).dot(L).dot(H(G)).dot(L).dot(L), axis1=1, axis2=3)
+            #  - L - G - L -
+            # |      |0     |       |0
+            # |    circle   |,      op
+            # |      |1     |       |1
+            #  - L - G - L -
+            return real_if_close(tr(circle @ op))
+
     def Es(self, ops, c=None):
         """E: calculate expectation of single site operator
 
@@ -291,40 +463,19 @@ class iMPS(object):
                 ret.append(real_if_close(tr(circle @ op)))
             return ret
 
-    def E(self, op, c=None):
-        """E: calculate expectation of single site operator
-
-        :param op: operator to compute expectation of
-        :param c: canonicalisation of current state.
-                  Should be in ['l', 'm', 'r', None].
-                  If None, decompose to vidal then use that.
+    def energy(self, H):
+        """energy of sum of two site terms
         """
-        if c == 'm':
-            L = self.L
-            A = self.data[0]
-            return real_if_close(sum(L @ A * tensordot(op, C(A) @ L, [1, 0])))
-        if c == 'r':
-            L = self.L
-            A = self.data[0]
-            return real_if_close(sum(A * tensordot(op, L**2 @ C(A), [1, 0])))
-        if c == 'l':
-            L = self.L
-            A = self.data[0]
-            return real_if_close(sum(A @ L**2 * tensordot(op, C(A), [1, 0])))
+        d, D = self.d, self.D
+        h = H[0].reshape(d, d, d, d)
+        A = self.data[0]
+        _, l, r = self.eigs()
 
-        if c is None:
-            G, L = self.canonicalise(to_vidal=True).data[0]
-            circle = tr(G.dot(L).dot(L).dot(H(G)).dot(L).dot(L), axis1=1, axis2=3)
-            #  - L - G - L -
-            # |      |0     |       |0
-            # |    circle   |,      op
-            # |      |1     |       |1
-            #  - L - G - L -
-            return real_if_close(tr(circle @ op))
+        C = ncon([h]+[A, A], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
 
-    def norm(self):
-        """norm: should always return 1 since E c=None canonicalises"""
-        return self.E(identity(self.d), c=None)
+        K = ncon([l@A.conj(), A.conj()]+[C], [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]]) #AAHAA
+        self.e = tr(K@r)
+        return real(self.e)
 
     def serialize(self, real=False):
         """serialize: return a vector with mps data in it"""
@@ -368,25 +519,12 @@ class iMPS(object):
         self.d, self.D, self.p = map(lambda x: int(re(x)), params)
         return self.deserialize(arr, self.d, self.D, self.p)
 
-    def left_null_projector(self, get_vL=False):
-        """left_null_projector:           |
-                         - inv(sqrt(l)) - vL = vL- inv(sqrt(l))-
-                                               |
-        replaces A in TDVP
+    def Lh(self, H, testing=False):
+        """Lh
+        /--|          |-- 
+        l  |(I-E)^{-1}|  
+        \--|          |--
         """
-        _, l, _ = self.eigs()
-        L_ = sw(cT(self[0])@ch(l), 0, 1)
-        L = L_.reshape(-1, self.d*L_.shape[-1])
-        vL = null(L).reshape((self.d, L.shape[1]//self.d, -1))
-
-        pr = ncon([inv(ch(l))@vL, inv(ch(l))@c(vL)], [[-1, -2, 1], [-3, -4, 1]])
-        if get_vL:
-            return pr, vL
-        return pr
-
-    def I_EP(self, H, testing=False):
-        from numpy import trace as tr, reshape, real, imag, concatenate
-        from scipy.optimize import root
         _, l, r = self.eigs()
         d, D = self.d, self.D
         h = H[0].reshape(d, d, d, d)
@@ -427,20 +565,82 @@ class iMPS(object):
             return O_, l, r, K
         return K
 
-    def energy(self, H):
+    def Rh(self, H, testing=False):
+        """Rh
+        --|          |--\ 
+          |(I-E)^{-1}|  r
+        --|          |--/
+        """
+        _, l, r = self.eigs()
         d, D = self.d, self.D
         h = H[0].reshape(d, d, d, d)
         A = self.data[0]
-        _, l, r = self.eigs()
 
-        C = ncon([h]+[A, A], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
+        def RHS():
+            C = ncon([h]+[A, A], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
+            K = ncon([A.conj(), A.conj()@r]+[C@r], [[1, -1, 4], [2, 4, 3], [1, 2, -2, 3]]) #AAHAA
+            K -= r*tr(l@K)
+            return K
 
-        K = ncon([l@A.conj(), A.conj()]+[C], [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]]) #AAHAA
-        self.e = tr(K@r)
-        return self.e
+
+        def O(K, RHS):
+            """O: function of which K should be the root
+            scipy root doesn't work with complex numbers or ndim matrices (maybe)
+            takes a list of length 2*mps.D**2, with first half real parts, second
+            half imaginary parts. 
+            returns list in the same format
+
+            :param K: guess for K. for correct K will return zeros
+            """
+            K = reshape(K[:D**2]+1j*K[D**2:], (D, D))
+
+            def LHS(K):
+                return K-sum(c(A)@K@T(A), axis=0) + r*tr(l@K)
+
+            O_n = reshape(LHS(K) - RHS , (D**2,))
+            O_n = concatenate([real(O_n), imag(O_n)])
+            return O_n
+
+        K0 = (randn(D, D)+1j*randn(D, D)).reshape(D**2)
+        K0 = concatenate([real(K0), imag(K0)])
+
+        K = root(O, K0, args=(RHS(),), method='hybr', tol=1e-10).x
+        K = reshape(K[:D**2]+1j*K[D**2:], (D, D))
+        if testing: 
+            def O_(K):
+                return O(K, RHS())
+            return O_, l, r, K
+        return K
+
+    def left_null_projector(self, get_vL=False):
+        """left_null_projector:           |
+                         - inv(sqrt(l)) - vL = vL- inv(sqrt(l))-
+                                               |
+        replaces A in TDVP
+        """
+        _, l, _ = self.eigs()
+        L_ = sw(cT(self[0])@ch(l), 0, 1)
+        L = L_.reshape(-1, self.d*L_.shape[-1])
+        vL = null(L).reshape((self.d, L.shape[1]//self.d, -1))
+
+        pr = ncon([inv(ch(l))@vL, inv(ch(l))@c(vL)], [[-1, -2, 1], [-3, -4, 1]])
+        self.vL = vL
+        if get_vL:
+            return pr, vL
+        return pr
+
+    def right_null_projector(self, get_vL=False):
+        _, _, r = self.eigs()
+        R_ = sw(c(self[0])@r, 0, 1)
+        R = R_.reshape(-1, self.d*R_.shape[-1])
+        vR = sw(null(R).reshape(self.d, R_.shape[-1], -1), 1, 2)
+        pr = ncon([inv(ch(r)), vR, c(vR), inv(ch(r))], [[-2, 2], [-1, 1, 2], [-3, 1, 4], [-4, 4]])
+        self.vR = vR
+        if get_vR:
+            return pr, vR
+        return pr
 
     def dA_dt(self, H):
-        from numpy import zeros_like as zl
         d, D = self.d, self.D
         h = H[0].reshape(d, d, d, d)
         A = self.data[0]
@@ -454,14 +654,60 @@ class iMPS(object):
         pr = self.left_null_projector()
 
         R = ncon([pr, A], [[-3, -4, 1, -2], [1, -1, -5]])
-        K = self.I_EP(H)
+        K = self.Lh(H)
 
         B = -1j*zl(A)
         B += -1j*ncon([l@C@r, pr, inv(r)@A.conj()], [[3, 4, 1, 2], [-1, -2, 3, 1], [4, -3, 2]])
         B += -1j*ncon([l@A.conj(), pr]+[C], [[1, 3, 4], [-1, -2, 2, 4], [1, 2, 3, -3]])
         B += -1j *ncon([K, R], [[1, 2], [1, 2, -1, -2, -3]])
+        B = iMPS([B])
+        B.l, B.r, B.vL = l, r, self.vL
+        return B
 
-        return iMPS([B])
+    def update(self, H, δt):
+        """mixed gauge update (inverse free) as in verstraeten notes
+
+        :param H: hamiltonian   
+        :param δt: timestep
+        """
+        self.canonicalise('r')
+        d, D = self.d, self.D
+        h = H[0].reshape(d, d, d, d)
+        A = self.data[0]
+        _, l, r = self.eigs()
+
+        C = ncon([h]+[A, A], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]) # HAA
+        K = ncon([l@A.conj(), A.conj()]+[C], [[1, 3, 4], [2, 4, -2], [1, 2, 3, -1]]) #AAHAA
+        self.e = tr(K@r)
+
+        pr = self.left_null_projector()
+
+        Lh = self.Lh(H)
+        Rh = self.Rh(H)
+
+        AL, AR, C = self.mixed()
+        AL, AR, C = AL[0], AR[0], C
+        AC = AL@C
+
+        G1 = -1j*zl(A)
+
+    
+        G1 += ncon([ncon([h]+[AC, AR], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]),
+                    c(AR)], [[-1, 2, -2, 1], [2, -3, 1]])
+        G1 += ncon([ncon([h]+[AL, AC], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]),
+                    c(AL)], [[2, -1, 1, -3], [2, 1, -2]])
+
+        G1 += AC@Rh
+        G1 += Lh@AC
+
+        #G2 = ncon([G1, c(AC)], [[2, 1, -1], [2, 1, -2] ])
+        #print(tr(G2), self.e)
+        #raise Exception
+
+        G2 = ncon([G1, c(AL)], [[2, 1, -1], [2, 1, -2] ])
+
+        print(C1.shape, C2.shape, C3.shape, C4.shape)
+        raise Exception
 
 class ivMPS(object):
     """infinite vidal MPS"""
