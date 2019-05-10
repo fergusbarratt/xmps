@@ -11,6 +11,10 @@ from numpy.linalg import cholesky, eigvals, svd, inv, norm
 from scipy.sparse.linalg import LinearOperator, eigs as arnoldi
 from scipy.linalg import svd as svd_s, cholesky as cholesky_s
 
+from numpy import real, imag, trace as tr, array
+import matplotlib.pyplot as plt
+from pymps.spin import N_body_spins
+
 from copy import copy
 
 from itertools import product
@@ -23,7 +27,9 @@ from pymps.tensor import basis_iterator, T, rotate_to_hermitian, eye_like
 from pymps.iMPS import iMPS, ivMPS, TransferMatrix, Map
 from pymps.spin import spins
 
-Sx, Sy, Sz = spins(0.5)
+Sx, Sy, Sz = spins(0.5) 
+Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
+Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
 
 class TestMap(unittest.TestCase):
     """TestTransferMatrix"""
@@ -51,14 +57,14 @@ class TestMap(unittest.TestCase):
             r = rand(tm.shape[1])
             full_tm = transpose(tensordot(tm.A, C(tm.B), [0, 0]), [0, 2, 1, 3]).reshape(tm.shape)
             self.assertTrue(allclose(full_tm @ r, tm.mv(r)))
-            self.assertTrue(allclose(r @ full_tm, tm.mvr(r)))
+            self.assertTrue(allclose(c(r @ full_tm), tm.mvr(r)))
 
     def test_Map_operators(self):
         for tm in self.maps:
             r = rand(tm.shape[1])
             full_tm = transpose(tensordot(tm.A, C(tm.B), [0, 0]), [0, 2, 1, 3]).reshape(tm.shape)
             self.assertTrue(allclose(full_tm @ r, tm.aslinearoperator() @ (r)))
-            self.assertTrue(allclose(r @ full_tm, tm.aslinearoperator().H @ r))
+            self.assertTrue(allclose(c(r @ full_tm), tm.aslinearoperator().H @ r))
 
     def test_fixed_points(self):
         for tm in self.maps:
@@ -142,19 +148,31 @@ class TestiMPS(unittest.TestCase):
         self.assertTrue(allclose(sum(AR@cT(AR), axis=0), eye(D)))
         self.assertTrue(allclose(C@AR@inv(C), 1/λ*AL))
 
-    @unittest.skip()
-    def test_tangent_space(self):
-        from numpy import real, imag, trace as tr, array
-        import matplotlib.pyplot as plt
-        from pymps.spin import N_body_spins
+    @unittest.skip('')
+    def test_dH_dU(self):
+        A = iMPS().random(2, 2).left_canonicalise()
+        def H(λ): return [Sz12@Sz22+λ*(Sx12+Sx22)]
+        λ = 1
+        A.dH_dU(H(λ))
 
+    def test_store_load(self):
+        for _ in range(10):
+            A = iMPS().random(3, 10).left_canonicalise()
+            A.store('x')
+            A_ = iMPS().load('x.npy')
+            self.assertTrue(A==A_)
+
+    def test_make_fixtures(self):
+        fix_loc = '/Users/fergusbarratt/Dropbox/PhD/mps/tmps/testing/fixtures/'
+        for d in [2, 3, 4]:
+            for D in [2, 3, 4, 5, 10, 20, 50, 100]:
+                iMPS().random(d, D).left_canonicalise().store(fix_loc+'iMPS{}x{}'.format(d, D))
+
+    def test_tangent_space(self):
         A = self.rand_cases[0]
         pr, vL = A.left_null_projector(True)
         V = vL.reshape(-1, vL.shape[-1])
         self.assertTrue(allclose(eye_like(V.T), V.conj().T@V))
-
-        Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
-        Sx22, Sy22, Sz22 = N_body_spins(0.5, 2, 2)
         #def H(λ): return [-4*Sz12@Sz22+2*λ*(Sx12+Sx22)]
         λ = 1
         def H(λ): return [Sz12@Sz22+λ*(Sx12+Sx22)]
@@ -167,19 +185,6 @@ class TestiMPS(unittest.TestCase):
         O, l, r, K = A.Rh(H(λ), testing=True)
         self.assertTrue(abs(norm(O(concatenate([real(K.reshape(-1)), imag(K.reshape(-1))]))))<1e-5)
         self.assertTrue(allclose(tr(l@K), 0))
-
-        dt = -0.1j
-        A.update(H(λ), dt)
-        raise Exception
-        rs = []
-        for _ in range(500):
-            A, _, _ = (A+dt*A.dA_dt(H(λ))).mixed(1e-5)
-            ops = spins((A.d-1)/2)
-            rs.append(A.Es(ops))
-            print(A.energy(H(λ)))
-
-        plt.plot(array(rs))
-        plt.show()
 
     def test_canonicalise_conditions(self):
         for case in self.rand_cases:

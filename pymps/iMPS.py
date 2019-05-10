@@ -27,7 +27,9 @@ import matplotlib.pyplot as plt
 from .tensor import H, C, r_eigenmatrix, l_eigenmatrix, get_null_space, p
 from .tensor import H as cT, C as c, T
 from .tensor import basis_iterator, T, rotate_to_hermitian
-from .tensor import C as c, H as cT, uqr, urq
+from .tensor import C as c, H as cT, uqr, urq, eye_like
+
+from .unitary_iMPS import to_unitaries_l
 
 from .ncon import ncon
 from .spin import spins
@@ -496,7 +498,7 @@ class iMPS(object):
         """
         if real:
             vec = reduce(lambda x, y: x+1j*y, chop(vec, 2))
-        self.p, self.d, self.D = p, d, D
+        self.period, self.d, self.D = p, d, D
         structure = [x for x in self.create_structure(d, D, p)]
         self.data = []
         for shape in structure:
@@ -508,7 +510,7 @@ class iMPS(object):
         """store in file
         :param filename: filename to store in
         """
-        save(filename, ct([array([self.d, self.D, self.p]), self.serialize()]))
+        save(filename, ct([array([self.d, self.D, self.period]), self.serialize()]))
 
     def load(self, filename):
         """load from file
@@ -516,14 +518,14 @@ class iMPS(object):
         :param filename: filename to load from
         """
         params, arr = chop(load(filename), [3])
-        self.d, self.D, self.p = map(lambda x: int(re(x)), params)
-        return self.deserialize(arr, self.d, self.D, self.p)
+        self.d, self.D, self.period = map(lambda x: int(re(x)), params)
+        return self.deserialize(arr, self.d, self.D, self.period)
 
     def Lh(self, H, testing=False):
         """Lh
-        /--|          |-- 
-        l  |(I-E)^{-1}|  
-        \--|          |--
+        /--|   |--|          |-- 
+        l  | h |  |(I-E)^{-1}|  
+        \--|   |--|          |--
         """
         _, l, r = self.eigs()
         d, D = self.d, self.D
@@ -567,9 +569,9 @@ class iMPS(object):
 
     def Rh(self, H, testing=False):
         """Rh
-        --|          |--\ 
-          |(I-E)^{-1}|  r
-        --|          |--/
+        --|          |--|   |--\ 
+          |(I-E)^{-1}|  | h |  r
+        --|          |--|   |--/
         """
         _, l, r = self.eigs()
         d, D = self.d, self.D
@@ -664,12 +666,35 @@ class iMPS(object):
         B.l, B.r, B.vL = l, r, self.vL
         return B
 
+    def dH_dU(self, H):
+        assert self.d == 2 and self.D == 2
+        d, D = 2, 2
+        AL, AR, C = self.mixed()
+        _, l, r = self.eigs()
+        U = to_unitaries_l(AL)[0].reshape(d, d, d, d)
+        z = array([1, 0])
+        Lh = self.Lh(H)
+        Rh = self.Rh(H)
+
+        A = self.data[0]
+        h = H[0].reshape(d, d, d, d)
+
+        C = l@cT(ncon([h]+[A, A], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]))@r # HAA)
+        print(C.shape)
+        print(Rh.shape)
+        print(Lh.shape)
+        print(U.shape)
+
+        B = zl(U)
+        raise Exception
+
     def update(self, H, δt):
         """mixed gauge update (inverse free) as in verstraeten notes
 
         :param H: hamiltonian   
         :param δt: timestep
         """
+        raise NotImplementedError('Not implemented properly yet')
         self.canonicalise('r')
         d, D = self.d, self.D
         h = H[0].reshape(d, d, d, d)

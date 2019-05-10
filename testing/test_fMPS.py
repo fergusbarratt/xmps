@@ -78,15 +78,16 @@ class TestfMPS(unittest.TestCase):
                             randint(D_min, D_max))
                             for _ in range(N)]
 
-        # finite fixtures
-        self.tens_0_2 = load('fixtures/mat2x2.npy')
-        self.tens_0_3 = load('fixtures/mat3x3.npy')
-        self.tens_0_4 = load('fixtures/mat4x4.npy')
-        self.tens_0_5 = load('fixtures/mat5x5.npy')
-        self.tens_0_6 = load('fixtures/mat6x6.npy')
-        self.tens_0_7 = load('fixtures/mat7x7.npy')
-        self.tens_0_8 = load('fixtures/mat8x8.npy')
-        self.tens_0_9 = load('fixtures/mat9x9.npy')
+        # finite fixtures 
+        fix_loc = '/Users/fergusbarratt/Dropbox/PhD/mps/tmps/testing/fixtures/'
+        self.tens_0_2 = load(fix_loc+'mat2x2.npy')
+        self.tens_0_3 = load(fix_loc+'mat3x3.npy')
+        self.tens_0_4 = load(fix_loc+'mat4x4.npy')
+        self.tens_0_5 = load(fix_loc+'mat5x5.npy')
+        self.tens_0_6 = load(fix_loc+'mat6x6.npy')
+        self.tens_0_7 = load(fix_loc+'mat7x7.npy')
+        self.tens_0_8 = load(fix_loc+'mat8x8.npy')
+        self.tens_0_9 = load(fix_loc+'mat9x9.npy')
 
         self.mps_0_2 = fMPS().left_from_state(self.tens_0_2)
         self.psi_0_2 = self.mps_0_2.recombine().reshape(-1)
