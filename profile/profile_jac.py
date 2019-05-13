@@ -26,5 +26,3 @@ F1, F2 = mps.jac(H, real_matrix=False)
 J = mps.jac(H)
 print(J.shape)
 print(F2)
-
-#cProfile.runctx('mps.jac(H)', {'mps':mps, 'H':H}, {}, sort='cumtime')

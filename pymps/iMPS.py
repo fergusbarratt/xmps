@@ -521,7 +521,7 @@ class iMPS(object):
         self.d, self.D, self.period = map(lambda x: int(re(x)), params)
         return self.deserialize(arr, self.d, self.D, self.period)
 
-    def Lh(self, H, testing=False):
+    def Lh(self, H, method='krylov', tol=1e-10, testing=False):
         """Lh
         /--|   |--|          |-- 
         l  | h |  |(I-E)^{-1}|  
@@ -559,7 +559,7 @@ class iMPS(object):
         K0 = (randn(D, D)+1j*randn(D, D)).reshape(D**2)
         K0 = concatenate([real(K0), imag(K0)])
 
-        K = root(O, K0, args=(RHS(),), method='hybr', tol=1e-10).x
+        K = root(O, K0, args=(RHS(),), method=method, tol=tol).x
         K = reshape(K[:D**2]+1j*K[D**2:], (D, D))
         if testing: 
             def O_(K):
@@ -567,7 +567,7 @@ class iMPS(object):
             return O_, l, r, K
         return K
 
-    def Rh(self, H, testing=False):
+    def Rh(self, H, method='hybr', testing=False):
         """Rh
         --|          |--|   |--\ 
           |(I-E)^{-1}|  | h |  r
@@ -606,7 +606,7 @@ class iMPS(object):
         K0 = (randn(D, D)+1j*randn(D, D)).reshape(D**2)
         K0 = concatenate([real(K0), imag(K0)])
 
-        K = root(O, K0, args=(RHS(),), method='hybr', tol=1e-10).x
+        K = root(O, K0, args=(RHS(),), method=method, tol=1e-10).x
         K = reshape(K[:D**2]+1j*K[D**2:], (D, D))
         if testing: 
             def O_(K):
