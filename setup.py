@@ -7,7 +7,7 @@ setup(name='xmps',
       author='Fergus Barratt',
       author_email='fergus.barratt@kcl.ac.uk',
       license='GPL',
-      packages=['pymps'],
+      packages=['xmps'],
       install_requires=[
           'cython',
           'numpy', 
