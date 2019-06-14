@@ -1,3 +1,13 @@
+# profiling
+*.stats
+*.dot
+
+# images
+*.png
+
+# mac stuff
+.DS_Store
+
 old/
 data/
 tdvp/

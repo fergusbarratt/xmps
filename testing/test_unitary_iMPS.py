@@ -28,6 +28,11 @@ class TestcMPS(unittest.TestCase):
     def test_get_env(self):
         for AL, AR, C in self.As:
             UL = to_unitaries_l(AL)[0]
+            x = get_env_x([UL])
+            print('hello', type(x))
+
+            raise Exception
+            UL = to_unitaries_l(AL)[0]
 
             AL, AR = AL.data[0], AR.data[0]
             self.assertTrue(allclose(AL@C, C@AR))
@@ -56,20 +61,20 @@ class TestcMPS(unittest.TestCase):
 
             self.assertTrue(allclose(E_left, E))
             self.assertTrue(allclose(E, C@C.conj().T))
-            #v0 = demat(C)
+            v0 = demat(C)
 
-            #V = get_env([UL], reps=10000)
-            #C_ = (V@array([1, 0, 0, 0])).reshape(2, 2)
-            #from numpy.linalg import eigvals
-            #from scipy.linalg import norm
-            #def evals(A):
-            #    e = eigvals(A)
-            #    return sorted(e/norm(e))
-            #print(evals(C_@C_.conj().T))
-            #print(evals(C@C.conj().T))
-            #print(evals(C_.conj().T@C_))
-            #print(evals(C.conj().T@C))
-            #raise Exception
+            V = get_env([UL], reps=100000)
+            C_ = (V@array([1, 0, 0, 0])).reshape(2, 2)
+            from numpy.linalg import eigvals
+            from scipy.linalg import norm
+            def evals(A):
+                e = eigvals(A)
+                return sorted(e/norm(e))
+            print(evals(C_@C_.conj().T))
+            print(evals(C@C.conj().T))
+            print(evals(C_.conj().T@C_))
+            print(evals(C.conj().T@C))
+            raise Exception
 
 if __name__=='__main__':
     unittest.main(verbosity=2)

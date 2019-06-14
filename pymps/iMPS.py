@@ -34,6 +34,7 @@ from .unitary_iMPS import to_unitaries_l
 from .ncon import ncon
 from .spin import spins
 Sx, Sy, Sz = spins(0.5)
+import numpy as np
 
 class Map(object):
     """Map: transfer matrix with A and B"""
@@ -246,6 +247,10 @@ class iMPS(object):
 
     def __str__(self):
         return 'iMPS: d={}, D={}'.format(self.d, self.D)
+
+    @property
+    def shape(self):
+        return self.data[0].shape
 
     def copy(self):
         A = iMPS(self.data.copy())

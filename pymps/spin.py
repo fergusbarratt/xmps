@@ -447,10 +447,15 @@ def U2(v):
     """
     return expm(-1j*tensordot(v, locals[3:], [0, 0]))
 
+from scipy.linalg import logm, det
+from numpy.random import randn
+from numpy import real
+
 def U4(v):
     """U4 two site unitary
     """
-    return expm(-1j*tensordot(v, lambdas(), [0, 0]))
+    Q = -1j*tensordot(v, lambdas(), [0, 0])
+    return expm(Q)
 
 def U4s(v):
     """U4s two site symmetric unitary
