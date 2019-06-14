@@ -18,6 +18,7 @@ runs.md
 notes/
 poster/
 *.npy
+!tests/fixtures/*.npy
 
 # Byte-compiled / optimized / DLL files
 *.swp
