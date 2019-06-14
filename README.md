@@ -13,5 +13,5 @@ Run tests with
 `python setup.py test`
 
 ## Conventions
-An MPS object (either fMPS or iMPS) contains a list of rank-3 tensors (mps.data).
+An MPS object (either fMPS or iMPS) contains a list of rank-3 tensors (under mps.data).
 Tensors are stored with their indices as (physical, virtual left, virtual right).
