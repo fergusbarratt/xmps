@@ -23,6 +23,7 @@ poster/
 *.swp
 *.swo
 *.swn
+*.swm
 __pycache__/
 *.py[cod]
 *$py.class
