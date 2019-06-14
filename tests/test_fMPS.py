@@ -80,7 +80,7 @@ class TestfMPS(unittest.TestCase):
                             for _ in range(N)]
 
         # finite fixtures 
-        fix_loc = 'fixtures/'
+        fix_loc = 'tests/fixtures/'
         self.tens_0_2 = load(fix_loc+'mat2x2.npy')
         self.tens_0_3 = load(fix_loc+'mat3x3.npy')
         self.tens_0_4 = load(fix_loc+'mat4x4.npy')

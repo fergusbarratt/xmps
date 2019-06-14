@@ -15,6 +15,8 @@ try:
     from xmps.tdvp.tdvp_fast import tdvp, MPO_TFI
 except ModuleNotFoundError:
     tdvp_available = False
+else:
+    tdvp_available = True
 
 from numpy import array, linspace, real as re, reshape, sum, swapaxes as sw
 from numpy import tensordot as td, squeeze, trace as tr, expand_dims as ed
@@ -43,10 +45,10 @@ class TestTrajectory(unittest.TestCase):
     """TestF"""
     def setUp(self):
         """setUp"""
-        self.tens_0_2 = load('fixtures/mat2x2.npy')
-        self.tens_0_3 = load('fixtures/mat3x3.npy')
-        self.tens_0_4 = load('fixtures/mat4x4.npy')
-        self.tens_0_5 = load('fixtures/mat5x5.npy')
+        self.tens_0_2 = load('tests/fixtures/mat2x2.npy')
+        self.tens_0_3 = load('tests/fixtures/mat3x3.npy')
+        self.tens_0_4 = load('tests/fixtures/mat4x4.npy')
+        self.tens_0_5 = load('tests/fixtures/mat5x5.npy')
 
         self.mps_0_1 = fMPS().left_from_state(self.tens_0_2).right_canonicalise(1)
 

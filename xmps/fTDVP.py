@@ -14,6 +14,8 @@ try:
 except ModuleNotFoundError:
     print('no finite tdvp module found: module might not work as expected')
     tdvp_available = False
+else:
+    tdvp_available = True
 
 from .spin import N_body_spins, spins, comm, n_body
 
