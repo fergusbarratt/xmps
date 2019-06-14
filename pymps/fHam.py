@@ -1,3 +1,4 @@
+
 from .fMPS import fMPS
 from .spin import spins, N_body_spins
 from numpy import copy, sqrt
@@ -24,5 +25,3 @@ def optimise(H, L, D, method='euler', max_iters=500, tol=1e-5):
 
             e_ = copy(e)
         return A, A.energy(H)/L
-
-

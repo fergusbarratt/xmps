@@ -1,3 +1,4 @@
+'''Module containing representations of TI infinite hamiltonians'''
 from .iMPS import iMPS
 from .spin import spins, N_body_spins
 from numpy import copy, transpose, prod
