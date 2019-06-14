@@ -9,5 +9,11 @@ setup(name='xmps',
       author_email='fergus.barratt@kcl.ac.uk',
       license='GPL',
       packages=['pymps'],
+      install_requires=[
+          'cython',
+          'numpy', 
+          'scipy',
+          'matplotlib']
+      ,
       zip_safe=False
 )
