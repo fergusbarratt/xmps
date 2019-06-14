@@ -13,7 +13,7 @@ from scipy.linalg import svd as svd_s, cholesky as cholesky_s
 
 from numpy import real, imag, trace as tr, array
 import matplotlib.pyplot as plt
-from pymps.spin import N_body_spins
+from xmps.spin import N_body_spins
 
 from copy import copy
 
@@ -21,11 +21,11 @@ from itertools import product
 import matplotlib as mp
 import matplotlib.pyplot as plt
 
-from pymps.tensor import H, C, r_eigenmatrix, l_eigenmatrix, get_null_space, p
-from pymps.tensor import C as c, H as cT
-from pymps.tensor import basis_iterator, T, rotate_to_hermitian, eye_like
-from pymps.iMPS import iMPS, ivMPS, TransferMatrix, Map
-from pymps.spin import spins
+from xmps.tensor import H, C, r_eigenmatrix, l_eigenmatrix, get_null_space, p
+from xmps.tensor import C as c, H as cT
+from xmps.tensor import basis_iterator, T, rotate_to_hermitian, eye_like
+from xmps.iMPS import iMPS, ivMPS, TransferMatrix, Map
+from xmps.spin import spins
 
 Sx, Sy, Sz = spins(0.5) 
 Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
@@ -162,8 +162,9 @@ class TestiMPS(unittest.TestCase):
             A_ = iMPS().load('x.npy')
             self.assertTrue(A==A_)
 
+    @unittest.skip('makes fixtures')
     def test_make_fixtures(self):
-        fix_loc = '/Users/fergusbarratt/Dropbox/PhD/mps/tmps/testing/fixtures/'
+        fix_loc = 'tests/fixtures/'
         for d in [2, 3, 4]:
             for D in [2, 3, 4, 5, 10, 20, 50, 100]:
                 iMPS().random(d, D).left_canonicalise().store(fix_loc+'iMPS{}x{}'.format(d, D))

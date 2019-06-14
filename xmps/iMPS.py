@@ -29,8 +29,6 @@ from .tensor import H as cT, C as c, T
 from .tensor import basis_iterator, T, rotate_to_hermitian
 from .tensor import C as c, H as cT, uqr, urq, eye_like
 
-from .unitary_iMPS import to_unitaries_l
-
 from .ncon import ncon
 from .spin import spins
 Sx, Sy, Sz = spins(0.5)
@@ -670,28 +668,6 @@ class iMPS(object):
         B = iMPS([B])
         B.l, B.r, B.vL = l, r, self.vL
         return B
-
-    def dH_dU(self, H):
-        assert self.d == 2 and self.D == 2
-        d, D = 2, 2
-        AL, AR, C = self.mixed()
-        _, l, r = self.eigs()
-        U = to_unitaries_l(AL)[0].reshape(d, d, d, d)
-        z = array([1, 0])
-        Lh = self.Lh(H)
-        Rh = self.Rh(H)
-
-        A = self.data[0]
-        h = H[0].reshape(d, d, d, d)
-
-        C = l@cT(ncon([h]+[A, A], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]]))@r # HAA)
-        print(C.shape)
-        print(Rh.shape)
-        print(Lh.shape)
-        print(U.shape)
-
-        B = zl(U)
-        raise Exception
 
     def update(self, H, δt):
         """mixed gauge update (inverse free) as in verstraeten notes

@@ -1,4 +1,4 @@
-from pymps.fMPS import fMPS, vfMPS
+from xmps.fMPS import fMPS, vfMPS
 
 import unittest
 
@@ -19,15 +19,15 @@ from scipy.linalg import null_space as null, orth, expm#, sqrtm as ch
 from scipy.linalg import polar
 from scipy.sparse.linalg import LinearOperator, aslinearoperator
 
-from pymps.tests import is_right_canonical, is_right_env_canonical, is_full_rank
-from pymps.tests import is_left_canonical, is_left_env_canonical, has_trace_1
+from xmps.tests import is_right_canonical, is_right_env_canonical, is_full_rank
+from xmps.tests import is_left_canonical, is_left_env_canonical, has_trace_1
 
-from pymps.tensor import H as cT, truncate_A, truncate_B, diagonalise, rank, mps_pad
-from pymps.tensor import C as c, lanczos_expm, tr_svd, T
-from pymps.tensor import rdot, ldot, structure
-from pymps.left_transfer import lt as lt_
+from xmps.tensor import H as cT, truncate_A, truncate_B, diagonalise, rank, mps_pad
+from xmps.tensor import C as c, lanczos_expm, tr_svd, T
+from xmps.tensor import rdot, ldot, structure
+from xmps.left_transfer import lt as lt_
 
-from pymps.spin import n_body, N_body_spins, spins
+from xmps.spin import n_body, N_body_spins, spins
 from copy import deepcopy, copy
 from functools import reduce
 from itertools import product
@@ -38,7 +38,7 @@ import uuid
 Sx, Sy, Sz = spins(0.5)
 Sx, Sy, Sz = 2*Sx, 2*Sy, 2*Sz
 
-from pymps.ncon import ncon as ncon
+from xmps.ncon import ncon as ncon
 
 class TestfMPS(unittest.TestCase):
     """TestfMPS"""
@@ -79,7 +79,7 @@ class TestfMPS(unittest.TestCase):
                             for _ in range(N)]
 
         # finite fixtures 
-        fix_loc = '/Users/fergusbarratt/Dropbox/PhD/mps/tmps/testing/fixtures/'
+        fix_loc = 'tests/fixtures'
         self.tens_0_2 = load(fix_loc+'mat2x2.npy')
         self.tens_0_3 = load(fix_loc+'mat3x3.npy')
         self.tens_0_4 = load(fix_loc+'mat4x4.npy')
@@ -655,7 +655,7 @@ class TestfMPS(unittest.TestCase):
         Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
 
         # need to expand with 2 site heisenberg hamiltonian
-        from pymps.mps_examples import comp_z
+        from xmps.mps_examples import comp_z
         H = [Sx1@Sx2+Sy1@Sy2+Sz1@Sz2]
 
         # up down: must project
