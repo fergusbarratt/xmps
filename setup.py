@@ -1,5 +1,4 @@
 from setuptools import setup
-from Cython.Build import cythonize
 
 setup(name='xmps',
       version='0.1',
