@@ -1,4 +1,4 @@
-### Library for manipulating Matrix Product States.
+# Library for manipulating Matrix Product States.
 
 ## Features:
  - Canonicalisation, evs, etc.
@@ -10,4 +10,4 @@
 Clone this repository somewhere and run 
 `pip install -e .` from the project root.
 Run tests with 
-`python setup.py test`.
+`python setup.py test`
