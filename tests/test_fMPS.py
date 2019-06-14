@@ -28,6 +28,7 @@ from xmps.tensor import rdot, ldot, structure
 from xmps.left_transfer import lt as lt_
 
 from xmps.spin import n_body, N_body_spins, spins
+
 from copy import deepcopy, copy
 from functools import reduce
 from itertools import product
@@ -79,7 +80,7 @@ class TestfMPS(unittest.TestCase):
                             for _ in range(N)]
 
         # finite fixtures 
-        fix_loc = 'tests/fixtures'
+        fix_loc = 'fixtures/'
         self.tens_0_2 = load(fix_loc+'mat2x2.npy')
         self.tens_0_3 = load(fix_loc+'mat3x3.npy')
         self.tens_0_4 = load(fix_loc+'mat4x4.npy')

@@ -164,7 +164,7 @@ class TestiMPS(unittest.TestCase):
 
     @unittest.skip('makes fixtures')
     def test_make_fixtures(self):
-        fix_loc = 'tests/fixtures/'
+        fix_loc = 'fixtures/'
         for d in [2, 3, 4]:
             for D in [2, 3, 4, 5, 10, 20, 50, 100]:
                 iMPS().random(d, D).left_canonicalise().store(fix_loc+'iMPS{}x{}'.format(d, D))

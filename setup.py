@@ -8,11 +8,14 @@ setup(name='xmps',
       author_email='fergus.barratt@kcl.ac.uk',
       license='GPL',
       packages=['xmps'],
+      test_suite='nose.collector',
+      tests_require=['nose'],
       install_requires=[
           'cython',
           'numpy', 
           'scipy',
-          'matplotlib']
+          'matplotlib', 
+          'tqdm']
       ,
       zip_safe=False
 )

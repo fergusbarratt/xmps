@@ -5,12 +5,16 @@ import unittest
 import pickle
 
 from time import time
-from pymps.fMPS import fMPS
-from pymps.tensor import get_null_space, H as cT, C as c
-from pymps.ncon import ncon
-from pymps.spin import N_body_spins, spins, comm, n_body, partial_trace
-from pymps.fTDVP import Trajectory
-from pymps.tdvp.tdvp_fast import tdvp, MPO_TFI
+from xmps.fMPS import fMPS
+from xmps.tensor import get_null_space, H as cT, C as c, partial_trace
+from xmps.ncon import ncon
+from xmps.spin import N_body_spins, spins, comm, n_body
+
+from xmps.fTDVP import Trajectory
+try:
+    from xmps.tdvp.tdvp_fast import tdvp, MPO_TFI
+except ModuleNotFoundError:
+    tdvp_available = False
 
 from numpy import array, linspace, real as re, reshape, sum, swapaxes as sw
 from numpy import tensordot as td, squeeze, trace as tr, expand_dims as ed
@@ -58,6 +62,7 @@ class TestTrajectory(unittest.TestCase):
         self.mps_0_5 = fMPS().left_from_state(self.tens_0_5)
         self.psi_0_5 = self.mps_0_5.recombine().reshape(-1)
 
+    @unittest.skipIf(not tdvp_available, 'tdvp module not available')
     def test_stop_resume(self):
         """test_stop_resume"""
         Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
@@ -94,6 +99,7 @@ class TestTrajectory(unittest.TestCase):
 
         shutil.rmtree(F_.run_dir)
 
+    @unittest.skipIf(not tdvp_available, 'tdvp module not available')
     def test_integrators(self):
         test_D_1 = False
         if test_D_1:
@@ -294,6 +300,7 @@ class TestTrajectory(unittest.TestCase):
                 plt.legend()
                 plt.show()
 
+    @unittest.skipIf(not tdvp_available, 'tdvp module not available')
     def test_OTOCs_eye(self):
         """OTOC zero for W=eye"""
         Sx1,  Sy1,  Sz1 =  N_body_spins(0.5, 1,  5)
@@ -318,6 +325,7 @@ class TestTrajectory(unittest.TestCase):
         self.assertTrue(allclose(ed_evs, 0))
         self.assertTrue(allclose(mps_evs, 0))
 
+    @unittest.skipIf(not tdvp_available, 'tdvp module not available')
     def test_OTOCs_ed(self):
         """test mps otocs against ed"""
         Sx1,  Sy1,  Sz1 =  N_body_spins(0.5, 1,  5)

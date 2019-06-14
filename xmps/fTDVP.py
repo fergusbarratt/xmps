@@ -9,7 +9,12 @@ from time import time
 from .fMPS import fMPS
 from .tensor import get_null_space, H as cT, C as c
 from .ncon import ncon
-from .tdvp.tdvp_fast import tdvp, MPO_TFI
+try:
+    from .tdvp.tdvp_fast import tdvp, MPO_TFI
+except ModuleNotFoundError:
+    print('no finite tdvp module found: module might not work as expected')
+    tdvp_available = False
+
 from .spin import N_body_spins, spins, comm, n_body
 
 from numpy import array, linspace, real as re, reshape, sum, swapaxes as sw
