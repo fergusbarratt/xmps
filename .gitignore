@@ -1,5 +1,6 @@
 # scripts
 scripts/
+itebd/
 
 # profiling
 *.stats
