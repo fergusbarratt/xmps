@@ -21,8 +21,6 @@ from scipy.optimize import root
 from copy import copy
 
 from itertools import product
-import matplotlib as mp
-import matplotlib.pyplot as plt
 
 from .tensor import H, C, r_eigenmatrix, l_eigenmatrix, get_null_space, p
 from .tensor import H as cT, C as c, T
