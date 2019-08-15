@@ -385,7 +385,7 @@ def lambdas(S=0.5):
         return array([λ1, λ2, λ3, λ4, λ5, λ6, λ7, λ8, λ9, λ10, λ11, λ12, λ13, λ14, λ15])
 
 def slambdas(S=0.5):
-    """slambdas: generators of swap symmetric subspace.
+    """slambdas: generators of swap symmetric subspace of su(4)
                  should prove this!
 
     :param S:
@@ -405,6 +405,10 @@ def slambdas(S=0.5):
                       kron(Sy, I) + kron(I, Sy),
                       kron(Sz, I) + kron(I, Sz)])
 
+def nlambdas(n, S=0.5):
+    """nlambdas: orthonormal basis of generators of of SU(n)
+    """
+    pass
 Sx1, Sy1, Sz1 = N_body_spins(1/2, 1, 2)
 Sx2, Sy2, Sz2 = N_body_spins(1/2, 2, 2)
          

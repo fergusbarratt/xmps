@@ -130,6 +130,11 @@ class TransferMatrix(object):
         """return linear operator representation - for arnoldi etc."""
         return LinearOperator(self.shape, matvec=self.mv, rmatvec=self.mvr)
 
+    def asmatrix(self):
+        return transpose(tensordot(self.A, 
+                                  c(self.A), [0, 0]), 
+                         [0, 2, 1, 3]).reshape(self.shape)
+
     def eigs(self, l0=None, r0=None):
         A = self.A
         if l0 is not None:
