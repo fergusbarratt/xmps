@@ -470,3 +470,50 @@ op = lambdas(0.5)
 assert all([allclose(trace(o), 0) for o in op])
 assert all([allclose(trace(o@o), 2) for o in op])
 
+from numpy import zeros
+from scipy.linalg import norm
+from itertools import product
+
+def su(N, rep='adj'):
+    """su(N)
+       return generators of su(N)"""
+    if rep=='adj':
+        xs = []
+        for i in range(N):
+            for j in range(i):
+                x = 1j*zeros((N, N))
+                x[i, j] = x[j, i] = 1
+                xs.append(x.copy())
+                x[i, j], x[j, i] = -1j, 1j
+                xs.append(x)
+        for i in range(1, N):
+            x = 1j*zeros((N, N))
+            for j in range(i):
+                x[j, j] = 1 
+            x[i, i] = -i
+            xs.append(sqrt(2)*x/norm(diag(x)))
+
+        return array(xs)
+    else:
+        raise NotImplementedError('only adjoint representation')
+
+def SU8(v):
+    Q = -1j*tensordot(v, su(8), [0, 0])
+    return expm(Q)
+
+for N in range(2, 10):
+    op = su(N)
+    assert len(op) == N**2-1
+    # normalised
+    assert all([allclose(trace(o@o), 2) for o in op])
+    # traceless
+    assert all([allclose(trace(o), 0) for o in op])
+
+    # orthogonal
+    for i in range(N):
+        for j in range(i):
+            assert trace(op[i]@op[j])==0
+
+    # hermitian
+    for i in range(N):
+        assert norm(op[i]-op[i].conj().T)==0
