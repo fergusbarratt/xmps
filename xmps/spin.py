@@ -501,6 +501,10 @@ def SU8(v):
     Q = -1j*tensordot(v, su(8), [0, 0])
     return expm(Q)
 
+def SU(v, N, rep='adj'):
+    Q = -1j*tensordot(v, su(N), [0, 0])
+    return expm(Q)
+
 for N in range(2, 10):
     op = su(N)
     assert len(op) == N**2-1
