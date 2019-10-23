@@ -3,10 +3,11 @@ from tqdm import tqdm
 import numpy as np
 from scipy.linalg import norm
 
-def find_ground_state(H, D, ϵ=1e-1, maxiters=500, tol=1e-4):
-    ψ = iMPS().random(2, 2).left_canonicalise()
+def find_ground_state(H, D, ϵ=1e-1, maxiters=5000, tol=1e-4, noisy=False):
+    ψ = iMPS().random(2, D).left_canonicalise()
     es = []
-    for _ in range(maxiters):
+    it = tqdm(range(maxiters)) if noisy else range(maxiters)
+    for _ in it:
         dA = 1j*ϵ*ψ.dA_dt([H])
         if norm(dA)< tol:
             break

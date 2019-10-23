@@ -8,6 +8,7 @@ from numpy import swapaxes, count_nonzero, diag, insert, pad, dot, argmax, sqrt
 from numpy import allclose, array, tensordot, transpose, all, identity, squeeze
 from numpy import isclose, mean, sign, kron, zeros, conj, max, concatenate, eye
 from numpy import block, real, imag
+import numpy as np
 from itertools import product
 import scipy as sp
 from scipy.sparse.linalg import LinearOperator, expm_multiply

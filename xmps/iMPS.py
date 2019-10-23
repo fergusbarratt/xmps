@@ -3,7 +3,7 @@ import unittest
 from numpy.random import rand, randint, randn
 from numpy import zeros_like as zl
 from numpy import diag, dot, tensordot, transpose, allclose
-from numpy import trace as tr, reshape, real, imag, concatenate
+from numpy import trace as tr, reshape, real, imag, concatenate 
 from numpy import real as re, imag as im, copy, swapaxes as sw
 from numpy import all, eye, isclose, reshape, swapaxes, trace as tr
 from numpy import concatenate, array, stack, sum, identity, zeros, abs 
@@ -41,9 +41,9 @@ class Map(object):
         self.shape = A.shape[1]**2, A.shape[2]**2
         self.dtype = A.dtype
 
-    def full_matrix():
+    def full_matrix(self):
         return transpose(tensordot(self.A, 
-                                  c(self.B), [0, 0]), 
+                                  cT(self.B), [0, 0]), 
                          [0, 2, 1, 3]).reshape(self.shape)
 
     def mv(self, r):
@@ -65,7 +65,7 @@ class Map(object):
         d, D = self.d, self.D
         A, B = self.A, self.B
         l = l.reshape(D, D)
-        return c(sum(T(A)@c(l)@c(B), axis=0).reshape(D**2))
+        return sum(cT(A)@l@B, axis=0).reshape(D**2)
 
     def aslinearoperator(self):
         """return linear operator representation - for arnoldi etc."""
@@ -76,16 +76,18 @@ class Map(object):
         if r0 is not None:
             r0 = r0.reshape(D**2)
         η, r = arnoldi(self.aslinearoperator(), k=1, v0=r0, tol=tol)
+        r = rotate_to_hermitian(r)/sign(r[0])
         r = r.reshape(D, D)
-        return η, r/tr(r@r)
+        return η*np.sqrt(tr(r.conj().T@r)), r/np.sqrt(tr(r.conj().T@r))
 
     def left_fixed_point(self, l0=None, tol=0):
         d, D = self.d, self.D
         if l0 is not None:
             l0 = l0.reshape(D**2)
         η, l = arnoldi(self.aslinearoperator().H, k=1, v0=l0, tol=tol)
+        l = rotate_to_hermitian(l)/sign(l[0])
         l = l.reshape(D, D)
-        return η, l/tr(l@l)
+        return η*np.sqrt(tr(l.conj().T@l)), l/np.sqrt(tr(l.conj().T@l))
 
     def is_right_eigenvector(self, r, λ=1):
         d, D = self.d, self.D
@@ -399,6 +401,10 @@ class iMPS(object):
     def get_envs():
         _, self.l, self.r = self.eigs()
         return self.l, self.r
+
+    def overlap(self, other):
+        A, B = self.left_canonicalise()[0], other.left_canonicalise()[0]
+        return np.abs(Map(A, B).left_fixed_point()[0])**2
 
     def E(self, op, c=None):
         """E: calculate expectation of single site operator

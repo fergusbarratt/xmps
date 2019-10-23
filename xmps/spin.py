@@ -7,6 +7,41 @@ from itertools import product
 from functools import reduce
 from math import log as logd, sqrt
 
+def partial_trace(rho, keep, dims, optimize=False):
+    """Calculate the partial trace
+    https://scicomp.stackexchange.com/questions/30052/calculate-partial-trace-of-an-outer-product-in-python
+    ρ_a = Tr_b(ρ)
+
+    Parameters
+    ----------
+    ρ : 2D array
+        Matrix to trace
+    keep : array
+        An array of indices of the spaces to keep after
+        being traced. For instance, if the space is
+        A x B x C x D and we want to trace out B and D,
+        keep = [0,2]
+    dims : array
+        An array of the dimensions of each space.
+        For instance, if the space is A x B x C x D,
+        dims = [dim_A, dim_B, dim_C, dim_D]
+
+    Returns
+    -------
+    ρ_a : 2D array
+        Traced matrix
+    """
+    keep = np.asarray(keep)
+    dims = np.asarray(dims)
+    Ndim = dims.size
+    Nkeep = np.prod(dims[keep])
+
+    idx1 = [i for i in range(Ndim)]
+    idx2 = [Ndim+i if i in keep else i for i in range(Ndim)]
+    rho_a = rho.reshape(np.tile(dims,2))
+    rho_a = np.einsum(rho_a, idx1+idx2, optimize=optimize)
+    return rho_a.reshape(Nkeep, Nkeep)
+
 def is_swap_symmetric(U):
     return allclose(U-swap_antisymmetrise(U), 0)
 
@@ -497,12 +532,46 @@ def su(N, rep='adj'):
     else:
         raise NotImplementedError('only adjoint representation')
 
+def SU4(v):
+    Q = -1j*tensordot(v, su(4), [0, 0])
+    return expm(Q)
+
 def SU8(v):
     Q = -1j*tensordot(v, su(8), [0, 0])
     return expm(Q)
 
+def insu2N(v, where='mid'):
+    """insu2N: embed a su(n) vector in su(2n)
+
+    :param v:
+    :param where: ['left', 'mid', 'right']: where the new qubit is added
+    """
+    n = int(np.sqrt(len(v)+1))
+    n_qubits = int(np.log2(n))
+    def expand(X, where):
+        """expand: tensor eye into the right, left or middle 
+        (right-1) of a unitary
+        """
+        S12 = reduce(kron, [np.eye(2)]*(n_qubits-1)+[swap()])
+        if where == 'mid':
+            return S12@kron(X, eye(2))@S12
+        elif where == 'right':
+            return kron(X, eye(2))
+        elif where == 'left':
+            return kron(eye(2), X)
+
+    γ = 1j*zeros((n**2-1, (2*n)**2-1))
+    for i, X in enumerate(su(n)):
+        Ui = expand(X, where)
+        for j, Vj in enumerate(su(2*n)):
+            γ[i, j] = np.trace(Ui@Vj)/2
+    return v@γ
+
 def SU(v, N, rep='adj'):
-    Q = -1j*tensordot(v, su(N), [0, 0])
+    if rep=='adj':
+        Q = -1j*tensordot(v, su(N), [0, 0])
+    elif rep=='2N':
+        Q = -1j*tensordot(insu2N(v), su(2*N), [0, 0])
     return expm(Q)
 
 for N in range(2, 10):
@@ -521,3 +590,49 @@ for N in range(2, 10):
     # hermitian
     for i in range(N):
         assert norm(op[i]-op[i].conj().T)==0
+
+vs = [randn(N**2-1) for N in [4, 8]]
+for v in vs:
+    N = int(np.sqrt(len(v)+1))
+    U = SU(v, N)
+    U_ = SU(insu2N(v), 2*N)
+    n_qubits = int(np.log2(N))
+    keep = list(range(n_qubits-1))+[n_qubits]
+    assert np.allclose(U, partial_trace(U_, keep, [2]*(n_qubits+1))/2)
+
+from scipy.linalg import logm
+def components(Q):
+    """components of lie algebra element wrt. basis of su(..)
+    """
+    v = [np.trace(Q@u)/2 for u in su(Q.shape[0])]
+    return np.array(v)
+
+def equal_up_to_phase(U, V, p=False):
+    U_, V_ = U*np.exp(-1j*np.angle(U[0, 0])), V*np.exp(-1j*np.angle(V[0, 0]))
+    if p: print(U_, V_)
+    return np.allclose(U_, V_,)
+
+def extractv(U):
+    N = U.shape[0]
+    Q = 1j*logm(U)
+    Q -= np.trace(Q)*np.eye(N)/N
+    return components(Q)
+
+def to_new_v(v):
+    """to_new_v: map components to equivalent components (weird)
+    """
+    N = int(np.sqrt(len(v)+1))
+    return extractv(SU(v, N))
+
+for N in range(2, 32):
+    # take a random element of su(N), expand into components
+    Q = 1j*logm(np.linalg.qr(np.random.randn(N, N))[0])
+    Q -= np.trace(Q)/N*np.eye(N)
+    assert np.allclose(Q, tensordot(components(Q), su(Q.shape[0]), [0, 0]))
+
+    # extract the lie algebra vector from an element of su(N)
+    v = np.random.randn(N**2-1)
+    U = SU(v, N)
+    v_ = extractv(U)
+    assert equal_up_to_phase(U, SU(v_, N))
+
