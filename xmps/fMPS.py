@@ -124,6 +124,20 @@ class fMPS(object):
         """
         return fMPS([a+b for a, b in zip(self.data, other.data)])
 
+    def add(self, other):
+        """add: proper mps addition here
+        """
+        new_data = [1j*np.zeros((self[i].shape[0], self[i].shape[1]+other[i].shape[1], self[i].shape[2]+other[i].shape[2])) for i in range(self.L)]
+        for i in range(self.L):
+            if i == 0:
+                new_data[i] = np.concatenate([self[i], other[i]], 2)
+            elif i == self.L-1:
+                new_data[i] = np.concatenate([self[i], other[i]], 1)
+            else:
+                new_data[i][:, :self[i].shape[1], :self[i].shape[2]] = self[i]
+                new_data[i][:, self[i].shape[1]:, self[i].shape[2]:] = other[i]
+        return fMPS(new_data)
+
     def __sub__(self, other):
         """__sub: This is not how to subtract two MPS: it's itemwise addition.
                     A hack for time evolution.
