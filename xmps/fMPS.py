@@ -29,7 +29,13 @@ from .tests import is_left_canonical, is_left_env_canonical, has_trace_1
 from .tensor import H as cT, truncate_A, truncate_B, diagonalise, rank, mps_pad
 from .tensor import C as c, lanczos_expm, tr_svd, T
 from .tensor import rdot, ldot, structure
-from .left_transfer import lt as lt_
+#from .left_transfer import lt as lt_
+def lt_(op,As,j,i):
+    Ls = [op]
+    for m in range(i-1, j-1, -1):
+        W = np.tensordot(As[m], np.tensordot(As[m].conj(), Ls[-1], [2, 1]), [[0, 2], [0, 2]])
+        Ls.append(W)
+    return Ls[::-1]
 
 from .spin import n_body, N_body_spins, spins
 from copy import deepcopy, copy
