@@ -566,6 +566,11 @@ class fMPS(object):
             F = tensordot(tensordot(cT(L), F, (-1, 1)), R, ([0, -1], [0, 1]))
         return F[0][0]
 
+    def product_state_overlap(self, other):
+        """ other should be of the form (L, 2)
+        """
+        return self.overlap(fMPS([np.expand_dims(np.expand_dims(A, -1), -1) for A in product_state]))
+
     def norm(self):
         """norm: not efficient - computes full overlap.
         use self.E(identity(self.d), site) for mixed

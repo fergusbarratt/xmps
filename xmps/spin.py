@@ -3,9 +3,17 @@ from numpy import array, allclose, sqrt, zeros, reshape
 from numpy import block, eye, trace
 from numpy import tensordot, kron, identity, diag, arange, allclose
 from scipy.sparse.linalg import expm
+from scipy.linalg import logm
 from itertools import product
 from functools import reduce
 from math import log as logd, sqrt
+from scipy.linalg import logm, det
+from numpy.random import randn
+from numpy import real
+from numpy import zeros
+from scipy.linalg import norm
+from itertools import product
+
 
 def partial_trace(rho, keep, dims, optimize=False):
     """Calculate the partial trace
@@ -352,9 +360,6 @@ def spinHamiltonians(object):
             N = self.N
             return [1/2*SS + 1/6 * SS@SS + 1/3]*(N-1)
 
-assert all([CR(*spins(S)) for S in [0.5, 1, 1.5, 2., 2.5, 3]])
-assert all([pCR(*paulis(S)) for S in [0.5, 1, 1.5]])
-
 # From here on out it's Lie algebraish
 def lambdas(S=0.5):
     """lambdas: generators of SU(4)
@@ -444,6 +449,7 @@ def nlambdas(n, S=0.5):
     """nlambdas: orthonormal basis of generators of of SU(n)
     """
     pass
+
 Sx1, Sy1, Sz1 = N_body_spins(1/2, 1, 2)
 Sx2, Sy2, Sz2 = N_body_spins(1/2, 2, 2)
          
@@ -486,10 +492,6 @@ def U2(v):
     """
     return expm(-1j*tensordot(v, locals[3:], [0, 0]))
 
-from scipy.linalg import logm, det
-from numpy.random import randn
-from numpy import real
-
 def U4(v):
     """U4 two site unitary
     """
@@ -501,13 +503,6 @@ def U4s(v):
     """
     return expm(-1j*tensordot(v, slambdas(), [0, 0]))
 
-op = lambdas(0.5)
-assert all([allclose(trace(o), 0) for o in op])
-assert all([allclose(trace(o@o), 2) for o in op])
-
-from numpy import zeros
-from scipy.linalg import norm
-from itertools import product
 
 def su(N, rep='adj'):
     """su(N)
@@ -574,33 +569,7 @@ def SU(v, N, rep='adj'):
         Q = -1j*tensordot(insu2N(v), su(2*N), [0, 0])
     return expm(Q)
 
-for N in range(2, 10):
-    op = su(N)
-    assert len(op) == N**2-1
-    # normalised
-    assert all([allclose(trace(o@o), 2) for o in op])
-    # traceless
-    assert all([allclose(trace(o), 0) for o in op])
 
-    # orthogonal
-    for i in range(N):
-        for j in range(i):
-            assert trace(op[i]@op[j])==0
-
-    # hermitian
-    for i in range(N):
-        assert norm(op[i]-op[i].conj().T)==0
-
-vs = [randn(N**2-1) for N in [4, 8]]
-for v in vs:
-    N = int(np.sqrt(len(v)+1))
-    U = SU(v, N)
-    U_ = SU(insu2N(v), 2*N)
-    n_qubits = int(np.log2(N))
-    keep = list(range(n_qubits-1))+[n_qubits]
-    assert np.allclose(U, partial_trace(U_, keep, [2]*(n_qubits+1))/2)
-
-from scipy.linalg import logm
 def components(Q):
     """components of lie algebra element wrt. basis of su(..)
     """
@@ -624,15 +593,50 @@ def to_new_v(v):
     N = int(np.sqrt(len(v)+1))
     return extractv(SU(v, N))
 
-for N in range(2, 32):
-    # take a random element of su(N), expand into components
-    Q = 1j*logm(np.linalg.qr(np.random.randn(N, N))[0])
-    Q -= np.trace(Q)/N*np.eye(N)
-    assert np.allclose(Q, tensordot(components(Q), su(Q.shape[0]), [0, 0]))
+if __name__=='__main__':
+    print('testing')
+    for N in range(2, 32):
+        # take a random element of su(N), expand into components
+        Q = 1j*logm(np.linalg.qr(np.random.randn(N, N))[0])
+        Q -= np.trace(Q)/N*np.eye(N)
+        assert np.allclose(Q, tensordot(components(Q), su(Q.shape[0]), [0, 0]))
 
-    # extract the lie algebra vector from an element of su(N)
-    v = np.random.randn(N**2-1)
-    U = SU(v, N)
-    v_ = extractv(U)
-    assert equal_up_to_phase(U, SU(v_, N))
+        # extract the lie algebra vector from an element of su(N)
+        v = np.random.randn(N**2-1)
+        U = SU(v, N)
+        v_ = extractv(U)
+        assert equal_up_to_phase(U, SU(v_, N))
 
+    for N in range(2, 10):
+        op = su(N)
+        assert len(op) == N**2-1
+        # normalised
+        assert all([allclose(trace(o@o), 2) for o in op])
+        # traceless
+        assert all([allclose(trace(o), 0) for o in op])
+
+        # orthogonal
+        for i in range(N):
+            for j in range(i):
+                assert trace(op[i]@op[j])==0
+
+        # hermitian
+        for i in range(N):
+            assert norm(op[i]-op[i].conj().T)==0
+
+    vs = [randn(N**2-1) for N in [4, 8]]
+    for v in vs:
+        N = int(np.sqrt(len(v)+1))
+        U = SU(v, N)
+        U_ = SU(insu2N(v), 2*N)
+        n_qubits = int(np.log2(N))
+        keep = list(range(n_qubits-1))+[n_qubits]
+        assert np.allclose(U, partial_trace(U_, keep, [2]*(n_qubits+1))/2)
+
+
+    assert all([CR(*spins(S)) for S in [0.5, 1, 1.5, 2., 2.5, 3]])
+    assert all([pCR(*paulis(S)) for S in [0.5, 1, 1.5]])
+
+    op = lambdas(0.5)
+    assert all([allclose(trace(o), 0) for o in op])
+    assert all([allclose(trace(o@o), 2) for o in op])
