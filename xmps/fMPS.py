@@ -553,7 +553,7 @@ class fMPS(object):
         return [x[0].shape for x in self.data]
 
     def overlap(self, other):
-        """overlap
+        """overlap: BUGGED i think
 
         :param other: other with which to calculate overlap
         """
@@ -566,10 +566,18 @@ class fMPS(object):
             F = tensordot(tensordot(cT(L), F, (-1, 1)), R, ([0, -1], [0, 1]))
         return F[0][0]
 
+    def from_product_state(self, product_state):
+        """ product_state should be shape (L, 2)
+        """
+        return fMPS([np.expand_dims(np.expand_dims(A, -1), -1) for A in product_state])
+
     def product_state_overlap(self, other):
         """ other should be of the form (L, 2)
         """
-        return self.overlap(fMPS([np.expand_dims(np.expand_dims(A, -1), -1) for A in product_state]))
+        return self.left_canonicalise().overlap(fMPS().from_product_state(other).left_canonicalise())
+
+    def full_overlap(self, other):
+        return self.recombine().reshape(-1).conj().T@other.recombine().reshape(-1)
 
     def norm(self):
         """norm: not efficient - computes full overlap.
