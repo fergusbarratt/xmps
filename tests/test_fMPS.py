@@ -25,7 +25,7 @@ from xmps.tests import is_left_canonical, is_left_env_canonical, has_trace_1
 from xmps.tensor import H as cT, truncate_A, truncate_B, diagonalise, rank, mps_pad
 from xmps.tensor import C as c, lanczos_expm, tr_svd, T
 from xmps.tensor import rdot, ldot, structure
-from xmps.left_transfer import lt as lt_
+from xmps.fMPS import lt_ as lt_
 
 from xmps.spin import n_body, N_body_spins, spins
 
@@ -80,7 +80,7 @@ class TestfMPS(unittest.TestCase):
                             for _ in range(N)]
 
         # finite fixtures 
-        fix_loc = 'tests/fixtures/'
+        fix_loc = 'fixtures/'
         self.tens_0_2 = load(fix_loc+'mat2x2.npy')
         self.tens_0_3 = load(fix_loc+'mat3x3.npy')
         self.tens_0_4 = load(fix_loc+'mat4x4.npy')
