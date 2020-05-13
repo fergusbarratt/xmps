@@ -30,6 +30,14 @@ def flatten(li):
     """n is the number of layers to flatten"""
     return reduce(lambda x, y: x+y, li)
 
+def col_contract(a, b):
+    # contracts two peps tensor on their column indices - (creates new peps tensor)
+    ret = np.tensordot(a, b, [-2, -4]).transpose([0, 4, 1, 2, 5, 6, 3, 7]).reshape(a.shape[0]*b.shape[0], a.shape[1], a.shape[2]*b.shape[2], b.shape[3], a.shape[4]*b.shape[4])
+    return ret
+def row_contract(a, b):
+    # contracts two peps tensor on their row indices - (creates new peps tensor)
+    ret = np.tensordot(a, b, [-3, -1]).transpose([0, 4, 1, 5, 6, 2, 7, 3]).reshape(a.shape[0]*b.shape[0], a.shape[1]*b.shape[1], b.shape[2], a.shape[3]*b.shape[3], a.shape[4])
+    return ret
 
 class fMPO(object):
     def __init__(self, data=None, d=None, X=None):
@@ -122,6 +130,10 @@ class fPEPS(object):
                 [max(x.shape[1:]) for x in flatten(data)])
             self.data = data
 
+    def __str__(self):
+        assert hasattr(self, 'Lx') and hasattr(self, 'Ly')
+        return '\n'.join(map(str, self.structure()))
+
     def create_structure(self, Lx, Ly, d, X):
         """
           0 1
@@ -145,10 +157,6 @@ class fPEPS(object):
             self, 'Ly') and hasattr(self, 'd') and hasattr(self, 'X')
         return self.create_structure(self.Lx, self.Ly, self.d, self.X)
 
-    def __str__(self):
-        assert hasattr(self, 'Lx') and hasattr(self, 'Ly')
-        return '\n'.join(map(str, self.structure()))
-
     def random(self, Lx, Ly, d, X):
         self.Lx = Lx
         self.Ly = Ly
@@ -167,7 +175,11 @@ class fPEPS(object):
         return np.sqrt(np.abs(self.overlap(self)))
 
     def recombine(self):
-        pass
+        cols = []
+        for row in self.data:
+            cols.append(reduce(row_contract, row))
+        res = reduce(col_contract, cols)
+        return np.squeeze(res)
 
     def overlap(self, other):
         mpos = [fMPO([np.tensordot(A, B.conj(), [0, 0]).transpose(
@@ -219,9 +231,37 @@ def test_fPEPS_evs(N):
     print('testing peps evs ... ')
     for _ in range(N):
         x = fPEPS().random(3, 3, 2, 2).normalise()
-        print(x.ev(X, (0, 0)))
+        e1 = x.ev(X, (0, 0))
+        e2 = x.ev(Y, (0, 0))
+        e3 = x.ev(Z, (0, 0))
+        n = np.sqrt(e1**2+e2**2+e3**2)
+        assert np.abs(e1) <= 1
+        assert np.abs(e2) <= 1
+        assert np.abs(e3) <= 1
+        assert np.abs(n) <= 1
+
+        x = fPEPS().random(3, 3, 2, 1).normalise()
+        e1 = x.ev(X, (0, 0))
+        e2 = x.ev(Y, (0, 0))
+        e3 = x.ev(Z, (0, 0))
+        n = np.sqrt(e1**2+e2**2+e3**2)
+        assert np.abs(e1) <= 1
+        assert np.abs(e2) <= 1
+        assert np.abs(e3) <= 1
+        assert np.allclose(n, 1)
+
+        φ = x.recombine()
+        XI = reduce(np.kron, [X]+[I]*8)
+        YI = reduce(np.kron, [Y]+[I]*8)
+        ZI = reduce(np.kron, [Z]+[I]*8)
+        assert np.allclose(φ.conj().T@XI@φ, e1)
+        assert np.allclose(φ.conj().T@YI@φ, e2)
+        assert np.allclose(φ.conj().T@ZI@φ, e3)
+
+        IXI = reduce(np.kron, [I]*3+[X]+[I]*5)
+        assert np.allclose(x.ev(X, (0, 1)), φ.conj().T@IXI@φ)
 
 
 if __name__ == '__main__':
-    test_fPEPS_evs(1)
+    test_fPEPS_evs(3)
     test_mpo_multiplication(5)
