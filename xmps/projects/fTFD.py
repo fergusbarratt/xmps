@@ -1,15 +1,15 @@
 import unittest
-from fMPS import fMPS
-from fTDVP import Trajectory
-from ncon import ncon
+from xmps.fMPS import fMPS
+from xmps.fTDVP import Trajectory
+from xmps.ncon import ncon
 from numpy.random import randint, randn
 from numpy import kron, swapaxes as sw, eye, transpose as tra, sqrt
 from numpy import allclose, linspace, load, real as re, sum
 from numpy import tensordot, trace, dot
 from scipy.linalg import norm, null_space as null, inv, cholesky as ch
 from scipy.linalg import block_diag as bd
-from tensor import H as cT, C as c
-from spin import N_body_spins, spins
+from xmps.tensor import H as cT, C as c
+from xmps.spin import N_body_spins, spins
 import matplotlib.pyplot as plt
 Sx, Sy, Sz = spins(0.5)
 
@@ -98,7 +98,7 @@ class fTFD(fMPS):
 
     def get_vL(self):
         prs_vLs = [self.left_null_projector(n, get_vL=True) for n in range(self.L)]
-        def vLs(n): 
+        def vLs(n):
             Pp, Pm, M = self.symm_asymm(self.data[n].shape[1])
             return ((1/2)*prs_vLs[n][1]+(1/2)*M@fs(prs_vLs[n][1]),
                     (1/2)*prs_vLs[n][1]-(1/2)*M@fs(prs_vLs[n][1]), M)
@@ -150,7 +150,7 @@ class testfTFD(unittest.TestCase):
         self.N = N = 4  # Number of MPSs to test
         #  min and max params for randint
         L_min, L_max = 7, 8
-        d_min, d_max = 2, 3 
+        d_min, d_max = 2, 3
         D, D_sq = 3, 9
         # N random MPSs
         self.pure_cases = [fTFD().random(randint(L_min, L_max),
@@ -164,7 +164,7 @@ class testfTFD(unittest.TestCase):
                                           pure=False)
                            for _ in range(N)]
 
-        psi_0_2 = load('fixtures/mat2x2.npy')
+        psi_0_2 = load('../../tests/fixtures/mat2x2.npy')
         self.tfd_0_2 = fTFD().from_fMPS(fMPS().left_from_state(psi_0_2))
 
     def test_symmetries(self):
@@ -193,7 +193,8 @@ class testfTFD(unittest.TestCase):
             evs.append(A.Es([Sx, Sy, Sz], 1))
             A = (A+A.dA_dt(H)*0.1).left_canonicalise()
         plt.plot(evs)
+        plt.savefig('x.pdf')
         plt.show()
-            
+        
 if __name__=='__main__':
     unittest.main(verbosity=2)

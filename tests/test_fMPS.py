@@ -1,4 +1,4 @@
-from xmps.fMPS import fMPS, vfMPS
+from xmps.fMPS import fMPS, vfMPS, fTFD, fs
 
 import unittest
 
@@ -14,9 +14,10 @@ from numpy import eye, cumsum as cs, sqrt, expand_dims as ed, imag as im
 from numpy import transpose as tra, trace as tr, tensordot as td, kron
 from numpy import mean, sign, angle, unwrap, exp, diff, pi, squeeze as sq
 from numpy import round, flipud, cos, sin, exp, arctan2, arccos, sign
+from numpy import linspace
 
 from scipy.linalg import null_space as null, orth, expm#, sqrtm as ch
-from scipy.linalg import polar
+from scipy.linalg import polar, block_diag as bd
 from scipy.sparse.linalg import LinearOperator, aslinearoperator
 
 from xmps.tests import is_right_canonical, is_right_env_canonical, is_full_rank
@@ -841,6 +842,55 @@ class TestvfMPS(unittest.TestCase):
         self.assertTrue(array([fMPS1 == fMPS2
                                for fMPS1, fMPS2 in zip(self.cases,
                                                        other_cases)]).all())
+
+class testfTFD(unittest.TestCase):
+    def setUp(self):
+        """setUp"""
+        self.N = N = 4  # Number of MPSs to test
+        #  min and max params for randint
+        L_min, L_max = 7, 8
+        d_min, d_max = 2, 3
+        D, D_sq = 3, 9
+        # N random MPSs
+        self.pure_cases = [fTFD().random(randint(L_min, L_max),
+                                         randint(d_min, d_max),
+                                         D=D,
+                                         pure=True)
+                           for _ in range(N)]
+        self.mixed_cases = [fTFD().random(randint(L_min, L_max),
+                                          randint(d_min, d_max),
+                                          D=D_sq,
+                                          pure=False)
+                           for _ in range(N)]
+
+        psi_0_2 = load('fixtures/mat2x2.npy')
+        self.tfd_0_2 = fTFD().from_fMPS(fMPS().left_from_state(psi_0_2))
+
+    def test_symmetries(self):
+        """test_symmetry"""
+        for A, A_ in zip(self.pure_cases, self.mixed_cases):
+            self.assertTrue(A==A.symmetry())
+            self.assertFalse(A_==A_.symmetry())
+            for n in range(A.L):
+                vL_sym, vL_asy, M = A.get_vL()[n]
+                self.assertTrue(allclose(vL_sym,  M@fs(vL_sym)))
+                self.assertTrue(allclose(vL_asy, -M@fs(vL_asy)))
+
+                vL_sym, vL_asy, M = A_.get_vL()[n]
+                self.assertTrue(allclose(vL_sym,  M@fs(vL_sym)))
+                self.assertTrue(allclose(vL_asy, -M@fs(vL_asy)))
+
+    def test_time_evolution(self):
+        """test_time_evolution"""
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
+        H = [Sz1@Sz2+Sx1+Sx2]
+        T = linspace(0, 0.1, 2)
+        A = self.tfd_0_2
+        evs = []
+        for _ in range(400):
+            evs.append(A.Es([Sx, Sy, Sz], 1))
+            A = (A+A.dA_dt(H)*0.1).left_canonicalise()
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

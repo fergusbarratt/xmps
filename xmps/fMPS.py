@@ -20,7 +20,7 @@ from numpy import mean, sign, angle, unwrap, exp, diff, pi, squeeze as sq
 from numpy import round, flipud, cos, sin, exp, arctan2, arccos, sign
 
 from scipy.linalg import null_space as null, orth, expm#, sqrtm as ch
-from scipy.linalg import polar
+from scipy.linalg import polar, block_diag as bd
 from scipy.sparse.linalg import LinearOperator, aslinearoperator
 
 from .tests import is_right_canonical, is_right_env_canonical, is_full_rank
@@ -1658,6 +1658,155 @@ class fMPS(object):
         Bs = [zl(A) for A in self.data[:nulls]] + \
              [inv(ch(l_(n-1)))@vL@x@inv(ch(r_(n))) for n, (vL, x) in enumerate(zip(vLs, xs))]
         return fMPS(Bs)
+
+def fs(X):
+    return X.reshape(int(sqrt(X.shape[0])), int(sqrt(X.shape[0])), *X.shape[1:]
+                     ).transpose(1, 0, *list(range(2, len(X.shape)+1))
+                     ).reshape(X.shape) 
+
+class fTFD(fMPS):
+    """ thermofield double states
+        Non obvious: the overlap of two thermofield states is the fidelity F(ρ, σ)
+    """
+    def __init__(self, data=None, d=None, D=None):
+        """__init__"""
+        super().__init__(data, d, D)
+
+    def __add__(self, other):
+        """__add__: This is not how to add two TFD: it's itemwise addition.
+                    A hack for time evolution.
+
+        :param other: TFD with arrays to add
+        """
+        return fTFD([a+b for a, b in zip(self.data, other.data)])
+
+    def __sub__(self, other):
+        """__sub: This is not how to subtract two TFD: it's itemwise addition.
+                    A hack for time evolution.
+
+        :param other: TFD with arrays to subtract
+        """
+        return fTFD([a-b for a, b in zip(self.data, other.data)])
+
+    def __mul__(self, other):
+        """__mul__: This is not multiplying an TFD by a scalar: it's itemwise:
+                    Hack for time evolution.
+                    Multiplication by other**L
+
+        :param other: scalar to multiply
+        """
+        return fTFD([other*a for a in self.data], self.d)
+
+    def __rmul__(self, other):
+        """__rmul__: right scalar multiplication
+
+        :param other: scalar to multiply
+        """
+        return self.__mul__(other)
+
+    def __truediv__(self, other):
+        """__mul__: This is not multiplying an TFD by a scalar: it's itemwise:
+                    Hack for time evolution.
+                    Multiplication by other**L
+
+        :param other: scalar to multiply
+        """
+        return self.__mul__(1/other)
+
+    def __str__(self):
+        return 'Thermofield Double: L={}, d={}, D={}'.format(self.L, sqrt(self.d), self.D)
+
+    def add(self, other):
+        """add: proper mps addition here
+        """
+        new_data = [1j*np.zeros((self[i].shape[0], self[i].shape[1]+other[i].shape[1], self[i].shape[2]+other[i].shape[2])) for i in range(self.L)]
+        for i in range(self.L):
+            if i == 0:
+                new_data[i] = np.concatenate([self[i], other[i]], 2)
+            elif i == self.L-1:
+                new_data[i] = np.concatenate([self[i], other[i]], 1)
+            else:
+                new_data[i][:, :self[i].shape[1], :self[i].shape[2]] = self[i]
+                new_data[i][:, self[i].shape[1]:, self[i].shape[2]:] = other[i]
+        return fTFD(new_data)
+
+    def random(self, L, d, D, pure=True):
+        if pure:
+            data = super().random(L, d, D)
+            self.data = [kron(a, b) for a, b in zip(data, data)]
+            self.d = d**2
+            self.D = D**2
+        else:
+            data = super().random(L, d**2, D)
+        return self
+
+    def from_fMPS(self, mps):
+        # TFD corresponding to the (pure) mps.
+        self.data = [kron(a, a) for a in mps.data]
+        self.d = mps.d**2
+        self.D = mps.D**2
+        self.L = mps.L
+        return self
+
+    def symmetry(self):
+        return fTFD([tra(X.reshape((int(sqrt(X.shape[0])), int(sqrt(X.shape[0])),
+                                    int(sqrt(X.shape[1])), int(sqrt(X.shape[1])), 
+                                    int(sqrt(X.shape[2])), int(sqrt(X.shape[2])))), 
+                         [1, 0, 3, 2, 5, 4]).reshape(X.shape) for X in self])
+
+    def symm_asymm(self, D):
+        D = int(sqrt(D))
+        return ((eye(D**2) + bd(eye(int(D*(D+1)/2)), -eye(int(D*(D-1)/2))))/2,
+                (eye(D**2) - bd(eye(int(D*(D+1)/2)), -eye(int(D*(D-1)/2))))/2,
+                bd(eye(int(D*(D+1)/2)), -eye(int(D*(D-1)/2))))
+
+    def get_vL(self):
+        prs_vLs = [self.left_null_projector(n, get_vL=True) for n in range(self.L)]
+        def vLs(n):
+            Pp, Pm, M = self.symm_asymm(self.data[n].shape[1])
+            return ((1/2)*prs_vLs[n][1]+(1/2)*M@fs(prs_vLs[n][1]),
+                    (1/2)*prs_vLs[n][1]-(1/2)*M@fs(prs_vLs[n][1]), M)
+        return [vLs(n) for n in range(self.L)]
+
+    def left_null_projector(self, n, l=None, get_vL=False, store_envs=False, vL=None):
+        """left_null_projector:           |
+                         - inv(sqrt(l)) - vL = vL- inv(sqrt(l))-
+                                               |
+        replaces A(n) in TDVP
+
+        :param n: site
+        """
+        if l is None:
+            l, _ = self.get_envs(store_envs)
+        if vL is None:
+            L_ = sw(cT(self[n])@ch(l(n-1)), 0, 1)
+            L = L_.reshape(-1, self.d*L_.shape[-1])
+            vL = null(L).reshape((self.d, L.shape[1]//self.d, -1))
+        pr = ncon([inv(ch(l(n-1)))@vL, inv(ch(l(n-1)))@c(vL)], [[-1, -2, 1], [-3, -4, 1]])
+        if get_vL:
+            return pr, vL
+        return pr
+
+    def dA_dt(self, H, fullH=False):
+        H_ = [(kron(eye(len(h)), h)+kron(h, eye(len(h)))) for h in H]
+        dA_dt = super().dA_dt(H_, fullH)
+        return dA_dt
+
+    def E(self, op, site):
+        """E: one site expectation value
+
+        :param op: 1 site operator
+        :param site: site
+        """
+        op = kron(op, eye(len(op)))
+        M = self.mixed_canonicalise(site)[site]
+        return trace(sum(cT(M)@tensordot(op, M, [0, 0]), axis=0))
+
+    def Es(self, ops, site):
+        ops = [kron(op, eye(len(op))) for op in ops]
+        M = self.mixed_canonicalise(site)[site]
+        return [trace(sum(cT(M)@tensordot(op, M, [0, 0]), axis=0))
+                for op in ops]
 
 class vfMPS(object):
     """vidal finite MPS

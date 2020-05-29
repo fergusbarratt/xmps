@@ -30,14 +30,67 @@ def flatten(li):
     """n is the number of layers to flatten"""
     return reduce(lambda x, y: x+y, li)
 
+
 def col_contract(a, b):
     # contracts two peps tensor on their column indices - (creates new peps tensor)
-    ret = np.tensordot(a, b, [-2, -4]).transpose([0, 4, 1, 2, 5, 6, 3, 7]).reshape(a.shape[0]*b.shape[0], a.shape[1], a.shape[2]*b.shape[2], b.shape[3], a.shape[4]*b.shape[4])
+    ret = np.tensordot(a, b, [-2, -4]).transpose([0, 4, 1, 2, 5, 6, 3, 7]).reshape(
+        a.shape[0]*b.shape[0], a.shape[1], a.shape[2]*b.shape[2], b.shape[3], a.shape[4]*b.shape[4])
     return ret
+
+
 def row_contract(a, b):
     # contracts two peps tensor on their row indices - (creates new peps tensor)
-    ret = np.tensordot(a, b, [-3, -1]).transpose([0, 4, 1, 5, 6, 2, 7, 3]).reshape(a.shape[0]*b.shape[0], a.shape[1]*b.shape[1], b.shape[2], a.shape[3]*b.shape[3], a.shape[4])
+    ret = np.tensordot(a, b, [-3, -1]).transpose([0, 4, 1, 5, 6, 2, 7, 3]).reshape(
+        a.shape[0]*b.shape[0], a.shape[1]*b.shape[1], b.shape[2], a.shape[3]*b.shape[3], a.shape[4])
     return ret
+
+
+def group_physical(a, where):
+    """ where = 1, 2, 3, 4 clockwise from top. group physical leg with that virtual leg """
+    assert 1 <= where <= 4
+    ins = list(range(1, 5))
+    trans = ins[:where-1]+[0]+ins[where-1:]
+    shape = np.array(a.shape[1:])*np.array([1] *
+                     (where-1)+[a.shape[0]]+[1]*(4-where))
+    return a.transpose(trans).reshape(*shape)
+
+
+def tensor_isometry(a, where):
+    """where = 1, 2, 3, 4 clockwise from top right. group physical leg with leg to anticlockwise of number
+    \\   //
+      4|1
+      -A-
+      3|2
+    //   \\
+    x[i:]+x[:i] cyclically permutes x i times.
+    """
+    ins = list(range(4))
+    tens = group_physical(a, where)
+    tens = tens.transpose(ins[where-1:]+ins[:where-1])
+    return tens.reshape(np.prod(tens.shape[:2]), -1)
+
+#def isometry_tensor(a, where, d=2):
+#   """undo tensor_isometry
+#   where = 1, 2, 3, 4 clockwise from top right. group physical leg with leg to anticlockwise of number
+#   \\   //
+#     4|1
+#     -A-
+#     3|2
+#   //   \\
+#   x[i:]+x[:i] cyclically permutes x i times.
+#   """
+#   dX1X2, X3X4 = a.shape
+#   #X, d = int(np.sqrt(XX)), int(dX1X2/d)
+#   tens = a.reshape(d, X, X, X, X)
+#   ins = list(range(1, 5))
+#   return tens.transpose([0]+ins[5-where:]+ins[:5-where])
+
+
+#A = np.random.randn(2, 1, 2, 2, 2)
+#x = tensor_isometry(A, 4)
+#B = isometry_tensor(x, 4)
+#assert np.allclose(A, B)
+#raise Exception
 
 class fMPO(object):
     def __init__(self, data=None, d=None, X=None):
@@ -134,6 +187,11 @@ class fPEPS(object):
         assert hasattr(self, 'Lx') and hasattr(self, 'Ly')
         return '\n'.join(map(str, self.structure()))
 
+    def isometrize(self, oc):
+        """ specify oc as (x, y) where x is across and y is down from top left
+        """
+        pass
+
     def create_structure(self, Lx, Ly, d, X):
         """
           0 1
@@ -152,10 +210,21 @@ class fPEPS(object):
 
         return top+mid+bottom
 
+    def add(self, other):
+        new_data = []
+        Lx, Ly = self.Lx, self.Ly
+        for row1, row2 in zip(self.data, other.data):
+            new_data.append([])
+            for tens1, tens2 in zip(row1, row2):
+                new_data[-1].append(np.pad(tens1, list(zip([0]*tens2.ndim, [0]+[x*int(x!=1) for x in list(tens2.shape[1:])])))+\
+                                    np.pad(tens2, list(zip([0]+[x*int(x!=1) for x in list(tens1.shape[1:])], [0]*tens1.ndim)))) 
+                # add tensors block diagonally by padding with zeros with the shape of the other tensor
+                # unless dim is one in that slot, then just add across that index. 
+                # for mps this reduces to normal addition
+        return fPEPS(new_data)
+
     def structure(self):
-        assert hasattr(self, 'Lx') and hasattr(
-            self, 'Ly') and hasattr(self, 'd') and hasattr(self, 'X')
-        return self.create_structure(self.Lx, self.Ly, self.d, self.X)
+        return [[x.shape for x in row] for row in self.data]
 
     def random(self, Lx, Ly, d, X):
         self.Lx = Lx
@@ -226,7 +295,6 @@ def test_mpo_multiplication(N):
         f2 = A_ψ@B_ψ
         assert np.allclose(f1, f2)
 
-
 def test_fPEPS_evs(N):
     print('testing peps evs ... ')
     for _ in range(N):
@@ -261,7 +329,21 @@ def test_fPEPS_evs(N):
         IXI = reduce(np.kron, [I]*3+[X]+[I]*5)
         assert np.allclose(x.ev(X, (0, 1)), φ.conj().T@IXI@φ)
 
+def test_fPEPS_addition(N):
+    for _ in range(N):
+        x = fPEPS().random(3, 3, 2, 2).normalise()
+        y = fPEPS().random(3, 3, 2, 2).normalise()
+        assert np.allclose(x.recombine()+y.recombine(), x.add(y).recombine())
+
+        x = fPEPS().random(3, 1, 2, 2).normalise()
+        y = fPEPS().random(3, 1, 2, 2).normalise()
+        assert np.allclose(x.recombine()+y.recombine(), x.add(y).recombine())
+
+        x = fPEPS().random(3, 2, 2, 4).normalise()
+        y = fPEPS().random(3, 2, 2, 2).normalise()
+        assert np.allclose(x.recombine()+y.recombine(), x.add(y).recombine())
 
 if __name__ == '__main__':
-    test_fPEPS_evs(3)
-    test_mpo_multiplication(5)
+    test_fPEPS_addition(3)
+    #test_fPEPS_evs(3)
+    #test_mpo_multiplication(5)
