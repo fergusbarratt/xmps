@@ -47,9 +47,31 @@ import uuid
 
 Sx, Sy, Sz = spins(0.5)
 Sx, Sy, Sz = 2*Sx, 2*Sy, 2*Sz
+SWAP = np.array([[1, 0, 0, 0],
+                 [0, 0, 1, 0],
+                 [0, 1, 0, 0],
+                 [0, 0, 0, 1]])
 
 from .ncon import ncon as ncon
 #def ncon(*args): return nc(*args, check_indices=False)
+
+def apply_unitary(tensors, U):
+    grouped = np.tensordot(U, group_tensors(tensors), [1, 0])
+    ret = separate_tensor(grouped)
+    return ret
+
+def apply_isometry(tensors, Is):
+    return np.tensordot(Is, group_tensors(tensors), [1, 0])
+
+def group_tensors(tensors):
+    return ncon(tensors, [[-1, -3, 1], [-2, 1, -4]]).reshape(4, tensors[0].shape[1], tensors[1].shape[2])
+
+def separate_tensor(tensor):
+    A, B = np.linalg.qr(tensor.reshape(2, 2, tensor.shape[1], tensor.shape[2]
+                             ).transpose([0, 2, 1, 3]
+                             ).reshape(2*tensor.shape[1], 2*tensor.shape[2]))
+    A, B = A.reshape(2, tensor.shape[1], A.shape[1]), B.reshape(B.shape[0], 2, tensor.shape[2]).transpose([1, 0, 2])
+    return [A, B]
 
 class fMPS(object):
     """finite MPS:
@@ -155,6 +177,11 @@ class fMPS(object):
         """
         return fMPS([other*a for a in self.data], self.d)
 
+    def mul(self, other):
+        """ proper mps multiplication (by scalar) here"""
+        site = 0
+        return fMPS([x if i!=site else other*x for i, x in enumerate(self.data)])
+
     def __rmul__(self, other):
         """__rmul__: right scalar multiplication
 
@@ -173,6 +200,10 @@ class fMPS(object):
 
     def __str__(self):
         return 'fMPS: L={}, d={}, D={}'.format(self.L, self.d, self.D)
+
+    @property
+    def bond_dimension(self):
+        return max([max(x.shape[1:]) for x in self.data])
 
     def left_from_state(self, state):
         """left_from_state: generate left canonical mps from state tensor
@@ -647,7 +678,40 @@ class fMPS(object):
 
     def apply(self, opsite):
         op, site = opsite
-        self[site] = td(op, self[site], [1, 0])
+        new_data = [x for x in self.data]
+        new_data[site] = td(op, new_data[site], [1, 0])
+        return fMPS(new_data)
+
+    def apply_two_site(self, opsites):
+        op, (i, j) = opsites
+        assert j != i
+        if not j > i:
+            j, i = i, j
+        i_ = j-1
+        while i_ >= i+1:
+            self.apply_two_site((SWAP, (i_, i_+1)))
+            i_ = i_-1
+        self[i], self[i+1] = apply_unitary([self[i], self[i+1]], op)
+        while i_ < j-1:
+            i_ = i_+1
+            self.apply_two_site((SWAP, (i_, i_+1)))
+        return self
+
+    def apply_two_site_isometry(self, opsites, lr=0):
+        # replaces (left, right)[lr] site with the result of the isometry
+        
+        op, (i, j) = opsites
+        assert j != i
+        if not j > i:
+            j, i = i, j
+        i_ = j-1
+        while i_ >= i+1:
+            self.apply_two_site((SWAP, (i_, i_+1)))
+            i_ = i_-1
+        self[(i, j)[rl]] = apply_isometry([self[i], self[i+1]], op)
+        while i_ < j-1:
+            i_ = i_+1
+            self.apply_two_site((SWAP, (i_, i_+1)))
         return self
 
     def copy(self):
