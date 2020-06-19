@@ -18,7 +18,6 @@ def to_diagram(tensor):
                   {3}""".format(*tensor.shape)
     return string
 
-
 def tuple_to_diagram(shape):
     string = """
               d={0} {1}
@@ -28,18 +27,15 @@ def tuple_to_diagram(shape):
                   {3}""".format(*shape)
     return string
 
-
 def flatten(li):
     """n is the number of layers to flatten"""
     return reduce(lambda x, y: x+y, li)
-
 
 def col_contract(a, b):
     # contracts two peps tensor on their column indices - (creates new peps tensor)
     ret = np.tensordot(a, b, [-2, -4]).transpose([0, 4, 1, 2, 5, 6, 3, 7]).reshape(
         a.shape[0]*b.shape[0], a.shape[1], a.shape[2]*b.shape[2], b.shape[3], a.shape[4]*b.shape[4])
     return ret
-
 
 def row_contract(a, b):
     # contracts two peps tensor on their row indices - (creates new peps tensor)
@@ -48,6 +44,65 @@ def row_contract(a, b):
         a.shape[0]*b.shape[0], a.shape[1]*b.shape[1], b.shape[2], a.shape[3]*b.shape[3], a.shape[4])
     return ret
 
+def row_truncate(row, D):
+    # take a row from a peps, truncate the row indices to D
+    new_row = []
+    for tensor in row:
+        new_row.append(tensor[:, :, :D, :, :D])
+    return new_row
+
+def col_truncate(col, D):
+    # take a col from a peps, truncate the col indices to D
+    new_col = []
+    for tensor in col:
+        new_col.append(tensor[:, :D, :, :D, :])
+    return new_col
+
+p = [0, 1, 2, 3]
+#def tensor_grouping_lrud(a, where):
+#    """turn tensor into map from where to opposite (see diag below)
+#    where = 1, 2, 3, 4 clockwise from top right. group physical leg with numbered leg, and map from leg + neighbours to single opposite leg
+#       1
+#       |
+#     4-A-2
+#       |
+#       3
+#    """
+#    where = np.mod(where+3, 4)
+#    ins = list(range(1, 5))
+#    perm = (ins[where-1:]+ins[:where-1])
+#    tens = a.transpose([0]+perm)
+#    return tens.reshape(np.prod(tens.shape[:3]), -1)
+#
+#def tensor_ungrouping_lrud(a, where, shape):
+#    """undo tensor_grouping_diag
+#    where = 1, 2, 3, 4 clockwise from top right. group physical leg with leg to anticlockwise of number
+#       1
+#       |
+#     4-A-2
+#       |
+#       3
+#    """
+#    where = np.mod(where+3, 4)
+#    b = np.zeros(shape)
+#    ins = list(range(1, 5))
+#    perm = (ins[where-1:]+ins[:where-1])
+#    tens = a.reshape(*b.transpose([0]+perm).shape)
+#    tens =  tens.transpose(inv_perm([0]+perm))
+#    return tens
+
+
+def get_corner(tensor, where):
+    """ try doing something different on the corners
+       4|1
+       - -
+       3|2
+    """
+    map, pipe = tensor_grouping_diag(tensor, where)
+    in_s, out_s = map.shape
+    map = np.eye(max(map.shape))[:map.shape[0], :map.shape[1]]
+    tensor_2 = ungroup_legs(map, pipe)
+    return tensor_2
 
 def group_physical(a, where):
     """ where = 1, 2, 3, 4 clockwise from top. group physical leg with that virtual leg """
@@ -58,38 +113,67 @@ def group_physical(a, where):
                      (where-1)+[a.shape[0]]+[1]*(4-where))
     return a.transpose(trans).reshape(*shape)
 
+def ungroup_physical(a, where):
+    new_shape = a.shape[:where-1]+(2,int(a.shape[where-1]/2))+a.shape[where:]
+    tens = a.reshape(new_shape) # now physical index is mixed in with the others
+    tr = inv_perm(list(range(1, a.ndim+1))[:where-1]+[0]+list(range(1, a.ndim+1))[where-1:])
 
-def tensor_grouping_diag(a, where):
-    """where = 1, 2, 3, 4 clockwise from top right. group physical leg with leg to anticlockwise of number
-    turn a into a map from d, X1, X2 to X3, X4, where X1 is the virtual leg to anticlockwise of where.
-    \\   //
-      4|1
-      -A-
-      3|2
-    //   \\
-    x[i:]+x[:i] cyclically permutes x i times.
-    """
-    ins = list(range(4))
-    tens = group_physical(a, where)
-    tens = tens.transpose(ins[where-1:]+ins[:where-1])
-    return tens.reshape(np.prod(tens.shape[:2]), -1)
+    tens = tens.transpose(tr)
+    return tens
 
-def tensor_ungrouping_diag(a, where, shape):
-    """undo tensor_grouping_diag
-    where = 1, 2, 3, 4 clockwise from top right. group physical leg with leg to anticlockwise of number
-    \\   //
-      4|1
-      -A-
-      3|2
-    //   \\
+def inv_perm(perm):
+    inverse = [0] * len(perm)
+    for i, p in enumerate(perm):
+        inverse[p] = i
+    return inverse
+
+
+def map_perm(where):
     """
-    ins = list(range(4))
-    shape1 = [(np.array(shape[1:])*np.array([1] *
-              (where-1)+[shape[0]]+[1]*(4-where)))[i] for i in ins[where-1:]+ins[:where-1]] # ungroup all but physical
-    trans1 = ins[(4-(where-1)):]+ins[:(4-(where-1))] # undo cyclic permutation
-    shape2 = shape[1:where]+(2,)+shape[where:]# ungroup physical
-    trans2 = [where-1]+list(range(5))[:where-1]+list(range(5))[where:] #order correctly
-    return a.reshape(*shape1).transpose(trans1).reshape(*shape2).transpose(trans2)
+    turn tensor indexed like
+    1
+    |
+  4-A-2
+    |
+    3
+    into
+
+    where  where+1
+     \       \
+   where-1  where+2
+    """
+    where = (where-1)
+    p = [0, 1, 2, 3]
+    return [list(np.mod(np.array([where, where+1, where+3, where+2]), 4))[i] for i in p]
+
+
+from peps_tools import group_legs, ungroup_legs
+
+def tensor_grouping_diag(tensor, where):
+    '''Group legs of tensor so it's a map from [where, where+1] to [where+2, where+3]  (i.e. opposites), all mod 4
+      1
+      |
+    4- -2
+      |
+      3
+    '''
+    where = where-1
+    mod4 = lambda x: [np.mod(y, 4)+1 for y in x]
+    pipe = [[0]+mod4([where, where+1]), mod4([where+3, where+2])]
+    return group_legs(tensor, pipe)
+
+def tensor_grouping_lrud(tensor, where):
+    '''Group legs of tensor so its a map from where, where-1, where+1 to where+2 (i.e. opposite), all mod 4
+      1
+      |
+    4- -2
+      |
+      3
+    '''
+    where = where-1
+    mod4 = lambda x: [np.mod(y, 4)+1 for y in x]
+    pipe = [[0]+mod4([where-1, where, where+1]), mod4([where+2])]
+    return group_legs(tensor, pipe)
 
 def tensor_isometrise_diag(tensor, where):
     """turn tensor into map from where to opposite (see diag below)
@@ -101,55 +185,18 @@ def tensor_isometrise_diag(tensor, where):
     //   \\
     """
     shape = tensor.shape
-    map = tensor_grouping_diag(tensor, where)
+    map, pipe = tensor_grouping_diag(tensor, where)
     in_s, out_s = map.shape
     if in_s >= out_s:
-        print('c')
-        b = np.linalg.qr(map.conj().T)[0]
-        diff = np.abs(np.array(map.shape)-np.array(b.conj().T.shape))
-        map = np.pad(b, list(zip([0]*len(diff), diff)))
+        U, S, V = np.linalg.svd(map, full_matrices=False)
+        map = U
     else:
-        print('d')
-        q = np.linalg.qr(map)[0]
-        diff = np.abs(np.array(map.shape)-np.array(q.shape))
-        map = np.pad(q, list(zip([0]*len(diff), diff)))
-        #print(map@map.conj().T)
-        #print(map.conj().T@map)
+        U, S, V = np.linalg.svd(map, full_matrices=False)
+        map = V
 
-    tensor_2 = tensor_ungrouping_diag(map, where, shape)
+    tensor_2 = ungroup_legs(map, pipe)
+
     return tensor_2
-
-def tensor_grouping_lrud(a, where):
-    """turn tensor into map from where to opposite (see diag below)
-    where = 1, 2, 3, 4 clockwise from top right. group physical leg with numbered leg, and map from leg + neighbours to single opposite leg
-       1
-       |
-     4-A-2
-       |
-       3
-    """
-    ins = list(range(4))
-    tens = group_physical(a, where)
-    tens = tens.transpose(ins[where-1:]+ins[:where-1]).transpose([0, 1, 3, 2])
-    return tens.reshape(np.prod(tens.shape[:3]), -1)
-
-def tensor_ungrouping_lrud(a, where, shape):
-    """undo tensor_grouping_diag
-    where = 1, 2, 3, 4 clockwise from top right. group physical leg with leg to anticlockwise of number
-       1
-       |
-     4-A-2
-       |
-       3
-    """
-    ins = list(range(4))
-    shape1 = [(np.array(shape[1:])*np.array([1] *
-              (where-1)+[shape[0]]+[1]*(4-where)))[i] for i in ins[where-1:]+ins[:where-1]] # ungroup all but physical
-    shape1 = [shape1[0], shape1[1], shape1[3], shape1[2]]
-    trans1 = ins[(4-(where-1)):]+ins[:(4-(where-1))] # undo cyclic permutation
-    shape2 = shape[1:where]+(2,)+shape[where:]# ungroup physical
-    trans2 = [where-1]+list(range(5))[:where-1]+list(range(5))[where:] #order correctly
-    return a.reshape(*shape1).transpose([0, 1, 3, 2]).transpose(trans1).reshape(*shape2).transpose(trans2)
 
 def tensor_isometrise_lrud(tensor, where):
     """turn tensor into isometry from where to opposite (see diag below)
@@ -160,34 +207,25 @@ def tensor_isometrise_lrud(tensor, where):
        |
        3
     """
-    shape = tensor.shape
-    map = tensor_grouping_lrud(tensor, where)
+    map, pipe = tensor_grouping_lrud(tensor, where)
     in_s, out_s = map.shape
     if in_s >= out_s:
-        print('a')
-        b = np.linalg.qr(map.conj().T)[0]
-        diff = np.abs(np.array(map.shape)-np.array(b.conj().T.shape))
-        map = np.pad(b, list(zip([0]*len(diff), diff)))
-        #print(c.shape, map.shape)
-        #map = np.linalg.qr(map)[0]
-        #print(map@map.conj().T)
-        #print(map.conj().T@map)
-        #print(map)
-        #raise Exception
+        U, S, V = np.linalg.svd(map, full_matrices=False)
+        map = U
     else:
-        print('b')
-        q = np.linalg.qr(map)[0]
-        diff = np.abs(np.array(map.shape)-np.array(q.shape))
-        map = np.pad(q, list(zip([0]*len(diff), diff)))
+        U, S, V = np.linalg.svd(map, full_matrices=False)
+        map = V
 
-    tensor_2 = tensor_ungrouping_lrud(map, where, shape)
+    tensor_2 = ungroup_legs(map, pipe)
+
     return tensor_2
 
-def tensor_norm(tensor):
-    return norm(tensor.transpose([1, 2, 3, 4, 0]))
+def tensor_isometrise_center(tensor):
+    return tensor/norm(tensor.reshape(-1))
 
-def tensor_normalise(tensor):
-    return tensor/tensor_norm(tensor)
+def transfer_tensor(tensor):
+    return np.tensordot(tensor, tensor.conj(), [0, 0]).transpose(
+                        [0, 4, 1, 5, 2, 6, 3, 7])
 
 def transfer_matrix(tensor):
     A = B = tensor
@@ -195,33 +233,6 @@ def transfer_matrix(tensor):
                         [0, 4, 1, 5, 2, 6, 3, 7]).reshape(
                         *[s1*s2 for s1, s2 in zip(A.shape[1:], B.shape[1:])])
 
-def test_tensor_reshaping(N):
-    print('testing tensor reshaping ... ')
-    for _ in range(N):
-        for where in [2, 3, 1, 4]:
-            where = 2
-            A = np.random.randn(2, 2, 1, 1, 2)
-            x = tensor_grouping_diag(A, where)
-            q = tensor_ungrouping_diag(x, where, A.shape)
-            assert np.allclose(A, q)
-
-            x = tensor_grouping_lrud(A, where)
-            q = tensor_ungrouping_lrud(x, where, A.shape)
-            assert np.allclose(A, q)
-
-            #x = tensor_isometrise_lrud(A, where)
-            #assert where, np.allclose(x, tensor_isometrise_lrud(x, where))
-
-            #x = tensor_isometrise_diag(A, where)
-            #assert np.allclose(x, tensor_isometrise_diag(x, where))
-
-            where = 3
-            #A = np.random.randn(2, 2, 2, 1, 1)
-            #x = tensor_isometrise_lrud(A, where)
-            #print(ncon(transfer_matrix(x).reshape(2, 2, 4, 1, 1), [[1, 1, -1, -2, -3,]]))
-            raise Exception
-
-#test_tensor_reshaping(5)
 
 class fMPO(object):
     def __init__(self, data=None, d=None, X=None):
@@ -334,51 +345,69 @@ class fPEPS(object):
         assert hasattr(self, 'Lx') and hasattr(self, 'Ly')
         return '\n'.join(map(str, self.structure()))
 
+    def row_mpos(self):
+        return [fMPO([np.tensordot(A, B.conj(), [0, 0]).transpose(
+                [0, 4, 1, 5, 2, 6, 3, 7]).reshape(
+                *[s1*s2 for s1, s2 in zip(A.shape[1:], B.shape[1:])])
+                for A, B in zip(row, other_row)])
+                for row, other_row in zip(self.data, self.data)]
+
+    @property
+    def T(self):
+        new_data = list(map(list, zip(*self.data))) # transpose lists
+        return fPEPS(new_data)
+
     def isometrise(self, oc):
         """ specify oc as (x, y) where x is across and y is down from top left
         """
         c_i, c_j = self.oc = oc
         assert 0 <= c_i < self.Lx and 0 <= c_j < self.Ly
+
+        if c_j != self.Ly:
+            self.data[-1] = row_truncate(self.data[-1], 1)
+        if c_j != 0:
+            self.data[0] = row_truncate(self.data[0], 1)
+
         for j, row in enumerate(self.data):
             for i, _ in enumerate(row):
                 if i > c_i:
                     if j > c_j:
-                        print('below right')
+                        #print('below right')
                         where = 2
                         self.data[j][i] = tensor_isometrise_diag(self.data[j][i], where)
                     elif j < c_j:
-                        print('above right')
+                        #print('above right')
                         where = 1
                         self.data[j][i] = tensor_isometrise_diag(self.data[j][i], where)
                     elif j == c_j:
-                        print('right')
+                        #print('right')
                         where = 2
                         self.data[j][i] = tensor_isometrise_lrud(self.data[j][i], where)
                 elif i < c_i:
                     if j > c_j:
-                        print('below left')
+                        #print('below left')
                         where = 3
                         self.data[j][i] = tensor_isometrise_diag(self.data[j][i], where)
                     elif j < c_j:
-                        print('above left')
+                        #print('above left')
                         where = 4
                         self.data[j][i] = tensor_isometrise_diag(self.data[j][i], where)
                     elif j == c_j:
-                        print('left')
+                        #print('left')
                         where = 4
                         self.data[j][i] = tensor_isometrise_lrud(self.data[j][i], where)
                 elif i == c_i:
                     if j > c_j:
-                        print('below')
+                        #print('below')
                         where = 3
                         self.data[j][i] = tensor_isometrise_lrud(self.data[j][i], where)
                     elif j < c_j:
-                        print('above')
+                        #print('above')
                         where = 1
                         self.data[j][i] = tensor_isometrise_lrud(self.data[j][i], where)
                     elif j == c_j:
-                        print('oc')
-                        #self.data[j][i] = tensor_normalise(self.data[j][i])
+                        #print('oc')
+                        self.data[j][i] = tensor_isometrise_center(self.data[j][i])
         return self
 
     def create_structure(self, Lx, Ly, d, X):
@@ -397,10 +426,10 @@ class fPEPS(object):
             bottom = [[(d, X, X, 1, 1)]+[(d, X, X, 1, X) for _ in range(Lx-2)]+[(d, X, 1, 1, X)]]
 
             return top+mid+bottom
-        elif Lx==1 and Ly>1:
-            return [[(d, 1, X, 1, 1)]]+[[(d, 1, X, 1, X)] for _ in range(Ly-2)]+[[(d, 1, 1, 1, X)]]
         elif Ly==1 and Lx>1:
-            return [[(d, 1, 1, X, 1)]+[(d, X, 1, X, 1) for _ in range(Lx-2)]+[(d, X, 1, 1, 1)]]
+            return [[(d, 1, X, 1, 1)]+[(d, 1, X, 1, X) for _ in range(Lx-2)]+[(d, 1, 1, 1, X)]]
+        elif Lx==1 and Ly>1:
+            return [[(d, 1, 1, X, 1)]]+[[(d, X, 1, X, 1)] for _ in range(Ly-2)]+[[(d, X, 1, 1, 1)]]
         else:
             raise Exception
 
@@ -694,49 +723,40 @@ def test_fPEPS_from_mps(N):
         assert np.allclose(x.recombine().reshape(-1), y.recombine('row_snake').reshape(-1))
 
 def test_isometrize(N):
-    L = 2
-    for i, j in product(range(L), range(L)):
-        i, j = 0, 0
-        print('orthogonality center: ', i, j)
-        x = fPEPS().random(L, L, 2, 2).isometrise((i, j))
-        #print(x.tm((0, 1)))
-        mpos = [fMPO([np.tensordot(A, B.conj(), [0, 0]).transpose(
-                [0, 4, 1, 5, 2, 6, 3, 7]).reshape(
-                *[s1*s2 for s1, s2 in zip(A.shape[1:], B.shape[1:])])
-                for A, B in zip(row, other_row)])
-                for row, other_row in zip(x.data, x.data)]
-        np.set_printoptions(4)
-        print(*[x.recombine() for x in mpos], sep='\n\n')
-        raise Exception
-        
-
-
-        tm = x.tm((i, j))
-        env = x.environment((i, j))
-        env_map = env.reshape(reduce(lambda x, y: x+y, [[int(np.sqrt(x)), int(np.sqrt(x))] for x in env.shape]))
-        A = env_map[:, :, 0, 0, 0, 0, 0, 0]
-        B = env_map[0, 0, :, :, 0, 0, 0, 0]
-        C = env_map[0, 0, 0, 0, :, :, 0, 0]
-        D = env_map[0, 0, 0, 0, 0, 0, :, :]
-        print(env_map)
-        print(A, B, C, D, sep='\n\n', end='\n\n')
-        #print(env_map/ncon([A, B, C, D], [[-1, -2], [-3, -4], [-5, -6], [-7, -8]]))
-        raise Exception
-        # contract transfer matrix on site i, with environment on site i, and get the norm of x.
-        assert np.allclose(np.real(ncon([tm, env], [[1, 2, 3, 4], [1, 2, 3, 4]])), x.full_overlap(x))
-        print(x.full_overlap(x))
-        #print(env)
-        raise Exception
-
     for _ in range(N):
+        L = 5
+
+        print('testing 2x2 ... ')
+        L = 2
+        for i, j in product(range(L), range(L)):
+            print('orthogonality center: ', i, j)
+            x = fPEPS().random(L, L, 2, 2).isometrise((i, j))
+            rows = [y for y in x.row_mpos()]
+            print([norm(row.recombine()) for row in rows])
+
+            print(x.full_overlap(x))
+            assert np.allclose(x.full_overlap(x), 1)
+        print('success')
+
+        print('testing 1d ...')
         for i, j in product(range(1), range(L)):
             print('orthogonality center: ', i, j)
-            x = fPEPS().random(1, L, 2, 3).isometrise((i, j))
+            x = fPEPS().random(1, L, 2, 2).isometrise((i, j))
             assert np.allclose(x.full_overlap(x), 1)
+
         for i, j in product(range(L), range(1)):
             print('orthogonality center: ', i, j)
-            x = fPEPS().random(L, 1, 2, 3).isometrise((i, j))
+            x = fPEPS().random(L, 1, 2, 2).isometrise((i, j))
             assert np.allclose(x.full_overlap(x), 1)
+        print('success\n')
+
+        for L in range(2, 5):
+            print('testing {}x{} ...'.format(L, L))
+            for i, j in product(range(L), range(L)):
+                print('orthogonality center: ', i, j)
+                x = fPEPS().random(L, L, 2, 2).isometrise((i, j))
+                assert np.allclose(x.full_overlap(x), 1)
+            print('success')
 
 def tests(N):
     test_fPEPS_from_mps(N)
