@@ -58,95 +58,6 @@ def col_truncate(col, D):
         new_col.append(tensor[:, :D, :, :D, :])
     return new_col
 
-p = [0, 1, 2, 3]
-#def tensor_grouping_lrud(a, where):
-#    """turn tensor into map from where to opposite (see diag below)
-#    where = 1, 2, 3, 4 clockwise from top right. group physical leg with numbered leg, and map from leg + neighbours to single opposite leg
-#       1
-#       |
-#     4-A-2
-#       |
-#       3
-#    """
-#    where = np.mod(where+3, 4)
-#    ins = list(range(1, 5))
-#    perm = (ins[where-1:]+ins[:where-1])
-#    tens = a.transpose([0]+perm)
-#    return tens.reshape(np.prod(tens.shape[:3]), -1)
-#
-#def tensor_ungrouping_lrud(a, where, shape):
-#    """undo tensor_grouping_diag
-#    where = 1, 2, 3, 4 clockwise from top right. group physical leg with leg to anticlockwise of number
-#       1
-#       |
-#     4-A-2
-#       |
-#       3
-#    """
-#    where = np.mod(where+3, 4)
-#    b = np.zeros(shape)
-#    ins = list(range(1, 5))
-#    perm = (ins[where-1:]+ins[:where-1])
-#    tens = a.reshape(*b.transpose([0]+perm).shape)
-#    tens =  tens.transpose(inv_perm([0]+perm))
-#    return tens
-
-
-def get_corner(tensor, where):
-    """ try doing something different on the corners
-       4|1
-       - -
-       3|2
-    """
-    map, pipe = tensor_grouping_diag(tensor, where)
-    in_s, out_s = map.shape
-    map = np.eye(max(map.shape))[:map.shape[0], :map.shape[1]]
-    tensor_2 = ungroup_legs(map, pipe)
-    return tensor_2
-
-def group_physical(a, where):
-    """ where = 1, 2, 3, 4 clockwise from top. group physical leg with that virtual leg """
-    assert 1 <= where <= 4
-    ins = list(range(1, 5))
-    trans = ins[:where-1]+[0]+ins[where-1:]
-    shape = np.array(a.shape[1:])*np.array([1] *
-                     (where-1)+[a.shape[0]]+[1]*(4-where))
-    return a.transpose(trans).reshape(*shape)
-
-def ungroup_physical(a, where):
-    new_shape = a.shape[:where-1]+(2,int(a.shape[where-1]/2))+a.shape[where:]
-    tens = a.reshape(new_shape) # now physical index is mixed in with the others
-    tr = inv_perm(list(range(1, a.ndim+1))[:where-1]+[0]+list(range(1, a.ndim+1))[where-1:])
-
-    tens = tens.transpose(tr)
-    return tens
-
-def inv_perm(perm):
-    inverse = [0] * len(perm)
-    for i, p in enumerate(perm):
-        inverse[p] = i
-    return inverse
-
-
-def map_perm(where):
-    """
-    turn tensor indexed like
-    1
-    |
-  4-A-2
-    |
-    3
-    into
-
-    where  where+1
-     \       \
-   where-1  where+2
-    """
-    where = (where-1)
-    p = [0, 1, 2, 3]
-    return [list(np.mod(np.array([where, where+1, where+3, where+2]), 4))[i] for i in p]
-
-
 from peps_tools import group_legs, ungroup_legs
 
 def tensor_grouping_diag(tensor, where):
@@ -190,13 +101,9 @@ def tensor_isometrise_diag(tensor, where):
     if in_s >= out_s:
         U, S, V = np.linalg.svd(map, full_matrices=False)
         map = U
+        return ungroup_legs(map, pipe)
     else:
-        U, S, V = np.linalg.svd(map, full_matrices=False)
-        map = V
-
-    tensor_2 = ungroup_legs(map, pipe)
-
-    return tensor_2
+        raise Exception('truncate peps properly before isometrising')
 
 def tensor_isometrise_lrud(tensor, where):
     """turn tensor into isometry from where to opposite (see diag below)
@@ -212,11 +119,9 @@ def tensor_isometrise_lrud(tensor, where):
     if in_s >= out_s:
         U, S, V = np.linalg.svd(map, full_matrices=False)
         map = U
+        return ungroup_legs(map, pipe)
     else:
-        U, S, V = np.linalg.svd(map, full_matrices=False)
-        map = V
-
-    tensor_2 = ungroup_legs(map, pipe)
+        raise Exception('truncate peps properly before isometrising')
 
     return tensor_2
 
@@ -226,13 +131,6 @@ def tensor_isometrise_center(tensor):
 def transfer_tensor(tensor):
     return np.tensordot(tensor, tensor.conj(), [0, 0]).transpose(
                         [0, 4, 1, 5, 2, 6, 3, 7])
-
-def transfer_matrix(tensor):
-    A = B = tensor
-    return np.tensordot(A, B.conj(), [0, 0]).transpose(
-                        [0, 4, 1, 5, 2, 6, 3, 7]).reshape(
-                        *[s1*s2 for s1, s2 in zip(A.shape[1:], B.shape[1:])])
-
 
 class fMPO(object):
     def __init__(self, data=None, d=None, X=None):
@@ -357,57 +255,65 @@ class fPEPS(object):
         new_data = list(map(list, zip(*self.data))) # transpose lists
         return fPEPS(new_data)
 
-    def isometrise(self, oc):
-        """ specify oc as (x, y) where x is across and y is down from top left
-        """
-        c_i, c_j = self.oc = oc
-        assert 0 <= c_i < self.Lx and 0 <= c_j < self.Ly
+    def truncate_above(self, row, D):
+        '''truncate bonds above row to size D'''
+        if row==0:
+            raise Exception('nothing above row 0')
+        self.data[row-1] = [x[:, :, :, :D, :] for x in self.data[row-1]]
+        self.data[row] = [x[:, :D, :, :, :] for x in self.data[row]]
+        return self
 
-        if c_j != self.Ly:
-            self.data[-1] = row_truncate(self.data[-1], 1)
-        if c_j != 0:
-            self.data[0] = row_truncate(self.data[0], 1)
+    def truncate_below(self, row, D):
+        '''truncate bonds below row to size D'''
+        if row==self.Lx-1:
+            raise Exception('nothing below row L-1')
+        self.data[row] = [x[:, :, :, :D, :] for x in self.data[row]]
+        self.data[row+1] = [x[:, :D, :, :, :] for x in self.data[row+1]]
+        return self
 
-        for j, row in enumerate(self.data):
-            for i, _ in enumerate(row):
-                if i > c_i:
-                    if j > c_j:
-                        #print('below right')
-                        where = 2
-                        self.data[j][i] = tensor_isometrise_diag(self.data[j][i], where)
-                    elif j < c_j:
-                        #print('above right')
-                        where = 1
-                        self.data[j][i] = tensor_isometrise_diag(self.data[j][i], where)
-                    elif j == c_j:
-                        #print('right')
-                        where = 2
-                        self.data[j][i] = tensor_isometrise_lrud(self.data[j][i], where)
-                elif i < c_i:
-                    if j > c_j:
-                        #print('below left')
-                        where = 3
-                        self.data[j][i] = tensor_isometrise_diag(self.data[j][i], where)
-                    elif j < c_j:
-                        #print('above left')
-                        where = 4
-                        self.data[j][i] = tensor_isometrise_diag(self.data[j][i], where)
-                    elif j == c_j:
-                        #print('left')
-                        where = 4
-                        self.data[j][i] = tensor_isometrise_lrud(self.data[j][i], where)
-                elif i == c_i:
-                    if j > c_j:
-                        #print('below')
-                        where = 3
-                        self.data[j][i] = tensor_isometrise_lrud(self.data[j][i], where)
-                    elif j < c_j:
-                        #print('above')
-                        where = 1
-                        self.data[j][i] = tensor_isometrise_lrud(self.data[j][i], where)
-                    elif j == c_j:
-                        #print('oc')
-                        self.data[j][i] = tensor_isometrise_center(self.data[j][i])
+    def truncate_left(self, col, D):
+        if col == 0:
+            raise Exception('nothing to the left of col 0')
+        for row in range(self.Lx):
+            self.data[row][col] = self.data[row][col][:, :, :, :, :D]
+            self.data[row][col-1] = self.data[row][col-1][:, :, :D, :, :]
+        return self
+
+    def truncate_along_row(self, row, D):
+        self.data[row] = row_truncate(self.data[row], D)
+        return self
+
+    def truncate_along_column(self, col, D):
+        for i, row in enumerate(self.data):
+            self.data[i][col] = row[col][:, :D, :, :D, :]
+        return self
+
+    def fix_neighbours(self, i, j):
+        _, up, right, down, left = self.data[j][i].shape
+        if j-1>=0:
+            _, _, _, new_up, _ = self.data[j-1][i].shape
+            up = min([up, new_up])
+            self.data[j-1][i] = self.data[j-1][i][:, :, :, :up, :]
+            self.data[j][i] = self.data[j][i][:, :up, :, :, :]
+            assert self.data[j-1][i].shape[3]==self.data[j][i].shape[1]
+        if i+1<self.Lx:
+            _, _, _, _, new_right = self.data[j][i+1].shape
+            right = min([right, new_right])
+            self.data[j][i+1] = self.data[j][i+1][:, :, :, :, :right]
+            self.data[j][i] = self.data[j][i][:, :, :right, :, :]
+            assert self.data[j][i+1].shape[4]==self.data[j][i].shape[2]
+        if j+1<self.Ly:
+            _, new_down, _, _, _ = self.data[j+1][i].shape
+            down = min([down, new_down])
+            self.data[j+1][i] = self.data[j+1][i][:, :down, :, :, :]
+            self.data[j][i] = self.data[j][i][:, :, :, :down, :]
+            assert self.data[j+1][i].shape[1]==self.data[j][i].shape[3]
+        if i-1>=0:
+            _, _, new_left, _, _ = self.data[j][i-1].shape
+            left = min([left, new_left])
+            self.data[j][i-1] = self.data[j][i-1][:, :, :left, :, :]
+            self.data[j][i] = self.data[j][i][:, :, :, :, :left]
+            assert self.data[j][i-1].shape[2]==self.data[j][i].shape[4]
         return self
 
     def create_structure(self, Lx, Ly, d, X):
@@ -631,14 +537,97 @@ class fPEPS(object):
     def ev(self, op, site):
         return np.real(self.copy().apply(op, site).overlap(self))
 
+    def isometrise(self, oc):
+        """ specify oc as (x, y) where x is across and y is down from top left
+        """
+        c_i, c_j = self.oc = oc
+        assert 0 <= c_i < self.Lx and 0 <= c_j < self.Ly
+        x_truncate_to, y_truncate_to = int(self.Lx/2), int(self.Ly/2)
+        for i in range(x_truncate_to+1):
+            self.truncate_along_column(i, self.d**i)
+
+        for k, i in enumerate(reversed(range(max([x_truncate_to-1, 0]), self.Lx))):
+            self.truncate_along_column(i, self.d**k)
+
+        for j in range(y_truncate_to+1):
+            self.truncate_along_row(j, self.d**j)
+
+        for k, j in enumerate(reversed(range(max([y_truncate_to-1, 0]), self.Ly))):
+            self.truncate_along_row(j, self.d**k)
+
+        if self.Ly>1 and self.Lx>1:
+            self.truncate_below(0, self.d)
+            self.truncate_below(self.Ly-2, self.d)
+            self.truncate_left(1, self.d)
+            self.truncate_left(self.Lx-1, self.d)
+
+
+        for j, row in enumerate(self.data):
+            for i, _ in enumerate(row):
+                if i > c_i:
+                    if j > c_j:
+                        #print('below right')
+                        where = 2
+                        self.data[j][i] = tensor_isometrise_diag(self.data[j][i], where)
+                    elif j < c_j:
+                        #print('above right')
+                        where = 1
+                        self.data[j][i] = tensor_isometrise_diag(self.data[j][i], where)
+                    elif j == c_j:
+                        #print('right')
+                        where = 2
+                        self.data[j][i] = tensor_isometrise_lrud(self.data[j][i], where)
+                elif i < c_i:
+                    if j > c_j:
+                        #print('below left')
+                        where = 3
+                        self.data[j][i] = tensor_isometrise_diag(self.data[j][i], where)
+                    elif j < c_j:
+                        #print('above left')
+                        where = 4
+                        self.data[j][i] = tensor_isometrise_diag(self.data[j][i], where)
+                    elif j == c_j:
+                        #print('left')
+                        where = 4
+                        self.data[j][i] = tensor_isometrise_lrud(self.data[j][i], where)
+                elif i == c_i:
+                    if j > c_j:
+                        #print('below')
+                        where = 3
+                        self.data[j][i] = tensor_isometrise_lrud(self.data[j][i], where)
+                    elif j < c_j:
+                        #print('above')
+                        where = 1
+                        self.data[j][i] = tensor_isometrise_lrud(self.data[j][i], where)
+                    elif j == c_j:
+                        #print('oc')
+                        self.data[j][i] = tensor_isometrise_center(self.data[j][i])
+        return self
+
+    def iso_ev(self, op, site):
+        if not hasattr(self, 'oc'):
+            raise Exception('Not an isometric peps - try isometrising')
+        elif site!=self.oc:
+            raise NotImplementedError('Moving oc not implemented yet')
+        else:
+            i, j = site
+            A = self.data[j][i]
+            return np.real(ncon([A.conj(), op, A], [[5, 1, 2, 3, 4], [5, 6], [6, 1, 2, 3, 4]]))
+
+    def iso_evs(self, opsites):
+        ret = []
+        for opsite in opsites:
+            ret.append(self.iso_ev(*opsite))
+        return np.array(ret)
+
     def copy(self):
         return fPEPS([[x.copy() for x in row] for row in self.data])
 
     def full_overlap(self, other):
-        return np.abs(self.recombine().reshape(-1).conj().T@other.recombine().reshape(-1))
+        return self.recombine().reshape(-1).conj().T@other.recombine().reshape(-1)
 
 def test_mpo_multiplication(N):
-    print('testing mpo mps multiplication ... ')
+    print('testing mpo mps multiplication ... ', end='')
     for _ in range(N):
         A = fMPO().random(5, 2, 4)
         z = fMPO().from_mps(fMPS().random(5, 2, 2))
@@ -649,7 +638,8 @@ def test_mpo_multiplication(N):
         f1 = (A*z).recombine().reshape(-1)
         f2 = A_ψ@z_ψ
         assert np.allclose(f1, f2)
-    print('testing mpo mpo multiplication ... ')
+    print('success')
+    print('testing mpo mpo multiplication ... ', end='')
     for _ in range(N):
         A = fMPO().random(5, 2, 4)
         B = fMPO().random(5, 2, 6)
@@ -660,9 +650,10 @@ def test_mpo_multiplication(N):
         f1 = (A*B).recombine()
         f2 = A_ψ@B_ψ
         assert np.allclose(f1, f2)
+    print('success')
 
 def test_fPEPS_evs(N):
-    print('testing peps evs ... ')
+    print('testing peps evs ... ', end='')
     for _ in range(N):
         x = fPEPS().random(3, 3, 2, 2).normalise()
         e1 = x.ev(X, (0, 0))
@@ -694,9 +685,10 @@ def test_fPEPS_evs(N):
 
         IXI = reduce(np.kron, [I]*3+[X]+[I]*5)
         assert np.allclose(x.ev(X, (0, 1)), φ.conj().T@IXI@φ)
+    print('success')
 
 def test_fPEPS_addition(N):
-    print('testing peps addition ... ')
+    print('testing peps addition ... ', end='')
     for _ in range(N):
         #x = fPEPS().random(3, 1, 2, 2).normalise()
         #y = fPEPS().random(3, 1, 2, 2).normalise()
@@ -713,56 +705,71 @@ def test_fPEPS_addition(N):
         x = fPEPS().random(3, 3, 2, 2).normalise()
         y = fPEPS().random(3, 3, 2, 2).normalise()
         assert np.allclose(x.recombine()+y.recombine(), x.add(y).recombine())
+    print('success')
 
 def test_fPEPS_from_mps(N):
-    print('testing peps from mps ... ')
+    print('testing peps from mps ... ', end='')
     np.set_printoptions(precision=1)
     for _ in range(N):
         x = fMPS().random(9, 2, 4).left_canonicalise()
         y = fPEPS().from_mps(x)
         assert np.allclose(x.recombine().reshape(-1), y.recombine('row_snake').reshape(-1))
+    print('success')
+
+def test_overlap(N):
+    print('testing peps overlap ... ', end='')
+    for _ in range(N):
+        x = fPEPS().random(3, 3, 2, 3).normalise()
+        y = fPEPS().random(3, 3, 2, 3).normalise()
+        assert np.allclose(x.overlap(y), x.full_overlap(y))
+    print('success')
+
 
 def test_isometrize(N):
     for _ in range(N):
-        L = 5
+        for L in range(2, 6):
+            for chi in range(2, 4): # fails at chi=5!
+                print('testing isometric norm, evs chi={}, {}x{} ...'.format(chi, L, L), end='')
+                for i, j in product(range(L), range(L)):
+                #    print('orthogonality center: ', i, j)
+                    x = fPEPS().random(L, L, 2, chi).isometrise((i, j))
+                    assert np.allclose(x.norm(), 1)
+                    assert np.allclose(x.iso_ev(X, (i, j)),x.ev(X, (i, j)))
+                    assert np.allclose(x.iso_ev(Y, (i, j)),x.ev(Y, (i, j)))
+                    assert np.allclose(x.iso_ev(Z, (i, j)),x.ev(Z, (i, j)))
+                print('success')
 
-        print('testing 2x2 ... ')
-        L = 2
-        for i, j in product(range(L), range(L)):
-            print('orthogonality center: ', i, j)
-            x = fPEPS().random(L, L, 2, 2).isometrise((i, j))
-            rows = [y for y in x.row_mpos()]
-            print([norm(row.recombine()) for row in rows])
+               # if L < 6:
+                print('testing isometric norm {}x1 and 1x{} ...'.format(L, L), end='')
+                for i, j in product(range(1), range(L)):
+                    #print('orthogonality center: ', i, j)
+                    x = fPEPS().random(1, L, 2, chi).isometrise((i, j))
+                    assert np.allclose(x.full_overlap(x), 1)
+                    '''TODO: implement 1d properly (just hand off to mps)'''
+                    #assert np.allclose(x.iso_ev(X, (i, j)),x.ev(X, (i, j)))
+                    #assert np.allclose(x.iso_ev(Y, (i, j)),x.ev(Y, (i, j)))
+                    #assert np.allclose(x.iso_ev(Z, (i, j)),x.ev(Z, (i, j)))
 
-            print(x.full_overlap(x))
-            assert np.allclose(x.full_overlap(x), 1)
-        print('success')
+                for i, j in product(range(L), range(1)):
+                    #print('orthogonality center: ', i, j)
+                    x = fPEPS().random(L, 1, 2, chi).isometrise((i, j))
+                    assert np.allclose(x.full_overlap(x), 1)
+                    #assert np.allclose(x.iso_ev(X, (i, j)),x.ev(X, (i, j)))
+                    #assert np.allclose(x.iso_ev(Y, (i, j)),x.ev(Y, (i, j)))
+                    #assert np.allclose(x.iso_ev(Z, (i, j)),x.ev(Z, (i, j)))
+                print('success')
 
-        print('testing 1d ...')
-        for i, j in product(range(1), range(L)):
-            print('orthogonality center: ', i, j)
-            x = fPEPS().random(1, L, 2, 2).isometrise((i, j))
-            assert np.allclose(x.full_overlap(x), 1)
 
-        for i, j in product(range(L), range(1)):
-            print('orthogonality center: ', i, j)
-            x = fPEPS().random(L, 1, 2, 2).isometrise((i, j))
-            assert np.allclose(x.full_overlap(x), 1)
-        print('success\n')
 
-        for L in range(2, 5):
-            print('testing {}x{} ...'.format(L, L))
-            for i, j in product(range(L), range(L)):
-                print('orthogonality center: ', i, j)
-                x = fPEPS().random(L, L, 2, 2).isometrise((i, j))
-                assert np.allclose(x.full_overlap(x), 1)
-            print('success')
+
 
 def tests(N):
     test_fPEPS_from_mps(N)
     test_fPEPS_addition(N)
     test_fPEPS_evs(N)
     test_mpo_multiplication(N)
+    test_overlap(5)
+    test_isometrize(N)
 
 if __name__ == '__main__':
-    test_isometrize(1)
+    tests(1)
