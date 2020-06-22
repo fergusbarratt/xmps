@@ -1,3 +1,5 @@
+from xmps.peps_tools import group_legs, ungroup_legs, U2
+from xmps.fMPS import separate_tensor, group_tensors
 from functools import reduce
 from itertools import product
 import numpy as np
@@ -18,6 +20,7 @@ def to_diagram(tensor):
                   {3}""".format(*tensor.shape)
     return string
 
+
 def tuple_to_diagram(shape):
     string = """
               d={0} {1}
@@ -27,15 +30,18 @@ def tuple_to_diagram(shape):
                   {3}""".format(*shape)
     return string
 
+
 def flatten(li):
     """n is the number of layers to flatten"""
     return reduce(lambda x, y: x+y, li)
+
 
 def col_contract(a, b):
     # contracts two peps tensor on their column indices - (creates new peps tensor)
     ret = np.tensordot(a, b, [-2, -4]).transpose([0, 4, 1, 2, 5, 6, 3, 7]).reshape(
         a.shape[0]*b.shape[0], a.shape[1], a.shape[2]*b.shape[2], b.shape[3], a.shape[4]*b.shape[4])
     return ret
+
 
 def row_contract(a, b):
     # contracts two peps tensor on their row indices - (creates new peps tensor)
@@ -44,12 +50,14 @@ def row_contract(a, b):
         a.shape[0]*b.shape[0], a.shape[1]*b.shape[1], b.shape[2], a.shape[3]*b.shape[3], a.shape[4])
     return ret
 
+
 def row_truncate(row, D):
     # take a row from a peps, truncate the row indices to D
     new_row = []
     for tensor in row:
         new_row.append(tensor[:, :, :D, :, :D])
     return new_row
+
 
 def col_truncate(col, D):
     # take a col from a peps, truncate the col indices to D
@@ -58,7 +66,6 @@ def col_truncate(col, D):
         new_col.append(tensor[:, :D, :, :D, :])
     return new_col
 
-from peps_tools import group_legs, ungroup_legs
 
 def tensor_grouping_diag(tensor, where):
     '''Group legs of tensor so it's a map from [where, where+1] to [where+2, where+3]  (i.e. opposites), all mod 4
@@ -69,9 +76,10 @@ def tensor_grouping_diag(tensor, where):
       3
     '''
     where = where-1
-    mod4 = lambda x: [np.mod(y, 4)+1 for y in x]
+    def mod4(x): return [np.mod(y, 4)+1 for y in x]
     pipe = [[0]+mod4([where, where+1]), mod4([where+3, where+2])]
     return group_legs(tensor, pipe)
+
 
 def tensor_grouping_lrud(tensor, where):
     '''Group legs of tensor so its a map from where, where-1, where+1 to where+2 (i.e. opposite), all mod 4
@@ -82,9 +90,10 @@ def tensor_grouping_lrud(tensor, where):
       3
     '''
     where = where-1
-    mod4 = lambda x: [np.mod(y, 4)+1 for y in x]
+    def mod4(x): return [np.mod(y, 4)+1 for y in x]
     pipe = [[0]+mod4([where-1, where, where+1]), mod4([where+2])]
     return group_legs(tensor, pipe)
+
 
 def tensor_isometrise_diag(tensor, where):
     """turn tensor into map from where to opposite (see diag below)
@@ -104,6 +113,7 @@ def tensor_isometrise_diag(tensor, where):
         return ungroup_legs(map, pipe)
     else:
         raise Exception('truncate peps properly before isometrising')
+
 
 def tensor_isometrise_lrud(tensor, where):
     """turn tensor into isometry from where to opposite (see diag below)
@@ -125,12 +135,27 @@ def tensor_isometrise_lrud(tensor, where):
 
     return tensor_2
 
+
 def tensor_isometrise_center(tensor):
     return tensor/norm(tensor.reshape(-1))
 
+
 def transfer_tensor(tensor):
     return np.tensordot(tensor, tensor.conj(), [0, 0]).transpose(
-                        [0, 4, 1, 5, 2, 6, 3, 7])
+        [0, 4, 1, 5, 2, 6, 3, 7])
+
+
+def rotate_peps_tensor_cc(A):
+    return A.transpose([0, 4, 1, 2, 3])
+
+
+def rotate_peps_tensor_ac(A):
+    return A.transpose([0, 2, 3, 4, 1])
+
+
+def transpose_peps_tensor(A):
+    return A.transpose([0, 4, 3, 2, 1])
+
 
 class fMPO(object):
     def __init__(self, data=None, d=None, X=None):
@@ -167,7 +192,7 @@ class fMPO(object):
         return self
 
     def rotate_90(self):
-        #rotate peps clockwise 90
+        # rotate peps clockwise 90
         new_data = [x.transpose([3, 0, 1, 2]) for x in self.data]
         return fMPO(new_data)
 
@@ -223,6 +248,7 @@ class fMPO(object):
         M = M.reshape(np.prod(M.shape[:self.L]), np.prod(M.shape[self.L:]))
         return M.conj().T
 
+
 class fPEPS(object):
     """finite PEPS:
     lists (Ly) of lists (Lx) of numpy arrays (rank 1, d) of numpy arrays (rank 4, X). Finite"""
@@ -243,21 +269,32 @@ class fPEPS(object):
         assert hasattr(self, 'Lx') and hasattr(self, 'Ly')
         return '\n'.join(map(str, self.structure()))
 
+    def __eq__(self, other):
+        '''whether two peps are exactly equal. (to machine precision i.e. no gauge stuff)'''
+        eq = True
+        for row, row_ in zip(self.data, other.data):
+            for A, A_ in zip(row, row_):
+                eq = eq and np.allclose(A, A_)
+        return eq
+
     def row_mpos(self):
         return [fMPO([np.tensordot(A, B.conj(), [0, 0]).transpose(
                 [0, 4, 1, 5, 2, 6, 3, 7]).reshape(
-                *[s1*s2 for s1, s2 in zip(A.shape[1:], B.shape[1:])])
-                for A, B in zip(row, other_row)])
-                for row, other_row in zip(self.data, self.data)]
+            *[s1*s2 for s1, s2 in zip(A.shape[1:], B.shape[1:])])
+            for A, B in zip(row, other_row)])
+            for row, other_row in zip(self.data, self.data)]
+
+    def col_mpos(self):
+        return self.T.row_mpos()
 
     @property
     def T(self):
-        new_data = list(map(list, zip(*self.data))) # transpose lists
-        return fPEPS(new_data)
+        new_data = list(map(list, zip(*self.data)))  # transpose lists
+        return fPEPS([[transpose_peps_tensor(x) for x in row] for row in new_data])
 
     def truncate_above(self, row, D):
         '''truncate bonds above row to size D'''
-        if row==0:
+        if row == 0:
             raise Exception('nothing above row 0')
         self.data[row-1] = [x[:, :, :, :D, :] for x in self.data[row-1]]
         self.data[row] = [x[:, :D, :, :, :] for x in self.data[row]]
@@ -265,7 +302,7 @@ class fPEPS(object):
 
     def truncate_below(self, row, D):
         '''truncate bonds below row to size D'''
-        if row==self.Lx-1:
+        if row == self.Lx-1:
             raise Exception('nothing below row L-1')
         self.data[row] = [x[:, :, :, :D, :] for x in self.data[row]]
         self.data[row+1] = [x[:, :D, :, :, :] for x in self.data[row+1]]
@@ -290,30 +327,30 @@ class fPEPS(object):
 
     def fix_neighbours(self, i, j):
         _, up, right, down, left = self.data[j][i].shape
-        if j-1>=0:
+        if j-1 >= 0:
             _, _, _, new_up, _ = self.data[j-1][i].shape
             up = min([up, new_up])
             self.data[j-1][i] = self.data[j-1][i][:, :, :, :up, :]
             self.data[j][i] = self.data[j][i][:, :up, :, :, :]
-            assert self.data[j-1][i].shape[3]==self.data[j][i].shape[1]
-        if i+1<self.Lx:
+            assert self.data[j-1][i].shape[3] == self.data[j][i].shape[1]
+        if i+1 < self.Lx:
             _, _, _, _, new_right = self.data[j][i+1].shape
             right = min([right, new_right])
             self.data[j][i+1] = self.data[j][i+1][:, :, :, :, :right]
             self.data[j][i] = self.data[j][i][:, :, :right, :, :]
-            assert self.data[j][i+1].shape[4]==self.data[j][i].shape[2]
-        if j+1<self.Ly:
+            assert self.data[j][i+1].shape[4] == self.data[j][i].shape[2]
+        if j+1 < self.Ly:
             _, new_down, _, _, _ = self.data[j+1][i].shape
             down = min([down, new_down])
             self.data[j+1][i] = self.data[j+1][i][:, :down, :, :, :]
             self.data[j][i] = self.data[j][i][:, :, :, :down, :]
-            assert self.data[j+1][i].shape[1]==self.data[j][i].shape[3]
-        if i-1>=0:
+            assert self.data[j+1][i].shape[1] == self.data[j][i].shape[3]
+        if i-1 >= 0:
             _, _, new_left, _, _ = self.data[j][i-1].shape
             left = min([left, new_left])
             self.data[j][i-1] = self.data[j][i-1][:, :, :left, :, :]
             self.data[j][i] = self.data[j][i][:, :, :, :, :left]
-            assert self.data[j][i-1].shape[2]==self.data[j][i].shape[4]
+            assert self.data[j][i-1].shape[2] == self.data[j][i].shape[4]
         return self
 
     def create_structure(self, Lx, Ly, d, X):
@@ -325,16 +362,18 @@ class fPEPS(object):
             3
 
         """
-        if Lx>1 and Ly>1:
-            top = [[(d, 1, X, X, 1)]+[(d, 1, X, X, X) for _ in range(Lx-2)]+[(d, 1, 1, X, X)]]
+        if Lx > 1 and Ly > 1:
+            top = [[(d, 1, X, X, 1)]+[(d, 1, X, X, X)
+                                      for _ in range(Lx-2)]+[(d, 1, 1, X, X)]]
             mid = [[(d, X, X, X, 1)]+[(d, X, X, X, X) for _ in range(Lx-2)]+[(d, X, 1, X, X)]
                    for _ in range(Ly-2)]
-            bottom = [[(d, X, X, 1, 1)]+[(d, X, X, 1, X) for _ in range(Lx-2)]+[(d, X, 1, 1, X)]]
+            bottom = [[(d, X, X, 1, 1)]+[(d, X, X, 1, X)
+                                         for _ in range(Lx-2)]+[(d, X, 1, 1, X)]]
 
             return top+mid+bottom
-        elif Ly==1 and Lx>1:
+        elif Ly == 1 and Lx > 1:
             return [[(d, 1, X, 1, 1)]+[(d, 1, X, 1, X) for _ in range(Lx-2)]+[(d, 1, 1, 1, X)]]
-        elif Lx==1 and Ly>1:
+        elif Lx == 1 and Ly > 1:
             return [[(d, 1, 1, X, 1)]]+[[(d, X, 1, X, 1)] for _ in range(Ly-2)]+[[(d, X, 1, 1, 1)]]
         else:
             raise Exception
@@ -345,60 +384,69 @@ class fPEPS(object):
         for j, (row1, row2) in enumerate(zip(self.data, other.data)):
             new_data.append([])
             for i, (tens1, tens2) in enumerate(zip(row1, row2)):
-                #if self.X>1 and other.X>1:
+                # if self.X>1 and other.X>1:
                 #    new_data[-1].append(np.pad(tens1, list(zip([0]*tens2.ndim, [0]+[x*int(x!=1) for x in list(tens2.shape[1:])])))+\
-                #                        np.pad(tens2, list(zip([0]+[x*int(x!=1) for x in list(tens1.shape[1:])], [0]*tens1.ndim)))) 
+                #                        np.pad(tens2, list(zip([0]+[x*int(x!=1) for x in list(tens1.shape[1:])], [0]*tens1.ndim))))
                 #    # add tensors block diagonally by padding with zeros with the shape of the other tensor
-                #    # unless dim is one in that slot, then just add across that index. 
+                #    # unless dim is one in that slot, then just add across that index.
                 #    # for mps this reduces to normal addition - works as long as X!= 1 anywhere
-                #else: # annoying to have to do all this work just for X=1.
-                assert Lx>1 and Ly>1
-                #the below only works if Lx, Ly > 1 - need being on corner, edge, etc. to be mutually exclusive. Easy fix, can't be bothered
-                if i == Lx-1: #right edge
-                    if j == Ly-1: # bottom right corner [2, X, 1, 1, X]
+                # else: # annoying to have to do all this work just for X=1.
+                assert Lx > 1 and Ly > 1
+                # the below only works if Lx, Ly > 1 - need being on corner, edge, etc. to be mutually exclusive. Easy fix, can't be bothered
+                if i == Lx-1:  # right edge
+                    if j == Ly-1:  # bottom right corner [2, X, 1, 1, X]
                         pads1 = [0, tens2.shape[1], 0, 0, tens2.shape[4]]
                         pads2 = [0, tens1.shape[1], 0, 0, tens1.shape[4]]
-                        new_data[-1].append(np.pad(tens1, list(zip([0]*tens2.ndim, pads1)))+\
+                        new_data[-1].append(np.pad(tens1, list(zip([0]*tens2.ndim, pads1))) +
                                             np.pad(tens2, list(zip(pads2, [0]*tens1.ndim))))
-                    elif j == 0: # top right corner [2, 1, 1, X, X]
+                    elif j == 0:  # top right corner [2, 1, 1, X, X]
                         pads1 = [0, 0, 0, tens2.shape[3], tens2.shape[4]]
                         pads2 = [0, 0, 0, tens1.shape[3], tens1.shape[4]]
-                        new_data[-1].append(np.pad(tens1, list(zip([0]*tens2.ndim, pads1)))+\
+                        new_data[-1].append(np.pad(tens1, list(zip([0]*tens2.ndim, pads1))) +
                                             np.pad(tens2, list(zip(pads2, [0]*tens1.ndim))))
-                    else: # right edge, not on corners [2, X, 1, X, X]
-                        pads1 = [0, tens2.shape[1], 0, tens2.shape[3], tens2.shape[4]]
-                        pads2 = [0, tens1.shape[1], 0, tens1.shape[3], tens1.shape[4]]
-                        new_data[-1].append(np.pad(tens1, list(zip([0]*tens2.ndim, pads1)))+\
+                    else:  # right edge, not on corners [2, X, 1, X, X]
+                        pads1 = [0, tens2.shape[1], 0,
+                                 tens2.shape[3], tens2.shape[4]]
+                        pads2 = [0, tens1.shape[1], 0,
+                                 tens1.shape[3], tens1.shape[4]]
+                        new_data[-1].append(np.pad(tens1, list(zip([0]*tens2.ndim, pads1))) +
                                             np.pad(tens2, list(zip(pads2, [0]*tens1.ndim))))
-                elif i == 0: #left_edge
-                    if j == Ly-1: # bottom left corner, [2, X, X, 1, 1]
+                elif i == 0:  # left_edge
+                    if j == Ly-1:  # bottom left corner, [2, X, X, 1, 1]
                         pads1 = [0, tens2.shape[1], tens2.shape[2], 0, 0]
                         pads2 = [0, tens1.shape[1], tens1.shape[2], 0, 0]
-                        new_data[-1].append(np.pad(tens1, list(zip([0]*tens2.ndim, pads1)))+\
+                        new_data[-1].append(np.pad(tens1, list(zip([0]*tens2.ndim, pads1))) +
                                             np.pad(tens2, list(zip(pads2, [0]*tens1.ndim))))
-                    elif j == 0: # top left corner, [2, 1, X, X, 1]
+                    elif j == 0:  # top left corner, [2, 1, X, X, 1]
                         pads1 = [0, 0, tens2.shape[2], tens2.shape[3], 0]
                         pads2 = [0, 0, tens1.shape[2], tens1.shape[3], 0]
-                        new_data[-1].append(np.pad(tens1, list(zip([0]*tens2.ndim, pads1)))+\
+                        new_data[-1].append(np.pad(tens1, list(zip([0]*tens2.ndim, pads1))) +
                                             np.pad(tens2, list(zip(pads2, [0]*tens1.ndim))))
-                    else: # left edge, not on corner, [2, X, X, X, 1]
-                        pads1 = [0, tens2.shape[1], tens2.shape[2], tens2.shape[3], 0]
-                        pads2 = [0, tens1.shape[1], tens1.shape[2], tens1.shape[3], 0]
-                        new_data[-1].append(np.pad(tens1, list(zip([0]*tens2.ndim, pads1)))+\
+                    else:  # left edge, not on corner, [2, X, X, X, 1]
+                        pads1 = [0, tens2.shape[1],
+                                 tens2.shape[2], tens2.shape[3], 0]
+                        pads2 = [0, tens1.shape[1],
+                                 tens1.shape[2], tens1.shape[3], 0]
+                        new_data[-1].append(np.pad(tens1, list(zip([0]*tens2.ndim, pads1))) +
                                             np.pad(tens2, list(zip(pads2, [0]*tens1.ndim))))
                 else:
-                    if j == Ly-1: # bottom edge, not on corner, [2, X, X, 1, X]
-                        pads1 = [0, tens2.shape[1], tens2.shape[2], 0, tens2.shape[4]]
-                        pads2 = [0, tens1.shape[1], tens1.shape[2], 0, tens1.shape[4]]
-                        new_data[-1].append(np.pad(tens1, list(zip([0]*tens2.ndim, pads1)))+\
+                    # bottom edge, not on corner, [2, X, X, 1, X]
+                    if j == Ly-1:
+                        pads1 = [0, tens2.shape[1],
+                                 tens2.shape[2], 0, tens2.shape[4]]
+                        pads2 = [0, tens1.shape[1],
+                                 tens1.shape[2], 0, tens1.shape[4]]
+                        new_data[-1].append(np.pad(tens1, list(zip([0]*tens2.ndim, pads1))) +
                                             np.pad(tens2, list(zip(pads2, [0]*tens1.ndim))))
-                    elif j == 0: # top edge, not on corner, [2, 1, X, X, X]
-                        pads1 = [0, 0, tens2.shape[2], tens2.shape[3], tens2.shape[4]]
-                        pads2 = [0, 0, tens1.shape[2], tens1.shape[3], tens1.shape[4]]
-                        new_data[-1].append(np.pad(tens1, list(zip([0]*tens2.ndim, pads1)))+\
+                    elif j == 0:  # top edge, not on corner, [2, 1, X, X, X]
+                        pads1 = [0, 0, tens2.shape[2],
+                                 tens2.shape[3], tens2.shape[4]]
+                        pads2 = [0, 0, tens1.shape[2],
+                                 tens1.shape[3], tens1.shape[4]]
+                        new_data[-1].append(np.pad(tens1, list(zip([0]*tens2.ndim, pads1))) +
                                             np.pad(tens2, list(zip(pads2, [0]*tens1.ndim))))
-                    else: # in bulk, [2, X, X, X, X]
-                        new_data[-1].append(np.pad(tens1, list(zip([0]*tens2.ndim, [0]+list(tens2.shape[1:]))))+\
+                    else:  # in bulk, [2, X, X, X, X]
+                        new_data[-1].append(np.pad(tens1, list(zip([0]*tens2.ndim, [0]+list(tens2.shape[1:])))) +
                                             np.pad(tens2, list(zip([0]+list(tens1.shape[1:]), [0]*tens1.ndim))))
 
         return fPEPS(new_data)
@@ -418,29 +466,35 @@ class fPEPS(object):
         reshaped = [mps[Lx*i:Lx*(i+1)] for i in range(Ly)]
         for j in range(Ly):
             # snake odd rows
-            if j%2==1:
+            if j % 2 == 1:
                 reshaped[j] = reshaped[j][::-1]
 
         d = mps.d
         for i in range(Lx):
             for j in range(Ly):
                 d, X1, X2 = reshaped[j][i].shape
-                if j%2 == 0:
+                if j % 2 == 0:
                     # going right
                     if i == Lx-1:
-                        reshaped[j][i] = T(reshaped[j][i]).reshape(d, 1, 1, X2, X1)
+                        reshaped[j][i] = T(reshaped[j][i]).reshape(
+                            d, 1, 1, X2, X1)
                     elif i == 0:
-                        reshaped[j][i] = reshaped[j][i].reshape(d, X1, X2, 1, 1)
+                        reshaped[j][i] = reshaped[j][i].reshape(
+                            d, X1, X2, 1, 1)
                     else:
-                        reshaped[j][i] = T(reshaped[j][i]).reshape(d, 1, X2, 1, X1)
+                        reshaped[j][i] = T(reshaped[j][i]).reshape(
+                            d, 1, X2, 1, X1)
                 else:
                     # going left
                     if i == Lx-1:
-                        reshaped[j][i] = reshaped[j][i].reshape(d, X1, 1, 1, X2)
+                        reshaped[j][i] = reshaped[j][i].reshape(
+                            d, X1, 1, 1, X2)
                     elif i == 0:
-                        reshaped[j][i] = reshaped[j][i].reshape(d, 1, X1, X2, 1)
+                        reshaped[j][i] = reshaped[j][i].reshape(
+                            d, 1, X1, X2, 1)
                     else:
-                        reshaped[j][i] = reshaped[j][i].reshape(d, 1, X1, 1, X2)
+                        reshaped[j][i] = reshaped[j][i].reshape(
+                            d, 1, X1, 1, X2)
 
         return fPEPS(reshaped)
 
@@ -474,24 +528,25 @@ class fPEPS(object):
         elif qubit_ordering == 'row_snake':
             cols = []
             for i, row in enumerate(self.data):
-                if i%2==0:
+                if i % 2 == 0:
                     cols.append(reduce(row_contract, row))
                 else:
-                    cols.append(reduce(row_contract, [x.transpose([0, 1, 4, 3, 2]) for x in row[::-1]]))
+                    cols.append(
+                        reduce(row_contract, [x.transpose([0, 1, 4, 3, 2]) for x in row[::-1]]))
             res = reduce(col_contract, cols)
             return np.squeeze(res)
 
     def environment(self, site):
-        # this is a mess. 
+        # this is a mess.
         i, j = site
         i, j = self.Lx-j-1, i
         # list of mpo rows
         # add a bunch of trivial boundary mpos to avoid having to do edges separately
         row_mpos = [fMPO([np.tensordot(A, B.conj(), [0, 0]).transpose(
-                [0, 4, 1, 5, 2, 6, 3, 7]).reshape(
-                *[s1*s2 for s1, s2 in zip(A.shape[1:], B.shape[1:])])
-                for A, B in zip(row, other_row)])
-                for row, other_row in zip(self.data, self.data)]
+            [0, 4, 1, 5, 2, 6, 3, 7]).reshape(
+            *[s1*s2 for s1, s2 in zip(A.shape[1:], B.shape[1:])])
+            for A, B in zip(row, other_row)])
+            for row, other_row in zip(self.data, self.data)]
 
         row_mpos = [fMPO().trivial(self.Lx)]+row_mpos+[fMPO().trivial(self.Lx)]
         above = reduce(lambda x, y: x*y, row_mpos[:j+1][::-1])
@@ -499,17 +554,21 @@ class fPEPS(object):
         below = reduce(lambda x, y: x*y, row_mpos[j+2:][::-1])
         below.data = [np.array([[[[1]]]])]+below.data+[np.array([[[[1]]]])]
         same_row = row_mpos[j+1]
-        same_row.data = [np.array([[[[1]]]])]+same_row.data+[np.array([[[[1]]]])]
+        same_row.data = [np.array([[[[1]]]])] + \
+            same_row.data+[np.array([[[[1]]]])]
 
         # lr -> ud, ud -> rl (rotate peps image 90 degs anticlockwise)
-        col_mpos = [fMPO([above.data[k], same_row.data[k], below.data[k]]).unrotate_90() for k in range(self.Lx+2)][::-1] # leftmost column is now bottom row
+        col_mpos = [fMPO([above.data[k], same_row.data[k], below.data[k]]).unrotate_90(
+        ) for k in range(self.Lx+2)][::-1]  # leftmost column is now bottom row
 
         left = reduce(lambda x, y: x*y, col_mpos[:i+1][::-1])
         right = reduce(lambda x, y: x*y, col_mpos[i+2:][::-1])
         site_col = col_mpos[i+1]
 
-        ring_data = left.data + [site_col.data[2]] + right.data[::-1] + [site_col.data[0]]
-        con = [[-1, 2, 1, -2], [-3, 3, -13, 2], [-4, -5, 4, 3], [4, -6, 5, -14], [5, -7, -8, 6], [-15, 6, -9, 7], [8, 7, -10, -11], [1, -16, 8, -12]]
+        ring_data = left.data + [site_col.data[2]] + \
+            right.data[::-1] + [site_col.data[0]]
+        con = [[-1, 2, 1, -2], [-3, 3, -13, 2], [-4, -5, 4, 3], [4, -6, 5, -14],
+               [5, -7, -8, 6], [-15, 6, -9, 7], [8, 7, -10, -11], [1, -16, 8, -12]]
         env = ncon(ring_data, con)
         env = env.reshape(env.shape[-4:]).transpose([3, 0, 1, 2])
         return env
@@ -517,9 +576,9 @@ class fPEPS(object):
     def overlap(self, other):
         mpos = [fMPO([np.tensordot(A, B.conj(), [0, 0]).transpose(
                 [0, 4, 1, 5, 2, 6, 3, 7]).reshape(
-                *[s1*s2 for s1, s2 in zip(A.shape[1:], B.shape[1:])])
-                for A, B in zip(row, other_row)])
-                for row, other_row in zip(self.data, other.data)]
+            *[s1*s2 for s1, s2 in zip(A.shape[1:], B.shape[1:])])
+            for A, B in zip(row, other_row)])
+            for row, other_row in zip(self.data, other.data)]
         t = reduce(lambda x, y: x*y, mpos[::-1]).recombine()
         return t
 
@@ -555,12 +614,11 @@ class fPEPS(object):
         for k, j in enumerate(reversed(range(max([y_truncate_to-1, 0]), self.Ly))):
             self.truncate_along_row(j, self.d**k)
 
-        if self.Ly>1 and self.Lx>1:
+        if self.Ly > 1 and self.Lx > 1:
             self.truncate_below(0, self.d)
             self.truncate_below(self.Ly-2, self.d)
             self.truncate_left(1, self.d)
             self.truncate_left(self.Lx-1, self.d)
-
 
         for j, row in enumerate(self.data):
             for i, _ in enumerate(row):
@@ -568,48 +626,58 @@ class fPEPS(object):
                     if j > c_j:
                         #print('below right')
                         where = 2
-                        self.data[j][i] = tensor_isometrise_diag(self.data[j][i], where)
+                        self.data[j][i] = tensor_isometrise_diag(
+                            self.data[j][i], where)
                     elif j < c_j:
                         #print('above right')
                         where = 1
-                        self.data[j][i] = tensor_isometrise_diag(self.data[j][i], where)
+                        self.data[j][i] = tensor_isometrise_diag(
+                            self.data[j][i], where)
                     elif j == c_j:
-                        #print('right')
+                        # print('right')
                         where = 2
-                        self.data[j][i] = tensor_isometrise_lrud(self.data[j][i], where)
+                        self.data[j][i] = tensor_isometrise_lrud(
+                            self.data[j][i], where)
                 elif i < c_i:
                     if j > c_j:
                         #print('below left')
                         where = 3
-                        self.data[j][i] = tensor_isometrise_diag(self.data[j][i], where)
+                        self.data[j][i] = tensor_isometrise_diag(
+                            self.data[j][i], where)
                     elif j < c_j:
                         #print('above left')
                         where = 4
-                        self.data[j][i] = tensor_isometrise_diag(self.data[j][i], where)
+                        self.data[j][i] = tensor_isometrise_diag(
+                            self.data[j][i], where)
                     elif j == c_j:
-                        #print('left')
+                        # print('left')
                         where = 4
-                        self.data[j][i] = tensor_isometrise_lrud(self.data[j][i], where)
+                        self.data[j][i] = tensor_isometrise_lrud(
+                            self.data[j][i], where)
                 elif i == c_i:
                     if j > c_j:
-                        #print('below')
+                        # print('below')
                         where = 3
-                        self.data[j][i] = tensor_isometrise_lrud(self.data[j][i], where)
+                        self.data[j][i] = tensor_isometrise_lrud(
+                            self.data[j][i], where)
                     elif j < c_j:
-                        #print('above')
+                        # print('above')
                         where = 1
-                        self.data[j][i] = tensor_isometrise_lrud(self.data[j][i], where)
+                        self.data[j][i] = tensor_isometrise_lrud(
+                            self.data[j][i], where)
                     elif j == c_j:
-                        #print('oc')
-                        self.data[j][i] = tensor_isometrise_center(self.data[j][i])
+                        # print('oc')
+                        self.data[j][i] = tensor_isometrise_center(
+                            self.data[j][i])
         return self
 
-    def iso_ev(self, op, site):
+    def iso_ev(self, op, site=None):
         if not hasattr(self, 'oc'):
             raise Exception('Not an isometric peps - try isometrising')
-        elif site!=self.oc:
+        elif site is not None and site != self.oc:
             raise NotImplementedError('Moving oc not implemented yet')
         else:
+            site = site if site is not None else self.oc
             i, j = site
             A = self.data[j][i]
             return np.real(ncon([A.conj(), op, A], [[5, 1, 2, 3, 4], [5, 6], [6, 1, 2, 3, 4]]))
@@ -620,11 +688,146 @@ class fPEPS(object):
             ret.append(self.iso_ev(*opsite))
         return np.array(ret)
 
+    def moses_move_right(self, chi=None):
+        '''move orthogonality col to the right by one.
+           operates inplace'''
+        chi = self.X if chi is None else chi
+        if not hasattr(self, 'oc'):
+            raise Exception('not an isotns: try isometrising')
+        else:
+            c_i, c_j = self.oc
+
+        middle_col = []
+        b = np.ones((1, 1, 1))
+
+        for n in (-x for x in range(1, self.Ly+1)):
+            zipper = ncon([b, self.data[n][c_i]], [
+                          [1, -4, -5], [-1, -2, -3, 1, -6]])
+            [a, b, c] = split_tensor(zipper, chi)
+            middle_col.insert(0, c)
+            self.data[n][c_i] = a
+
+        self.data[0][c_i] = np.expand_dims(group_legs(
+            self.data[0][c_i], [[0], [1, 2], [3], [4]])[0], 0).transpose([1, 0, 2, 3, 4])
+        middle_col[0] = np.expand_dims(group_legs(middle_col[0], [[0, 3], [1], [2]])[
+                                       0], 0).transpose([1, 0, 2, 3]).transpose([1, 2, 3, 0])
+        middle_col[0] = ncon([b[0, :, :], middle_col[0]],
+                             [[-4, 1], [-1, -2, -3, 1]])
+
+        for n, λ in enumerate(middle_col):
+            self.data[n][c_i+1], _ = group_legs(ncon([self.data[n][c_i+1], λ], [
+                                                [-1, -2, -4, -5, 1], [-3, 1, -6, -7]]), [[0], [1, 2], [3], [4, 5], [6]])
+        self.oc = (c_i+1, c_j)
+        return self
+
     def copy(self):
-        return fPEPS([[x.copy() for x in row] for row in self.data])
+        ret = fPEPS([[x.copy() for x in row] for row in self.data])
+        if hasattr(self, 'oc'):
+            ret.oc = self.oc
+        return ret
 
     def full_overlap(self, other):
         return self.recombine().reshape(-1).conj().T@other.recombine().reshape(-1)
+
+
+def tr_svd(a, D):
+    u, s, v = np.linalg.svd(a, full_matrices=False)
+    u, s, v = u[:, :D], np.diag(s)[:D, :D], v[:D, :]
+    return u, s, v
+
+
+def factors(n):
+    ''' return a, b such that a*b == n, a, b are integers, and |a-b| is minimised'''
+    for i in range(int(n**0.5)+1, 0, -1):
+        if n % i == 0:
+            return [i, n//i]
+
+
+def split_tensor(tens, chi):
+    """ split tensor
+                                AX
+       0   1                    |
+        \  |                    v
+           |                    0
+           |                    b
+           v             d     2 1
+       5--> <--2   ---->   0   ^ ^
+           ^               \ /BlX \chi
+          / \               1      0
+         /   \          p->4a2-->-3c1<-r
+        4     3      BX     3 BrX  2
+                            ^      ^   CX = r*t
+                            |      |
+                            q      t
+       returns [a, b, c]
+    """
+    ABC, pipe1 = group_legs(tens, [[1], [2, 3], [0, 4, 5]])
+    (_, [_, (r, t), (d, p, q)]) = pipe1  # r, t, d, p, q are in diagram above
+    map, pipe2 = group_legs(ABC, [[2], [0, 1]])
+    # AX is bond dimension above top tensor, CX bond dimension below bottom tensor
+    _, [(_,), (AX, CX)] = pipe2
+    U, s, V = tr_svd(map, chi**2)  # truncated svd along / (A -> BC)
+    a0, ABlBrC0 = U, s@V
+
+    BlX, BrX = factors(ABlBrC0.shape[0])
+    # truncate further (have to split ~chi**2 -> ~chi, ~chi)
+    # print(BlX*BrX, a0.shape[1]) - sometimes theres a truncation here, even if the bond
+    # dimension is high enough
+    #a0, ABlBrC0 = a0[:, :BlX*BrX], ABlBrC0[:BlX*BrX, :]
+
+    # get best isometry, unitary
+    # get renyi minimising unitary
+    entropy, U = U2(ABlBrC0.reshape(BlX, BrX, AX, CX))
+
+    a = (a0@U.conj().T)
+    ABlBrC = U@ABlBrC0
+
+    #print(norm(map-a0@ABlBrC0), norm(map-a@ABlBrC))
+
+    ABlBrC = ABlBrC.reshape(BlX, BrX, AX, CX)  # get legs out
+
+    # then reshape (d*p*q, BlX*BrX)->(d, p, q, BrX, BlX)->(d, BlX, BrX, q, p)
+    a = a.reshape(d, p, q, BlX, BrX).transpose([0, 3, 4, 1, 2])
+    # (BlX, AX, chi), (BrX, chi, r*t), clockwise
+    b, c = separate_tensor(ABlBrC.reshape(BlX*BrX, AX, CX), chi**2)
+
+    b = b.transpose([1, 2, 0])
+    c = c.transpose([1, 2, 0]).reshape(b.shape[1], r, t, -1)
+
+    return [a, b, c]
+
+
+def test_separate_tensor(N):
+    print('testing separate tensor ... ', end='')
+    for _ in range(N):
+        D = 10
+        a = np.random.randn(4, 5, 5)
+        b, c = separate_tensor(a, D)
+        assert np.allclose(a, group_tensors([b, c]))
+    print('success')
+
+
+def unsplit_tensor(a, b, c):
+    return ncon([a, b, c], [[-1, 1, 2, -5, -6], [-2, 3, 1], [3, -3, -4, 2]])
+
+
+def test_split_tensor(N):
+    print('testing split_tensor ... ', end='')
+    for _ in range(N):
+        for k in range(1, 4):
+            A = np.random.randn(2, 4, k, 4, 4, 4)
+            A = A+1j*np.random.randn(*A.shape)
+            A = A/norm(A)
+
+            OR = False
+            for chi in range(1, 10):
+                a, b, c = split_tensor(A, chi)
+                A_ = unsplit_tensor(a, b, c)
+                OR = OR or np.allclose(norm(A-A_), 0)
+                if OR:
+                    print('success at k={}, '.format(k), end='')
+                    break
+
 
 def test_mpo_multiplication(N):
     print('testing mpo mps multiplication ... ', end='')
@@ -651,6 +854,7 @@ def test_mpo_multiplication(N):
         f2 = A_ψ@B_ψ
         assert np.allclose(f1, f2)
     print('success')
+
 
 def test_fPEPS_evs(N):
     print('testing peps evs ... ', end='')
@@ -687,6 +891,7 @@ def test_fPEPS_evs(N):
         assert np.allclose(x.ev(X, (0, 1)), φ.conj().T@IXI@φ)
     print('success')
 
+
 def test_fPEPS_addition(N):
     print('testing peps addition ... ', end='')
     for _ in range(N):
@@ -707,14 +912,17 @@ def test_fPEPS_addition(N):
         assert np.allclose(x.recombine()+y.recombine(), x.add(y).recombine())
     print('success')
 
+
 def test_fPEPS_from_mps(N):
     print('testing peps from mps ... ', end='')
     np.set_printoptions(precision=1)
     for _ in range(N):
         x = fMPS().random(9, 2, 4).left_canonicalise()
         y = fPEPS().from_mps(x)
-        assert np.allclose(x.recombine().reshape(-1), y.recombine('row_snake').reshape(-1))
+        assert np.allclose(x.recombine().reshape(-1),
+                           y.recombine('row_snake').reshape(-1))
     print('success')
+
 
 def test_overlap(N):
     print('testing peps overlap ... ', end='')
@@ -728,15 +936,16 @@ def test_overlap(N):
 def test_isometrize(N):
     for _ in range(N):
         for L in range(2, 6):
-            for chi in range(2, 4): # fails at chi=5!
-                print('testing isometric norm, evs chi={}, {}x{} ...'.format(chi, L, L), end='')
+            for chi in range(2, 4):  # fails at chi=5!
+                print('testing isometric norm, evs chi={}, {}x{} ...'.format(
+                    chi, L, L), end='')
                 for i, j in product(range(L), range(L)):
-                #    print('orthogonality center: ', i, j)
+                    #    print('orthogonality center: ', i, j)
                     x = fPEPS().random(L, L, 2, chi).isometrise((i, j))
                     assert np.allclose(x.norm(), 1)
-                    assert np.allclose(x.iso_ev(X, (i, j)),x.ev(X, (i, j)))
-                    assert np.allclose(x.iso_ev(Y, (i, j)),x.ev(Y, (i, j)))
-                    assert np.allclose(x.iso_ev(Z, (i, j)),x.ev(Z, (i, j)))
+                    assert np.allclose(x.iso_ev(X, (i, j)), x.ev(X, (i, j)))
+                    assert np.allclose(x.iso_ev(Y, (i, j)), x.ev(Y, (i, j)))
+                    assert np.allclose(x.iso_ev(Z, (i, j)), x.ev(Z, (i, j)))
                 print('success')
 
                # if L < 6:
@@ -760,16 +969,55 @@ def test_isometrize(N):
                 print('success')
 
 
+def test_moses_move(N):
+    print('testing moses move ... ', end='')
+    for _ in range(N):
+        L, chi = 3, 3
+        x = fPEPS().random(L, L, 2, 3).isometrise((0, 2))
+        assert np.allclose(x.iso_ev(I), 1)
+        for op in [X, Y, Z]:
+            assert np.allclose(x.iso_ev(op), x.ev(op, x.oc))
+        old_oc = x.oc
+        y = x.copy().moses_move_right()
+        assert x == x and not x == y  # x is the same, but y has different tensors
+        assert np.allclose(y.iso_ev(I), 1)  # doesn't change the norm
+        # does change the oc
+        assert np.allclose(y.oc, (old_oc[0]+1, old_oc[1]))
+        for op in [X, Y, Z]:
+            assert np.allclose(y.iso_ev(op), y.ev(
+                op, y.oc))  # new oc is a proper oc
 
+            # expectation of pre-move peps, with op on new oc
+            # is same as isometric ev of post move peps
+            assert np.allclose(y.iso_ev(op), x.ev(op, y.oc))
+    print('success')
+
+
+def test_peps_transpose(N):
+    print('testing peps transpose ... ', end='')
+    for _ in range(N):
+        L = 3
+        x = fPEPS().random(L, L, 2, 3).normalise()
+        y = x.T
+        for i, j in product(range(L), range(L)):
+            assert np.allclose(x.ev(X, (i, j)), x.T.ev(X, (j, i)))
+            assert np.allclose(x.ev(Y, (i, j)), x.T.ev(Y, (j, i)))
+            assert np.allclose(x.ev(Z, (i, j)), x.T.ev(Z, (j, i)))
+    print('success')
 
 
 def tests(N):
+    test_moses_move(N)
     test_fPEPS_from_mps(N)
+    test_separate_tensor(N)
     test_fPEPS_addition(N)
     test_fPEPS_evs(N)
     test_mpo_multiplication(N)
-    test_overlap(5)
+    test_overlap(N)
+    test_peps_transpose(N)
     test_isometrize(N)
+    test_split_tensor(N)
+
 
 if __name__ == '__main__':
     tests(1)

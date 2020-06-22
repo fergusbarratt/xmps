@@ -64,13 +64,23 @@ def apply_isometry(tensors, Is):
     return np.tensordot(Is, group_tensors(tensors), [1, 0])
 
 def group_tensors(tensors):
-    return ncon(tensors, [[-1, -3, 1], [-2, 1, -4]]).reshape(4, tensors[0].shape[1], tensors[1].shape[2])
+    return ncon(tensors, [[-1, -3, 1], [-2, 1, -4]]).reshape(tensors[0].shape[0]*tensors[1].shape[0], tensors[0].shape[1], tensors[1].shape[2])
 
-def separate_tensor(tensor):
-    A, B = np.linalg.qr(tensor.reshape(2, 2, tensor.shape[1], tensor.shape[2]
+def factors(n):
+    ''' return a, b such that a*b == n, a, b are integers, and |a-b| is minimised'''
+    for i in range(int(n**0.5)+1, 0, -1):
+        if n % i ==0:
+            return [i, n//i]
+
+def separate_tensor(tensor, D):
+    d1, d2 = factors(tensor.shape[0]) # this is a guess at the two local hilbert space dimensions
+    # there's a non-uniqueness as soon as you've grouped them 
+    u, s, v = np.linalg.svd(tensor.reshape(d1, d2, tensor.shape[1], tensor.shape[2]
                              ).transpose([0, 2, 1, 3]
-                             ).reshape(2*tensor.shape[1], 2*tensor.shape[2]))
-    A, B = A.reshape(2, tensor.shape[1], A.shape[1]), B.reshape(B.shape[0], 2, tensor.shape[2]).transpose([1, 0, 2])
+                             ).reshape(d1*tensor.shape[1], d2*tensor.shape[2]), full_matrices=False)
+
+    A, B = u[:, :D], np.diag(s)[:D, :]@v
+    A, B = A.reshape(d1, tensor.shape[1], A.shape[1]), B.reshape(B.shape[0], d2, tensor.shape[2]).transpose([1, 0, 2])
     return [A, B]
 
 class fMPS(object):
