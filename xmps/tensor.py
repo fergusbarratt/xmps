@@ -2,8 +2,8 @@
 import unittest
 from numpy.random import randn
 from scipy.sparse.linalg import eigs as arnoldi
-from scipy.linalg import qr, expm, norm
-from numpy.linalg import eig as neig, eigvals, svd, inv
+from scipy.linalg import qr, expm, norm, svd
+from numpy.linalg import eig as neig, eigvals, inv
 from numpy import swapaxes, count_nonzero, diag, insert, pad, dot, argmax, sqrt
 from numpy import allclose, array, tensordot, transpose, all, identity, squeeze
 from numpy import isclose, mean, sign, kron, zeros, conj, max, concatenate, eye

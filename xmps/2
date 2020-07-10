@@ -7,7 +7,7 @@ pyximport.install(setup_args={"include_dirs":np.get_include()},
 import unittest
 
 from numpy.random import rand, randint, randn
-from numpy.linalg import inv, norm, cholesky as ch, qr
+from numpy.linalg import svd, inv, norm, cholesky as ch, qr
 from numpy.linalg import eig, eigvalsh
 
 from numpy import array, concatenate, diag, dot, allclose, isclose, swapaxes as sw
@@ -44,7 +44,6 @@ from itertools import product
 import cProfile
 from time import time
 import uuid
-from svd_robust import svd
 
 Sx, Sy, Sz = spins(0.5)
 Sx, Sy, Sz = 2*Sx, 2*Sy, 2*Sz
@@ -74,16 +73,10 @@ def factors(n):
             return [i, n//i]
     raise Exception('something\'s wrong here')
 
-i = 0
 def separate_tensor(tensor, D=None):
-    global i
-    i = i+1
-    if D==1:
-        i = 0
-   # print(i)
     d1, d2 = factors(tensor.shape[0]) # this is a guess at the two local hilbert space dimensions
     # there's a non-uniqueness as soon as you've grouped them - makes them as similar as poss.
-    u, s, v = svd(tensor.reshape(d1, d2, tensor.shape[1], tensor.shape[2]
+    u, s, v = np.linalg.svd(tensor.reshape(d1, d2, tensor.shape[1], tensor.shape[2]
                              ).transpose([0, 2, 1, 3]
                              ).reshape(d1*tensor.shape[1], d2*tensor.shape[2]), full_matrices=False)
 
@@ -541,7 +534,7 @@ class fMPS(object):
 
         return self
 
-    def mixed_canonicalise(self, oc, D=None, testing=False, sweep_back=True):
+    def mixed_canonicalise(self, oc, D=None, testing=False):
         """mixed_canonicalise: bring internal fMPS to mixed canonical form with
         orthogonality center oc, potentially with a truncation
 
@@ -551,7 +544,7 @@ class fMPS(object):
         """
         self.ok = True
         self.oc = oc
-        self.right_canonicalise(D, minD=False, sweep_back=sweep_back)
+        self.right_canonicalise(D, minD=False)
 
         def split(M):
             """split: Do SVD and reshape A matrix
@@ -578,7 +571,9 @@ class fMPS(object):
         """von neumann entanglement entropy across bond to left of site
         """
         self.left_canonicalise()
-        return -np.diag(np.real(self.Ls[site]))@np.log(np.diag(np.real(self.Ls[site])))
+        def logg(v):
+            w =  np.log(v)
+        return -self.Ls[site]@np.log(self.Ls[site])
 
     def update_properties(self):
         """update_properties: Could be slow"""
@@ -718,6 +713,7 @@ class fMPS(object):
 
     def apply_two_site_isometry(self, opsites, lr=0):
         # replaces (left, right)[lr] site with the result of the isometry
+        
         op, (i, j) = opsites
         assert j != i
         if not j > i:
@@ -726,7 +722,7 @@ class fMPS(object):
         while i_ >= i+1:
             self.apply_two_site((SWAP, (i_, i_+1)))
             i_ = i_-1
-        self[(i, j)[lr]] = apply_isometry([self[i], self[i+1]], op)
+        self[(i, j)[rl]] = apply_isometry([self[i], self[i+1]], op)
         while i_ < j-1:
             i_ = i_+1
             self.apply_two_site((SWAP, (i_, i_+1)))
@@ -741,7 +737,7 @@ class fMPS(object):
         :param op: 1 site operator
         :param site: site
         """
-        M = self.mixed_canonicalise(site, sweep_back=False)[site]
+        M = self.mixed_canonicalise(site)[site]
         return re(tensordot(op, trace(dot(cT(M),  M), axis1=1, axis2=3), [[0, 1], [0, 1]]))
 
     def Es(self, ops, site):

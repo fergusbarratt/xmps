@@ -272,25 +272,82 @@ class fPEPS(object):
     def __eq__(self, other):
         '''whether two peps are exactly equal. (to machine precision i.e. no gauge stuff)'''
         eq = True
+        if hasattr(self, 'oc'):
+            eq = eq and hasattr(other, 'oc')
+            eq = eq and np.allclose(self.oc, other.oc)
+        elif hasattr(other, 'oc'):
+            return False
+
+        if hasattr(self, 'X'):
+            eq = eq and hasattr(other, 'X')
+            eq = eq and np.allclose(self.X, other.X)
+        elif hasattr(other, 'X'):
+            return False
+
+        if hasattr(self, 'd'):
+            eq = eq and hasattr(other, 'd')
+            eq = eq and np.allclose(self.d, other.d)
+        elif hasattr(other, 'd'):
+            return False
+
         for row, row_ in zip(self.data, other.data):
             for A, A_ in zip(row, row_):
+                if not np.allclose(A.shape, A_.shape):
+                    return False
                 eq = eq and np.allclose(A, A_)
         return eq
 
-    def row_mpos(self):
+    def row_mpos(self, other=None):
+        other = self if other is None else other
         return [fMPO([np.tensordot(A, B.conj(), [0, 0]).transpose(
                 [0, 4, 1, 5, 2, 6, 3, 7]).reshape(
             *[s1*s2 for s1, s2 in zip(A.shape[1:], B.shape[1:])])
             for A, B in zip(row, other_row)])
-            for row, other_row in zip(self.data, self.data)]
+            for row, other_row in zip(self.data, other.data)]
 
-    def col_mpos(self):
-        return self.T.row_mpos()
+    def col_mpos(self, other=None):
+        return self.T.row_mpos(None)
 
     @property
     def T(self):
         new_data = list(map(list, zip(*self.data)))  # transpose lists
-        return fPEPS([[transpose_peps_tensor(x) for x in row] for row in new_data])
+        ret = fPEPS([[transpose_peps_tensor(x) for x in row] for row in new_data])
+        if hasattr(self, 'oc'):
+            (j, i)  = self.oc
+            ret.oc = (i, j)
+        if hasattr(self, 'X'):
+            ret.X = self.X
+        if hasattr(self, 'd'):
+            ret.d = self.d
+        return ret
+
+    @property
+    def R(self):
+        '''flip peps left to right'''
+        new_data = [[x.transpose([0, 1, 4, 3, 2]) for x in row][::-1] for row in self.data]
+        ret = fPEPS(new_data)
+        if hasattr(self, 'oc'):
+            i, j = self.oc
+            ret.oc = (self.Lx-1-i, j)
+        if hasattr(self, 'X'):
+            ret.X = self.X
+        if hasattr(self, 'd'):
+            ret.d = self.d
+        return ret
+
+    @property
+    def U(self):
+        '''flip peps down up'''
+        new_data = [[x.transpose([0, 3, 2, 1, 4]) for x in row] for row in self.data][::-1]
+        ret = fPEPS(new_data)
+        if hasattr(self, 'oc'):
+            i, j = self.oc
+            ret.oc = (i, self.Ly-j-1)
+        if hasattr(self, 'X'):
+            ret.X = self.X
+        if hasattr(self, 'd'):
+            ret.d = self.d
+        return ret
 
     def truncate_above(self, row, D):
         '''truncate bonds above row to size D'''
@@ -579,6 +636,7 @@ class fPEPS(object):
             *[s1*s2 for s1, s2 in zip(A.shape[1:], B.shape[1:])])
             for A, B in zip(row, other_row)])
             for row, other_row in zip(self.data, other.data)]
+        #mpos = self.row_mpos()
         t = reduce(lambda x, y: x*y, mpos[::-1]).recombine()
         return t
 
@@ -590,11 +648,9 @@ class fPEPS(object):
     def apply(self, op, site):
         # indices go (across, down) from top left
         i, j = site
-        self.data[j][i] = np.tensordot(op, self.data[j][i], [1, 0])
-        return self
-
-    def ev(self, op, site):
-        return np.real(self.copy().apply(op, site).overlap(self))
+        ret = self.copy()
+        ret.data[j][i] = np.tensordot(op, self.data[j][i], [1, 0])
+        return ret
 
     def isometrise(self, oc):
         """ specify oc as (x, y) where x is across and y is down from top left
@@ -671,59 +727,133 @@ class fPEPS(object):
                             self.data[j][i])
         return self
 
-    def iso_ev(self, op, site=None):
+    def ev(self, op, site):
+        return np.real(self.apply(op, site).overlap(self))[0, 0]
+
+    def iso_ev(self, op, site=None, chi=None):
         if not hasattr(self, 'oc'):
             raise Exception('Not an isometric peps - try isometrising')
         elif site is not None and site != self.oc:
-            raise NotImplementedError('Moving oc not implemented yet')
+            return self.copy().moses_move_oc_to(site, chi).iso_ev(op) 
         else:
             site = site if site is not None else self.oc
             i, j = site
             A = self.data[j][i]
             return np.real(ncon([A.conj(), op, A], [[5, 1, 2, 3, 4], [5, 6], [6, 1, 2, 3, 4]]))
 
-    def iso_evs(self, opsites):
+    def iso_evs(self, opsites, chi=None):
         ret = []
         for opsite in opsites:
-            ret.append(self.iso_ev(*opsite))
+            ret.append(self.iso_ev(*opsite, chi))
         return np.array(ret)
 
-    def moses_move_right(self, chi=None):
+    def moses_move_right(self, chi=None, testing=True, truncate=False):
         '''move orthogonality col to the right by one.
            operates inplace'''
-        chi = self.X if chi is None else chi
+        if truncate:
+            chi = self.X if chi is None else chi
         if not hasattr(self, 'oc'):
             raise Exception('not an isotns: try isometrising')
         else:
             c_i, c_j = self.oc
+            if c_i==self.Lx-1:
+                raise Exception('can\'t move right from right border')
+        new_data = self.copy().data
 
         middle_col = []
         b = np.ones((1, 1, 1))
 
         for n in (-x for x in range(1, self.Ly+1)):
-            zipper = ncon([b, self.data[n][c_i]], [
+            zipper = ncon([b, new_data[n][c_i]], [
                           [1, -4, -5], [-1, -2, -3, 1, -6]])
             [a, b, c] = split_tensor(zipper, chi)
-            middle_col.insert(0, c)
-            self.data[n][c_i] = a
 
-        self.data[0][c_i] = np.expand_dims(group_legs(
-            self.data[0][c_i], [[0], [1, 2], [3], [4]])[0], 0).transpose([1, 0, 2, 3, 4])
-        middle_col[0] = np.expand_dims(group_legs(middle_col[0], [[0, 3], [1], [2]])[
+            if testing:
+                if truncate == False:
+                    zipper_ = unsplit_tensor(a, b, c)
+                    assert np.allclose(norm(zipper-zipper_), 0)
+
+            middle_col.insert(0, c)
+            new_data[n][c_i] = a
+
+        new_data[0][c_i] = np.expand_dims(group_legs(
+            new_data[0][c_i], [[0], [1, 2], [3], [4]])[0], 0).transpose([1, 0, 2, 3, 4])
+
+        assert b.shape[0] == 1
+
+        middle_col[0] = ncon([middle_col[0], b[0, :, :]], [[1, -2, -3, -4], [-1, 1]])
+        # add dummy index, swap into the right place, rotate tensor
+        middle_col[0] = np.expand_dims(group_legs(middle_col[0], [[3, 0], [1], [2]])[
                                        0], 0).transpose([1, 0, 2, 3]).transpose([1, 2, 3, 0])
-        middle_col[0] = ncon([b[0, :, :], middle_col[0]],
-                             [[-4, 1], [-1, -2, -3, 1]])
+
 
         for n, λ in enumerate(middle_col):
-            self.data[n][c_i+1], _ = group_legs(ncon([self.data[n][c_i+1], λ], [
+            new_data[n][c_i+1], _ = group_legs(ncon([new_data[n][c_i+1], λ], [
                                                 [-1, -2, -4, -5, 1], [-3, 1, -6, -7]]), [[0], [1, 2], [3], [4, 5], [6]])
-        self.oc = (c_i+1, c_j)
-        return self
 
-    def copy(self):
+        nn = norm(new_data[c_j][c_i+1].reshape(-1))
+        new_data[c_j][c_i+1]/=nn # something real strange going on with the norm - this seems to fix it
+        new_data[c_j][c_i]*=nn
+
+        ret = fPEPS(new_data)
+        ret.oc = (c_i, c_j) = (c_i+1, c_j)
+        if hasattr(self, 'X'):
+            ret.X = self.X
+        if hasattr(self, 'd'):
+            ret.d = self.d
+        return ret
+
+    def moses_move_left(self, chi=None):
+        ret = self.R.moses_move_right(chi).R
+        i, j = self.oc
+        ret.oc = (i-1, j)
+        return ret
+
+    def moses_move_down(self, chi=None):
+        ret = self.T.moses_move_right(chi).T
+        i, j = self.oc
+        ret.oc = (i, j+1)
+        return ret
+
+    def moses_move_up(self, chi=None):
+        ret = self.T.R.moses_move_right(chi).R.T
+        i, j = self.oc
+        ret.oc = (i, j-1)
+        return ret
+
+    def moses_move_oc_to(self, oc, chi=None):
+        if not hasattr(self, 'oc'):
+            raise Exception('should be isotns - try isometrising, or set oc value')
+
+        z = self.copy()
+        rights, downs = np.array(oc)-np.array(self.oc)
+        for _ in range(abs(rights)):
+            if rights>0:
+                print('r')
+                z = z.moses_move_right(chi)
+            else:
+                print('l')
+                z = z.moses_move_left(chi)
+
+        for _ in range(abs(downs)):
+            if downs>0:
+                print('d')
+                z = z.moses_move_down(chi)
+            else:
+                print('u')
+                z = z.moses_move_up(chi)
+        return z
+
+    def copy(self, data=None):
+        # copy self (or data) into new fPEPS with all of the stuff this fPEPS has (oc, X, d, etc.)
+        data = self.data if data is None else data
         ret = fPEPS([[x.copy() for x in row] for row in self.data])
         if hasattr(self, 'oc'):
             ret.oc = self.oc
+        if hasattr(self, 'X'):
+            ret.X = self.X
+        if hasattr(self, 'd'):
+            ret.d = self.d
         return ret
 
     def full_overlap(self, other):
@@ -732,6 +862,7 @@ class fPEPS(object):
 
 def tr_svd(a, D):
     u, s, v = np.linalg.svd(a, full_matrices=False)
+    D = u.shape[1] if D is None else D
     u, s, v = u[:, :D], np.diag(s)[:D, :D], v[:D, :]
     return u, s, v
 
@@ -766,7 +897,7 @@ def split_tensor(tens, chi):
     map, pipe2 = group_legs(ABC, [[2], [0, 1]])
     # AX is bond dimension above top tensor, CX bond dimension below bottom tensor
     _, [(_,), (AX, CX)] = pipe2
-    U, s, V = tr_svd(map, chi**2)  # truncated svd along / (A -> BC)
+    U, s, V = tr_svd(map, chi**2 if chi is not None else chi)  # truncated svd along / (A -> BC)
     a0, ABlBrC0 = U, s@V
 
     BlX, BrX = factors(ABlBrC0.shape[0])
@@ -789,7 +920,7 @@ def split_tensor(tens, chi):
     # then reshape (d*p*q, BlX*BrX)->(d, p, q, BrX, BlX)->(d, BlX, BrX, q, p)
     a = a.reshape(d, p, q, BlX, BrX).transpose([0, 3, 4, 1, 2])
     # (BlX, AX, chi), (BrX, chi, r*t), clockwise
-    b, c = separate_tensor(ABlBrC.reshape(BlX*BrX, AX, CX), chi**2)
+    b, c = separate_tensor(ABlBrC.reshape(BlX*BrX, AX, CX), chi) # truncate to chi here
 
     b = b.transpose([1, 2, 0])
     c = c.transpose([1, 2, 0]).reshape(b.shape[1], r, t, -1)
@@ -816,6 +947,7 @@ def test_split_tensor(N):
     for _ in range(N):
         for k in range(1, 4):
             A = np.random.randn(2, 4, k, 4, 4, 4)
+            #A = np.random.randn(2, 2, 2, 4, 2, 2)
             A = A+1j*np.random.randn(*A.shape)
             A = A/norm(A)
 
@@ -927,11 +1059,11 @@ def test_fPEPS_from_mps(N):
 def test_overlap(N):
     print('testing peps overlap ... ', end='')
     for _ in range(N):
-        x = fPEPS().random(3, 3, 2, 3).normalise()
-        y = fPEPS().random(3, 3, 2, 3).normalise()
-        assert np.allclose(x.overlap(y), x.full_overlap(y))
+        for L in range(2, 4):
+            x = fPEPS().random(L, L, 2, 3).normalise()
+            y = fPEPS().random(L, L, 2, 3).normalise()
+            assert np.allclose(x.overlap(y), x.full_overlap(y))
     print('success')
-
 
 def test_isometrize(N):
     for _ in range(N):
@@ -972,37 +1104,119 @@ def test_isometrize(N):
 def test_moses_move(N):
     print('testing moses move ... ', end='')
     for _ in range(N):
-        L, chi = 3, 3
-        x = fPEPS().random(L, L, 2, 3).isometrise((0, 2))
-        assert np.allclose(x.iso_ev(I), 1)
-        for op in [X, Y, Z]:
-            assert np.allclose(x.iso_ev(op), x.ev(op, x.oc))
-        old_oc = x.oc
-        y = x.copy().moses_move_right()
-        assert x == x and not x == y  # x is the same, but y has different tensors
-        assert np.allclose(y.iso_ev(I), 1)  # doesn't change the norm
-        # does change the oc
-        assert np.allclose(y.oc, (old_oc[0]+1, old_oc[1]))
-        for op in [X, Y, Z]:
-            assert np.allclose(y.iso_ev(op), y.ev(
-                op, y.oc))  # new oc is a proper oc
+        L, chi = 6, 2
+        x = fPEPS().random(L, L, 2, chi).isometrise((1, 1))
+        print(*x.structure(), sep='\n')
+        print(x.iso_ev(X, (3, 1)), x.ev(X, (3, 1)))
 
-            # expectation of pre-move peps, with op on new oc
-            # is same as isometric ev of post move peps
-            assert np.allclose(y.iso_ev(op), x.ev(op, y.oc))
+        raise Exception
+
+        L, chi = 4, 15
+        for i, j in product(range(1, L-1), range(1, L-1)):
+            oc = (i, j)
+            x = fPEPS().random(L, L, 2, chi).isometrise(oc)
+
+            # x has norm 1 to start
+            assert np.allclose(x.iso_ev(I), 1)
+
+            for op in [X, Y, Z]:
+                # x is isometric to start
+                assert np.allclose(x.iso_ev(op), x.ev(op, x.oc))
+
+            old_oc = x.oc
+            yr = x.copy().moses_move_right()
+            yd = x.copy().moses_move_down()
+            yu = x.copy().moses_move_up()
+            yl = x.copy().moses_move_left()
+
+            zr = x.copy().moses_move_oc_to((i+1, j))
+            zd = x.copy().moses_move_oc_to((i, j+1))
+            zu = x.copy().moses_move_oc_to((i, j-1))
+            zl = x.copy().moses_move_oc_to((i-1, j))
+
+            # x is the same, but yr has different tensors, z is x
+            assert x == x and not x == yr
+            assert yr==zr and yu==zu and yl==zl and yd==zd
+
+            # does change the oc
+            assert np.allclose(yr.oc, (x.oc[0]+1, x.oc[1]))
+            assert np.allclose(yd.oc, (x.oc[0], x.oc[1]+1))
+            assert np.allclose(yu.oc, (x.oc[0], x.oc[1]-1))
+            assert np.allclose(yl.oc, (x.oc[0]-1, x.oc[1]))
+
+            # doesn't change the norm
+            assert np.allclose(yr.iso_ev(I), 1)
+            assert np.allclose(yd.iso_ev(I), 1)
+            assert np.allclose(yu.iso_ev(I), 1)
+            assert np.allclose(yl.iso_ev(I), 1)
+            
+            for op in [X, Y, Z]:
+                for k, l in product(range(1, L-1), range(1, L-1)):
+                    # get same single site ev by moving oc or by full ev
+                    assert np.allclose(x.ev(op, (k, l)), x.iso_ev(op, (k, l)))
+
+                    # #expectation of pre-move peps, with op on new oc
+                    # #is same as expectation of post move peps on new oc
+                    assert np.allclose(yr.ev(op, yr.oc), x.ev(op, yr.oc))
+                    assert np.allclose(yd.ev(op, yd.oc), x.ev(op, yd.oc))
+                    assert np.allclose(yu.ev(op, yu.oc), x.ev(op, yu.oc))
+                    assert np.allclose(yl.ev(op, yl.oc), x.ev(op, yl.oc))
+
+                    # new oc is a proper oc
+                    assert np.allclose(yr.iso_ev(op), yr.ev(op, yr.oc))
+                    assert np.allclose(yd.iso_ev(op), yd.ev(op, yd.oc))
+                    assert np.allclose(yu.iso_ev(op), yu.ev(op, yu.oc))
+                    assert np.allclose(yl.iso_ev(op), yl.ev(op, yl.oc))
+
+            #for op in [X, Y, Z]:
+            #    for c in [(1, 2), (2, 1), (1, 1), (2, 2)]:
+            #        print('old oc', x.oc, 'ev site', c)
+            #        print('post move ev on ev site: r', x.ev(op, c), yr.ev(op, c))
+            #        print('post move ev on ev site: u', x.ev(op, c), yu.ev(op, c))
+            #        print('post move ev on ev site: d', x.ev(op, c), yd.ev(op, c))
+            #        print('post move ev on ev site: l', x.ev(op, c), yl.ev(op, c))
+            #        print('\n')
+            #    #print('post move iso ev on old oc: ', yr.iso_ev(op))
+
     print('success')
 
+test_moses_move(1)
+raise Exception
 
 def test_peps_transpose(N):
-    print('testing peps transpose ... ', end='')
+    print('testing peps transpose + flips ... ', end='')
     for _ in range(N):
         L = 3
-        x = fPEPS().random(L, L, 2, 3).normalise()
-        y = x.T
         for i, j in product(range(L), range(L)):
+            x = fPEPS().random(L, L, 2, 3).normalise()
+            assert x==x.T.T
+            assert x==x.R.R
+            assert x==x.U.U
+
             assert np.allclose(x.ev(X, (i, j)), x.T.ev(X, (j, i)))
             assert np.allclose(x.ev(Y, (i, j)), x.T.ev(Y, (j, i)))
             assert np.allclose(x.ev(Z, (i, j)), x.T.ev(Z, (j, i)))
+
+            assert np.allclose(x.ev(X, (i, j)), x.R.ev(X, (L-i-1, j)))
+            assert np.allclose(x.ev(Y, (i, j)), x.R.ev(Y, (L-i-1, j)))
+            assert np.allclose(x.ev(Z, (i, j)), x.R.ev(Z, (L-i-1, j)))
+
+            assert np.allclose(x.ev(X, (i, j)), x.U.ev(X, (i, L-j-1)))
+            assert np.allclose(x.ev(Y, (i, j)), x.U.ev(Y, (i, L-j-1)))
+            assert np.allclose(x.ev(Z, (i, j)), x.U.ev(Z, (i, L-j-1)))
+
+            z = fPEPS().random(L, L, 2, 3).isometrise((i, j))
+            assert np.allclose(z.iso_ev(X), z.T.iso_ev(X))
+            assert np.allclose(z.iso_ev(X), z.R.iso_ev(X))
+            assert np.allclose(z.iso_ev(X), z.U.iso_ev(X))
+
+            assert np.allclose(z.iso_ev(Y), z.T.iso_ev(Y))
+            assert np.allclose(z.iso_ev(Y), z.R.iso_ev(Y))
+            assert np.allclose(z.iso_ev(Y), z.U.iso_ev(Y))
+
+            assert np.allclose(z.iso_ev(Z), z.T.iso_ev(Z))
+            assert np.allclose(z.iso_ev(Z), z.R.iso_ev(Z))
+            assert np.allclose(z.iso_ev(Z), z.U.iso_ev(Z))
     print('success')
 
 
