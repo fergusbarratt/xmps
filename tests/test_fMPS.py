@@ -2,6 +2,7 @@ from xmps.fMPS import fMPS, vfMPS, fTFD, fs
 
 import unittest
 
+import numpy as np
 from numpy.random import rand, randint, randn
 from numpy.linalg import svd, inv, norm, cholesky as ch, qr
 from numpy.linalg import eig, eigvalsh
@@ -80,6 +81,7 @@ class TestfMPS(unittest.TestCase):
                             randint(D_min, D_max))
                             for _ in range(N)]
 
+
         # finite fixtures 
         fix_loc = 'fixtures/'
         self.tens_0_2 = load(fix_loc+'mat2x2.npy')
@@ -117,6 +119,12 @@ class TestfMPS(unittest.TestCase):
         self.fixtures = [self.mps_0_2, self.mps_0_3, self.mps_0_4,
                          self.mps_0_5, self.mps_0_6, self.mps_0_7,
                          self.mps_0_8, self.mps_0_9]
+
+        self.all_cases = self.rand_cases+self.right_cases+self.left_cases+self.mixed_cases+self.fixtures
+
+    def test_overlap(self):
+        for case1, case2 in product(self.left_cases[1:], self.left_cases):
+            self.assertAlmostEqual(np.abs(case1.overlap(case2)), np.abs(case1.full_overlap(case2)))
 
     def test_random_with_energy(self):
         Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)

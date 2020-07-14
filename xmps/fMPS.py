@@ -44,7 +44,7 @@ from itertools import product
 import cProfile
 from time import time
 import uuid
-from svd_robust import svd
+from .svd_robust import svd
 
 Sx, Sy, Sz = spins(0.5)
 Sx, Sy, Sz = 2*Sx, 2*Sy, 2*Sz
@@ -612,8 +612,8 @@ class fMPS(object):
         padded_self, padded_other = mps_pad(self, other)
 
         F = ones((1, 1))
-        for L, R in zip(padded_self, padded_other):
-            F = tensordot(tensordot(cT(L), F, (-1, 1)), R, ([0, -1], [0, 1]))
+        for t, b in zip(padded_self, padded_other):
+            F = ncon([F, t, c(b)], [[1, 2], [3, 1, -1], [3, 2, -2]])
         return F[0][0]
 
     def from_product_state(self, product_state):
@@ -746,8 +746,8 @@ class fMPS(object):
 
     def Es(self, ops, site):
         M = self.mixed_canonicalise(site)[site]
-        return [re(tensordot(op, trace(dot(cT(M),  M), axis1=1, axis2=3), [[0, 1], [0, 1]]))
-                for op in ops]
+        return np.array([re(tensordot(op, trace(dot(cT(M),  M), axis1=1, axis2=3), [[0, 1], [0, 1]]))
+                for op in ops])
 
     def E_L(self, op):
         """E_L: expectation of a full size operator
