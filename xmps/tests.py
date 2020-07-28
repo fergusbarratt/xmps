@@ -28,9 +28,11 @@ def is_right_canonical(mats, c=1e-8, z=1e-8, error=False):
     :param z: clip to zero below z
     :error: print error information
     """
+    if mats is []:
+        raise Exception('empty list')
     Is = [tensordot(x, H(x), [[0, -1], [0, 1]]) for x in mats]
     Is = clip(Is, z)
-    zero = [identity(max(x.shape))-x for x in Is]
+    zero = [abs(identity(max(x.shape))-x) for x in Is]
     zero = clip(zero, z)
     close = [sum(z) for z in zero]
     if error:
@@ -47,9 +49,11 @@ def is_left_canonical(mats, c=1e-8, z=1e-8, error=False):
     :param z: clip to zero below z
     :error: print error information
     """
+    if mats is []:
+        raise Exception('empty list')
     Is = [tensordot(H(x), x, [[0, -1], [0, 1]]) for x in mats]
     Is = clip(Is, z)
-    zero = [identity(max(x.shape))-x for x in Is]
+    zero = [abs(identity(max(x.shape))-x) for x in Is]
     zero = clip(zero, z)
     close = [sum(z) for z in zero]
     # implications of sum/norm here - maybe averaging out error is ok

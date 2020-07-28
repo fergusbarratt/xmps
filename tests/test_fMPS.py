@@ -66,12 +66,22 @@ class TestfMPS(unittest.TestCase):
                             randint(D_min, D_max)).right_canonicalise(
                             randint(D_min, D_max))
                             for _ in range(N)]
+        self.right_ortho_cases = [fMPS().random(
+                                randint(L_min, L_max),
+                                randint(d_min, d_max),
+                                randint(D_min, D_max)).right_orthogonalise()
+                           for _ in range(N)]
         # N random MPSs, left canonicalised and truncated to random D
         self.left_cases = [fMPS().random(
                             randint(L_min, L_max),
                             randint(d_min, d_max),
                             randint(D_min, D_max)).left_canonicalise(
                             randint(D_min, D_max))
+                           for _ in range(N)]
+        self.left_ortho_cases = [fMPS().random(
+                                randint(L_min, L_max),
+                                randint(d_min, d_max),
+                                randint(D_min, D_max)).left_orthogonalise()
                            for _ in range(N)]
         self.mixed_cases = [fMPS().random(
                             randint(L_min, L_max),
@@ -121,6 +131,35 @@ class TestfMPS(unittest.TestCase):
                          self.mps_0_8, self.mps_0_9]
 
         self.all_cases = self.rand_cases+self.right_cases+self.left_cases+self.mixed_cases+self.fixtures
+
+    def test_orthogonalise(self):
+        for case_ in self.rand_cases:
+            case = case_.copy().left_orthogonalise()
+            self.assertTrue(is_left_canonical(case.data))
+            self.assertTrue(not allclose(case.norm_, 1))
+            self.assertTrue(allclose(case.norm(), 1))
+
+            case = case_.copy().right_orthogonalise()
+            self.assertTrue(is_right_canonical(case.data))
+            self.assertTrue(not allclose(case.norm_, 1))
+            self.assertTrue(allclose(case.norm(), 1))
+
+            old_evs = case.Es([Sx, Sy, Sz], 3)
+            for _ in range(10):
+                case = case.right_orthogonalise()
+                self.assertTrue(np.allclose(old_evs, case.Es([Sx, Sy, Sz], 3)))
+
+                case = case.left_orthogonalise()
+                self.assertTrue(np.allclose(old_evs, case.Es([Sx, Sy, Sz], 3)))
+
+            for i in range(case_.L):
+                case = case_.copy().mixed_orthogonalise(i)
+                self.assertTrue(is_left_canonical(case.data[:i]))
+                self.assertTrue(is_right_canonical(case.data[i+1:]))
+
+                self.assertTrue(np.allclose(case_.copy().E(Sx, i), case_.copy().E_(Sx, i)))
+                self.assertTrue(np.allclose(case_.copy().E(Sy, i), case_.copy().E_(Sy, i)))
+                self.assertTrue(np.allclose(case_.copy().E(Sz, i), case_.copy().E_(Sz, i)))
 
     def test_overlap(self):
         for case1, case2 in product(self.left_cases[1:], self.left_cases):
@@ -809,14 +848,14 @@ class TestfMPS(unittest.TestCase):
 
         mps = mps_0.copy()
         for _ in range(30):
-            evs.append(mps.E(Sx, 0))
+            evs.append(mps.E_(Sx, 0))
             old_mps = mps.copy()
             mps = (mps + mps.dA_dt(H)*0.1).left_canonicalise()
             mps = mps.match_gauge_to(old_mps).copy()
 
         mps = mps_0.copy()
         for _ in range(30):
-            evs_.append(mps.E(Sx, 0))
+            evs_.append(mps.E_(Sx, 0))
             mps = (mps + mps.dA_dt(H)*0.1).left_canonicalise()
 
         self.assertTrue(allclose(array(evs),array(evs_)))

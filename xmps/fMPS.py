@@ -1,5 +1,6 @@
 """fMPS: Finite length matrix product states"""
 import numpy as np
+import scipy as sp
 import pyximport
 pyximport.install(setup_args={"include_dirs":np.get_include()},
                   reload_support=True)
@@ -29,6 +30,9 @@ from .tests import is_left_canonical, is_left_env_canonical, has_trace_1
 from .tensor import H as cT, truncate_A, truncate_B, diagonalise, rank, mps_pad
 from .tensor import C as c, lanczos_expm, tr_svd, T
 from .tensor import rdot, ldot, structure
+
+from .peps_tools import group_legs, ungroup_legs
+
 #from .left_transfer import lt as lt_
 def lt_(op,As,j,i):
     Ls = [op]
@@ -53,13 +57,18 @@ SWAP = np.array([[1, 0, 0, 0],
                  [0, 1, 0, 0],
                  [0, 0, 0, 1]])
 
-from .ncon import ncon as ncon
-#def ncon(*args): return nc(*args, check_indices=False)
+from .ncon import ncon as nc
+def ncon(*args): return nc(*args, check_indices=False) # make default ncon not check indices
 
-def apply_unitary(tensors, U):
-    grouped = np.tensordot(U, group_tensors(tensors), [1, 0])
-    ret = separate_tensor(grouped)
-    return ret
+def apply_unitary(tensors, U, which='l', D=None):
+    if D is None:
+        if which == 'l':
+            return separate_tensor_qr(np.tensordot(U, group_tensors(tensors), [1, 0]))
+        elif which == 'r':
+            return separate_tensor_rq(np.tensordot(U, group_tensors(tensors), [1, 0]))
+    else:
+        return separate_tensor_svd(np.tensordot(U, group_tensors(tensors), [1, 0]), D, which)
+
 
 def apply_isometry(tensors, Is):
     return np.tensordot(Is, group_tensors(tensors), [1, 0])
@@ -74,13 +83,7 @@ def factors(n):
             return [i, n//i]
     raise Exception('something\'s wrong here')
 
-i = 0
-def separate_tensor(tensor, D=None):
-    global i
-    i = i+1
-    if D==1:
-        i = 0
-   # print(i)
+def separate_tensor_svd(tensor, D=None, which='l'):
     d1, d2 = factors(tensor.shape[0]) # this is a guess at the two local hilbert space dimensions
     # there's a non-uniqueness as soon as you've grouped them - makes them as similar as poss.
     u, s, v = svd(tensor.reshape(d1, d2, tensor.shape[1], tensor.shape[2]
@@ -88,7 +91,34 @@ def separate_tensor(tensor, D=None):
                              ).reshape(d1*tensor.shape[1], d2*tensor.shape[2]), full_matrices=False)
 
     D = u.shape[1] if D is None else D
-    A, B = u[:, :D], np.diag(s)[:D, :]@v
+    if which == 'l':
+        n = norm(s)
+        A, B = u[:, :D], np.diag(s)[:D, :]@v/norm(s[:D])
+        A, B = A.reshape(d1, tensor.shape[1], A.shape[1]), B.reshape(B.shape[0], d2, tensor.shape[2]).transpose([1, 0, 2])
+    elif which == 'r':
+        n = norm(s)
+        A, B = u[:, :]@np.diag(s)[:, :D]/norm(s[:D]), v[:D, :]
+        A, B = A.reshape(d1, tensor.shape[1], A.shape[1]), B.reshape(B.shape[0], d2, tensor.shape[2]).transpose([1, 0, 2])
+    else:
+        raise Exception('which should be l or r')
+    return [A, B]
+
+def separate_tensor_qr(tensor):
+    d1, d2 = factors(tensor.shape[0]) # this is a guess at the two local hilbert space dimensions
+    # there's a non-uniqueness as soon as you've grouped them - makes them as similar as poss.
+    A, B = sp.linalg.qr(tensor.reshape(d1, d2, tensor.shape[1], tensor.shape[2]
+                             ).transpose([0, 2, 1, 3]
+                             ).reshape(d1*tensor.shape[1], d2*tensor.shape[2]), mode='economic')
+
+    A, B = A.reshape(d1, tensor.shape[1], A.shape[1]), B.reshape(B.shape[0], d2, tensor.shape[2]).transpose([1, 0, 2])
+    return [A, B]
+
+def separate_tensor_rq(tensor):
+    d1, d2 = factors(tensor.shape[0]) # this is a guess at the two local hilbert space dimensions
+    # there's a non-uniqueness as soon as you've grouped them - makes them as similar as poss.
+    A, B = sp.linalg.rq(tensor.reshape(d1, d2, tensor.shape[1], tensor.shape[2]
+                             ).transpose([0, 2, 1, 3]
+                             ).reshape(d1*tensor.shape[1], d2*tensor.shape[2]), mode='economic')
     A, B = A.reshape(d1, tensor.shape[1], A.shape[1]), B.reshape(B.shape[0], d2, tensor.shape[2]).transpose([1, 0, 2])
     return [A, B]
 
@@ -118,6 +148,8 @@ class fMPS(object):
             else:
                 self.D = max([max(x.shape[1:]) for x in data])
             self.data = data
+            self.canonical = False
+            self.orthogonal = False
 
     def __call__(self, k):
         """__call__: 1-based indexing
@@ -250,6 +282,9 @@ class fMPS(object):
 
         self.D = max([max(shape[1:]) for shape in self.structure()])
 
+        self.orthogonal = True
+        self.canonical = False
+        self.oc = self.L
         return self
 
     def right_from_state(self, state):
@@ -279,6 +314,9 @@ class fMPS(object):
 
         self.D = max([max(shape[1:]) for shape in self.structure()])
 
+        self.orthogonal = True
+        self.canonical = False
+        self.oc = 0
         return self
 
     def recombine(self):
@@ -366,6 +404,8 @@ class fMPS(object):
                 for shape in self.create_structure(L, d, D)]
         self.D = max([max(shape[1:]) for shape in self.create_structure(L, d, D)])
         self.data = MPS
+        self.canonical = False
+        self.orthogonal = False
         return self
 
     def create_structure(self, L, d, D, phys=False):
@@ -464,6 +504,9 @@ class fMPS(object):
                 and self.is_full_rank\
                 and self.has_trace_1
 
+        self.canonical = True
+        self.orthogonal = True
+        self.oc = 0
         return self
 
     def left_canonicalise(self, D=None, testing=False, sweep_back=True, minD=True):
@@ -539,6 +582,9 @@ class fMPS(object):
                 and self.is_full_rank\
                 and self.has_trace_1
 
+        self.canonical=True
+        self.orthogonal=True
+        self.oc = self.L
         return self
 
     def mixed_canonicalise(self, oc, D=None, testing=False, sweep_back=True):
@@ -572,13 +618,68 @@ class fMPS(object):
             self.ok = self.ok and is_left_canonical(self.data[:oc])\
                               and is_right_canonical(self.data[oc+1:])
 
+        self.canonical = True
+        self.orthogonal = True
         return self
 
-    def entanglement_entropy(self, site):
+    def right_orthogonalise(self, fr=0, to=None):
+        """right_orthogonalise: bring internal fMPS to right orthogonal form
+           (no sweeping back to sort out left envs, no info on rank anywhere. Uses QR)
+           :param fr: where to orthogonalise from. Inclusive (self[fr] gets orthoed)"""
+        to = self.L if to is None else to
+        for m in reversed(range(fr, to)):
+            A, pipe = group_legs(self.data[m], [[1], [0, 2]])
+            R, Q = sp.linalg.rq(A, mode='economic')
+            self.data[m] = ungroup_legs(Q, pipe)
+            if m!= 0:
+                self.data[m-1] = self.data[m-1]@R
+            else:
+                self.norm_ = R
+        if fr == 0 and to == self.L:
+            self.orthogonal = True
+            self.oc = 0
+        return self
+
+    def left_orthogonalise(self, fr=0, to=None):
+        """left_orthogonalise: bring internal fMPS to left orthogonal form
+           (no sweeping back to sort out right envs, no info on rank anywhere. Uses QR)
+           :param to: where to orthogonalise to. Exclusive (self[to] doesn't get orthoed"""
+        to = self.L if to is None else to
+        for m in range(fr, to):
+            A, pipe = group_legs(self.data[m], [[0, 1], [2]])
+            Q, R = sp.linalg.qr(A, mode='economic')
+            self.data[m] = ungroup_legs(Q, pipe)
+            if m != self.L-1:
+                self.data[m+1] = R@self.data[m+1]
+            else:
+                self.norm_ = R
+        if fr == 0 and to == self.L:
+            self.orthogonal = True
+            self.oc = self.L
+        return self
+
+    def mixed_orthogonalise(self, oc, current_oc=None):
+        '''mixed_orthogonalise: bring to mixed orthogonal form.
+           (no sweeping back to sort out right envs or rank, no info on rank anywhere. Uses QR)
+           :param current_status: \in ('l', 'r'): if the current mps is left/right orthogonal (up to the oc)
+        '''
+        if current_oc is None:
+            self.right_orthogonalise(fr=oc)
+            self.left_orthogonalise(to=oc)
+        else:
+            raise NotImplementedError
+        self.norm_ = norm(self[oc].reshape(-1))
+        self[oc] /= self.norm_
+        self.orthogonal = True
+        self.oc = oc
+        return self
+
+    def entanglement_entropy(self, site, thresh=1e-8):
         """von neumann entanglement entropy across bond to left of site
         """
         self.left_canonicalise()
-        return -np.diag(np.real(self.Ls[site]))@np.log(np.diag(np.real(self.Ls[site])))
+        LL = np.abs(np.diag(self.Ls[site]))[np.abs(np.diag(self.Ls[site]))>1e-8]
+        return -LL@np.log(LL)
 
     def update_properties(self):
         """update_properties: Could be slow"""
@@ -630,7 +731,7 @@ class fMPS(object):
         return self.recombine().reshape(-1).conj().T@other.recombine().reshape(-1)
 
     def norm(self):
-        """norm: not efficient - computes full overlap.
+        """norm: not (that) efficient - computes the overlap. (not the full one tho)
         use self.E(identity(self.d), site) for mixed
         canonicalising version"""
         return self.overlap(self)
@@ -701,19 +802,26 @@ class fMPS(object):
         new_data[site] = td(op, new_data[site], [1, 0])
         return fMPS(new_data)
 
-    def apply_two_site(self, opsites):
+    def apply_two_site(self, opsites, which='l', D=None, truncate_swaps=False):
+        '''apply a two site operator op to sites (i, j) = sites, (op, sites) = opsites
+        :param opsites: operator and sites to apply
+        :param which: which site to leave a canonical tensor on
+        :param D: what bond dimension to truncate to. None means no truncation
+        :param truncate_swaps: whether to truncate to bond dimension D with each swap 
+        when applying long range operators.'''
+        swap_D = None if not truncate_swaps else D
         op, (i, j) = opsites
-        assert j != i
-        if not j > i:
-            j, i = i, j
+        i, j = (i, j) if (j > i) else (j, i)
         i_ = j-1
         while i_ >= i+1:
-            self.apply_two_site((SWAP, (i_, i_+1)))
+            self[i_], self[i_+1] = apply_unitary([self[i_], self[i_+1]], SWAP, which, swap_D)
+            #self.apply_two_site((SWAP, (i_, i_+1)))
             i_ = i_-1
-        self[i], self[i+1] = apply_unitary([self[i], self[i+1]], op)
+        self[i], self[i+1] = apply_unitary([self[i], self[i+1]], op, which, D)
         while i_ < j-1:
             i_ = i_+1
-            self.apply_two_site((SWAP, (i_, i_+1)))
+            self[i_], self[i_+1] = apply_unitary([self[i_], self[i_+1]], SWAP, which, swap_D)
+            #self.apply_two_site((SWAP, (i_, i_+1)))
         return self
 
     def apply_two_site_isometry(self, opsites, lr=0):
@@ -740,9 +848,24 @@ class fMPS(object):
 
         :param op: 1 site operator
         :param site: site
+        :param current_status: if the mps is left/right orthogonal, then set to ('l', 'r')
         """
-        M = self.mixed_canonicalise(site, sweep_back=False)[site]
-        return re(tensordot(op, trace(dot(cT(M),  M), axis1=1, axis2=3), [[0, 1], [0, 1]]))
+        if (not self.canonical and not self.orthogonal) or (hasattr(self, 'oc') and self.oc != site):
+            self.mixed_orthogonalise(site)
+        M = self[site]
+        return re(ncon([M, c(M), op], [[1, 3, 4], [2, 3, 4], [1, 2]], [3, 4, 1, 2]))
+        #return re(tensordot(op, trace(dot(cT(M),  M), axis1=1, axis2=3), [[0, 1], [0, 1]]))
+
+    def E_(self, op, site):
+        """E: one site expectation value. Canonicalises (rather than orthogonalises). This is sometimes important (don't know why rn.). 
+
+        :param op: 1 site operator
+        :param site: site
+        """
+        M = self.mixed_canonicalise(site, sweep_back=True)[site]
+        return re(ncon([M, c(M), op], [[1, 3, 4], [2, 3, 4], [1, 2]]))
+        #return re(tensordot(op, trace(dot(cT(M),  M), axis1=1, axis2=3), [[0, 1], [0, 1]]))
+
 
     def Es(self, ops, site):
         M = self.mixed_canonicalise(site)[site]
