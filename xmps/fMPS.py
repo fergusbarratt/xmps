@@ -1021,6 +1021,7 @@ class fMPS(object):
                         [[2, 1, 4], [6, 4, 8], [3, 6, 2, 7], [3, 1, -1], [7, -2, 8]])
 
         if threshold is not None:
+            raise Exception
             if self.projection_error(H, dt) < threshold:
                 return self
 
@@ -1034,6 +1035,7 @@ class fMPS(object):
 
             U, s, V = tr_svd(G(m), D_-D)
             x, y = U@sqrt(s), sqrt(s)@V
+            self.xy = x, y
             dA01, dA10 = sqrt(dt)*l(m-1)@vL(m)@x, sqrt(dt)*y@vR(m+1)@r(m+1)
 
             A[m], A[m+1] = ct([A[m]+dt*dA_dt[m], dA01], 2), ct([A[m+1]+dt*dA_dt[m+1], dA10], 1)

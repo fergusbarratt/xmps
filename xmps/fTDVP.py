@@ -59,6 +59,7 @@ class Trajectory(object):
 
         self.mps_0 = mps_0.copy() if mps_0 is not None else mps_0
         self.mps = mps_0.copy() if mps_0 is not None else mps_0
+        self.Ds = [self.mps.D] if self.mps is not None else []
         self.fullH=fullH
         self.mps_history = []
         self.run_name = run_name
@@ -68,12 +69,14 @@ class Trajectory(object):
         H = self.H if H is None else H
         if store:
             self.mps_history.append(mps.serialize(real=True))
-        return (mps + mps.dA_dt(H, fullH=self.fullH)*dt).left_canonicalise()
+            self.Ds.append(mps.D)
+        return (mps + mps.dA_dt(H, fullH=self.fullH)*dt).left_canonicalise(mps.D)
 
     def rk4(self, mps, dt, H=None, store=True):
         H = self.H if H is None else H
         if store:
             self.mps_history.append(mps.serialize(real=True))
+            self.Ds.append(mps.D)
         k1 = mps.dA_dt(H, fullH=self.fullH)*dt
         k2 = (mps+k1/2).dA_dt(H, fullH=self.fullH)*dt
         k3 = (mps+k2/2).dA_dt(H, fullH=self.fullH)*dt
@@ -82,11 +85,13 @@ class Trajectory(object):
         return (mps+(k1+2*k2+2*k3+k4)/6).left_canonicalise()
 
     def invfree(self, mps, dt, W=None, store=True):
+        W = W if W is not None else self.W
         if store:
             self.mps_history.append(mps.serialize(real=True))
+            self.Ds.append(mps.D)
         if self.continuous:
             A_old = mps.copy()
-        A = tdvp(mps.data, self.W, 1j*dt/2)
+        A = tdvp(mps.data, W, 1j*dt/2)
         return fMPS(A[0]) if not self.continuous else fMPS(A[0]).match_gauge_to(A_old)
 
     def invfree4(self, mps, dt, W=None, store=True):
@@ -94,6 +99,7 @@ class Trajectory(object):
         """
         if store:
             self.mps_history.append(mps.serialize(real=True))
+            self.Ds.append(mps.D)
         if self.continuous:
             A_old = mps.copy()
         a1, a2, a3 = b5, b4, b3 = (146+5*sqrt(19))/540, (-2+10*sqrt(19))/135, 1/5
@@ -143,6 +149,10 @@ class Trajectory(object):
         assert self.W is not None
         mps, H = self.mps, self.H
         L, d, D = mps.L, mps.d, mps.D
+        #if D> mps.D:
+        #    mps.expand(D)
+        #else:
+        #    mps.left_canonicalise(D)
 
         for t in tqdm(T):
             if order=='high':
@@ -151,6 +161,24 @@ class Trajectory(object):
                 mps = self.invfree(mps, T[1]-T[0])
 
         self.mps = fMPS().deserialize(self.mps_history[-1], L, d, D, real=True)
+        return self
+
+    def expand(self, D):
+        self.mps.expand(D)
+        self.Ds[-1] = D
+        return self
+
+    def dynamical_expand(self, D, dt, H=None):
+        assert self.H is not None or H is not None
+        H = self.H if H is None and self.H is not None else H
+
+        self.mps.dynamical_expand(self.H, dt, D, None)
+        self.Ds[-1] = D
+        return self
+
+    def contract(self, D):
+        self.mps.left_canonicalise(D)
+        self.Ds[-1] = D
         return self
 
     def odeint(self, T):
@@ -207,7 +235,7 @@ class Trajectory(object):
         self.ed_history = [psi_0]
         dt = T[1]-T[0]
         for t in tqdm(T[:-1]):
-            psi_n = expm(-1j *H*dt)@psi_n
+            psi_n = expm_multiply(-1j *H*dt, psi_n)
             self.ed_history.append(psi_n)
 
         self.ed_history = array(self.ed_history)
@@ -253,7 +281,8 @@ class Trajectory(object):
                  just_max=False,
                  t_burn=2,
                  initial_basis='F2',
-                 order='high'):
+                 order='low', 
+                 k=0):
         self.has_run_lyapunov = True
         H = self.H
         has_mpo = self.W is not None
@@ -261,6 +290,7 @@ class Trajectory(object):
             # if MPO supplied - just expand, canonicalise and use inverse free integrator
             # otherwise use dynamical expand: less numerically stable
             # if we already have a basis set - we must be resuming a run
+            print('starting pre evolution ... ', end='')
             if has_mpo:
                 self.mps = self.mps.right_canonicalise().expand(D)
                 self.invfreeint(linspace(0, t_burn, int(50*t_burn)), order='high')
@@ -269,6 +299,7 @@ class Trajectory(object):
             else:
                 self.mps = self.mps.grow(self.H, 0.1, D).right_canonicalise()
                 self.rk4int(linspace(0, 1, 100))
+            print('finished pre evolution')
 
         if hasattr(self, 'Q'):
             Q = self.Q
@@ -287,7 +318,7 @@ class Trajectory(object):
         lys = []
         lys_ = []
         self.vs = []
-        for t in tqdm(range(len(T))):
+        for _ in tqdm(range(len(T))):
             J = self.mps.jac(H)
             if hasattr(self.mps, 'old_vL'):
                 self.vs.append(self.mps.v)
@@ -307,9 +338,9 @@ class Trajectory(object):
                 vL = self.mps.new_vL
 
                 if order=='high':
-                    self.mps = self.invfree4(self.mps, dt, H)
+                    self.mps = self.invfree4(self.mps, dt)
                 elif order=='low':
-                    self.mps = self.invfree(self.mps, dt, H)
+                    self.mps = self.invfree(self.mps, dt)
 
                 self.mps.old_vL = vL
                 self.vL = vL
@@ -333,14 +364,15 @@ class Trajectory(object):
 
         if just_max:
             self.q = q
-            k = 200
-            self.exps = (1/dt)*cs(self.lys, axis=0)[k:]/ar(1, len(self.lys)+1-k)
+            self.exps = (1/dt)*cs(self.lys[k:], axis=0)/ar(1, len(self.lys)+1-k)
+            T = T[k:]
         else:
             self.Q = Q
-            self.exps = (1/dt)*cs(self.lys[10:], axis=0)/ed(ar(1, len(self.lys)+1), 1)[10:]
+            self.exps = (1/dt)*cs(self.lys[k:], axis=0)/ed(ar(1, len(self.lys)+1-k), 1)
+            T = T[k:]
 
         if hasattr(self, 'lys_'):
-            return self.exps, self.lys, self.lys_
+            return T, self.exps, self.lys, self.lys_
         else:
             return self.exps, self.lys
 
@@ -428,13 +460,17 @@ class Trajectory(object):
                 self.mps_history.append(mps.serialize(real=True))
         assert self.mps_history
         L, d, D = self.mps.L, self.mps.d, self.mps.D
-        return list(map(lambda x: fMPS().deserialize(x, L, d, D, real=True).left_canonicalise(), self.mps_history))
+        return [fMPS().deserialize(x, L, d, D, real=True) for D, x in zip(self.Ds, self.mps_history)]
 
     def mps_evs(self, ops, site):
+        if hasattr(self, 'ed_history') and not self.mps_history:
+            for x in self.ed_history:
+                mps = fMPS().left_from_state(x.reshape([self.mps.d]*self.mps.L)).left_canonicalise()
+                self.mps_history.append(mps.serialize(real=True))
         assert self.mps_history
         L, d, D = self.mps.L, self.mps.d, self.mps.D
         return array([mps.Es(ops, site)
-                     for mps in map(lambda x: fMPS().deserialize(x, L, d, D, real=True), self.mps_history)])
+                     for mps in (fMPS().deserialize(x, L, d, D, real=True) for D, x in zip(self.Ds, self.mps_history))])
 
     def mps_energies(self):
         assert self.H is not None
@@ -466,7 +502,7 @@ class Trajectory(object):
             assert self.mps_history
             L, d, D = self.mps.L, self.mps.d, self.mps.D
             sch = []
-            for mps in map(lambda x: fMPS().deserialize(x, L, d, D, real=True), self.mps_history):
+            for mps in (fMPS().deserialize(x, L, d, D, real=True) for D, x in zip(self.Ds, self.mps_history)):
                 sch.append([diag(x) for x in mps.left_canonicalise().Ls])
             return sch
 
