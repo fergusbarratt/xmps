@@ -42,6 +42,7 @@ Sx, Sy, Sz = spins(0.5)
 Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
 Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
 
+
 class Trajectory(object):
     """Trajectory"""
 
@@ -54,13 +55,13 @@ class Trajectory(object):
         :param T: time steps
         :param run_name: prefix for saving
         """
-        self.H = H # hamiltonian as list of 4x4 mats or big matrix
-        self.W = W # hamiltonian as mpo - required for invfreeint
+        self.H = H  # hamiltonian as list of 4x4 mats or big matrix
+        self.W = W  # hamiltonian as mpo - required for invfreeint
 
         self.mps_0 = mps_0.copy() if mps_0 is not None else mps_0
         self.mps = mps_0.copy() if mps_0 is not None else mps_0
         self.Ds = [self.mps.D] if self.mps is not None else []
-        self.fullH=fullH
+        self.fullH = fullH
         self.mps_history = []
         self.run_name = run_name
         self.continuous = continuous
@@ -102,14 +103,15 @@ class Trajectory(object):
             self.Ds.append(mps.D)
         if self.continuous:
             A_old = mps.copy()
-        a1, a2, a3 = b5, b4, b3 = (146+5*sqrt(19))/540, (-2+10*sqrt(19))/135, 1/5
+        a1, a2, a3 = b5, b4, b3 = (146+5*sqrt(19)) / \
+            540, (-2+10*sqrt(19))/135, 1/5
         b1, b2 = a5, a4 = (14-sqrt(19))/108, (-23-20*sqrt(19))/270
         A = tdvp(tdvp(tdvp(tdvp(tdvp(mps.data,
                                      self.W, 1j*dt, a=a1, b=b1)[0],
-                                 self.W, 1j*dt, a=a2, b=b2)[0],
-                             self.W, 1j*dt, a=a3, b=b3)[0],
-                       self.W, 1j*dt, a=a4, b=b4)[0],
-                   self.W, 1j*dt, a=a5, b=b5)
+                                self.W, 1j*dt, a=a2, b=b2)[0],
+                           self.W, 1j*dt, a=a3, b=b3)[0],
+                      self.W, 1j*dt, a=a4, b=b4)[0],
+                 self.W, 1j*dt, a=a5, b=b5)
         return fMPS(A[0]) if not self.continuous else fMPS(A[0]).match_gauge_to(A_old)
 
     def eulerint(self, T):
@@ -149,15 +151,15 @@ class Trajectory(object):
         assert self.W is not None
         mps, H = self.mps, self.H
         L, d, D = mps.L, mps.d, mps.D
-        #if D> mps.D:
+        # if D> mps.D:
         #    mps.expand(D)
-        #else:
+        # else:
         #    mps.left_canonicalise(D)
 
         for t in tqdm(T):
-            if order=='high':
+            if order == 'high':
                 mps = self.invfree4(mps, T[1]-T[0])
-            elif order=='low':
+            elif order == 'low':
                 mps = self.invfree(mps, T[1]-T[0])
 
         self.mps = fMPS().deserialize(self.mps_history[-1], L, d, D, real=True)
@@ -192,7 +194,7 @@ class Trajectory(object):
         mps, H = self.mps.left_canonicalise(), self.H
         L, d, D = mps.L, mps.d, mps.D
         bar = tqdm()
-        m=0
+        m = 0
 
         def f(t, v):
             """f_odeint: f acting on real vector
@@ -202,17 +204,16 @@ class Trajectory(object):
             """
             bar.update()
             nonlocal m
-            m+=1
-            if m==4:
+            m += 1
+            if m == 4:
                 return fMPS().deserialize(v, L, d, D, real=True)\
-                            .left_canonicalise()\
-                            .dA_dt(H, fullH=self.fullH)\
-                            .serialize(real=True)
+                    .left_canonicalise()\
+                    .dA_dt(H, fullH=self.fullH)\
+                    .serialize(real=True)
             else:
                 return fMPS().deserialize(v, L, d, D, real=True)\
-                            .dA_dt(H, fullH=self.fullH)\
-                            .serialize(real=True)
-
+                    .dA_dt(H, fullH=self.fullH)\
+                    .serialize(real=True)
 
         v = mps.serialize(real=True)
         Q = solve_ivp(f, (T[0], T[-1]), v, method='LSODA', t_eval=T,
@@ -235,25 +236,27 @@ class Trajectory(object):
         self.ed_history = [psi_0]
         dt = T[1]-T[0]
         for t in tqdm(T[:-1]):
-            psi_n = expm_multiply(-1j *H*dt, psi_n)
+            psi_n = expm_multiply(-1j * H*dt, psi_n)
             self.ed_history.append(psi_n)
 
         self.ed_history = array(self.ed_history)
         self.psi = self.ed_history[-1]
-        self.mps = fMPS().left_from_state(self.psi.reshape([self.mps.d]*self.mps.L))
+        self.mps = fMPS().left_from_state(
+            self.psi.reshape([self.mps.d]*self.mps.L))
         return self
 
     def lyapunov2(self, T, D=None, t_burn=0):
         self.has_run_lyapunov = True
         H = self.H
         has_mpo = self.W is not None
-        if D is not None and t_burn!=0 and not hasattr(self, 'Q'):
+        if D is not None and t_burn != 0 and not hasattr(self, 'Q'):
             # if MPO supplied - just expand, canonicalise and use inverse free integrator
             # otherwise use dynamical expand: less numerically stable
             # if we already have a basis set - we must be resuming a run
             if has_mpo:
                 self.mps = self.mps.right_canonicalise().expand(D)
-                self.invfreeint(linspace(0, t_burn, int(50*t_burn)), order='high')
+                self.invfreeint(
+                    linspace(0, t_burn, int(50*t_burn)), order='high')
                 self.burn_len = int(200*t_burn)
                 self.mps_history = []
             else:
@@ -277,28 +280,31 @@ class Trajectory(object):
 
         return eigvalsh(Js)
 
-    def lyapunov(self, T, D=None,
+    def lyapunov(self, T, D=None, thresh=1e-5, conv_window=20,
                  just_max=False,
                  t_burn=2,
                  initial_basis='F2',
-                 order='low', 
+                 order='low',
                  k=0):
         self.has_run_lyapunov = True
         H = self.H
         has_mpo = self.W is not None
-        if D is not None and t_burn!=0 and not hasattr(self, 'Q'):
+        if D is not None and t_burn != 0 and not hasattr(self, 'Q'):
             # if MPO supplied - just expand, canonicalise and use inverse free integrator
             # otherwise use dynamical expand: less numerically stable
             # if we already have a basis set - we must be resuming a run
-            print('starting pre evolution ... ', end='')
+            print('starting pre evolution ... ', end='', flush=True)
+
             if has_mpo:
                 self.mps = self.mps.right_canonicalise().expand(D)
-                self.invfreeint(linspace(0, t_burn, int(50*t_burn)), order='high')
+                self.invfreeint(
+                    linspace(0, t_burn, int(50*t_burn)), order=order)
                 self.burn_len = int(200*t_burn)
                 self.mps_history = []
             else:
                 self.mps = self.mps.grow(self.H, 0.1, D).right_canonicalise()
                 self.rk4int(linspace(0, 1, 100))
+
             print('finished pre evolution')
 
         if hasattr(self, 'Q'):
@@ -306,7 +312,8 @@ class Trajectory(object):
         elif initial_basis == 'F2':
             Q = self.mps.tangent_space_basis(H=H, type=initial_basis)
         elif initial_basis == 'eye' or initial_basis == 'rand':
-            Q = kron(eye(2), self.mps.tangent_space_basis(H=H, type=initial_basis))
+            Q = kron(eye(2), self.mps.tangent_space_basis(
+                H=H, type=initial_basis))
         else:
             Q = initial_basis
         Q_ = copy(Q)
@@ -315,10 +322,21 @@ class Trajectory(object):
             # just evolve top vector, dont bother with QR
             q = Q[0]
         dt = T[1]-T[0]
+
         lys = []
+        exps = [array([0])]
+
         lys_ = []
+        exps_ = [array([0])]
+
         self.vs = []
-        for _ in tqdm(range(len(T))):
+
+        conv = []
+        conv_ = []
+
+        paired = []
+        paired_ = []
+        for n in tqdm(range(len(T))):
             J = self.mps.jac(H)
             if hasattr(self.mps, 'old_vL'):
                 self.vs.append(self.mps.v)
@@ -328,18 +346,28 @@ class Trajectory(object):
                 q /= norm(q)
             else:
                 M = expm_multiply(J*dt, Q)
-                M_ = expm_multiply(-J.T*dt, Q_)
                 Q, R = qr(M)
-                Q_, R_ = qr(M_)
                 lys.append(log(abs(diag(R))))
+                exps.append((exps[-1]*n+lys[-1])/(n+1))
+                conv.append(norm(np.var(np.array(exps[-conv_window-1:])/dt, axis=0), ord=np.inf))
+                paired.append(norm(exps[-1]+exps[-1][::-1]))
+
+                M_ = expm_multiply(-J.T*dt, Q_)
+                Q_, R_ = qr(M_)
                 lys_.append(log(abs(diag(R_))))
+                exps_.append((exps[-1]*n+lys_[-1])/(n+1))
+                conv_.append(norm(np.var(np.array(exps_[-conv_window-1:])/dt, axis=0), ord=np.inf))
+                paired_.append(norm(exps_[-1]+exps_[-1][::-1]))
+
+                if thresh is not None and conv[-1] < thresh and conv_[-1] < thresh:
+                    break
 
             if has_mpo:
                 vL = self.mps.new_vL
 
-                if order=='high':
+                if order == 'high':
                     self.mps = self.invfree4(self.mps, dt)
-                elif order=='low':
+                elif order == 'low':
                     self.mps = self.invfree(self.mps, dt)
 
                 self.mps.old_vL = vL
@@ -364,17 +392,19 @@ class Trajectory(object):
 
         if just_max:
             self.q = q
-            self.exps = (1/dt)*cs(self.lys[k:], axis=0)/ar(1, len(self.lys)+1-k)
-            T = T[k:]
+            self.exps = exps[k+1:n+2]/dt
+            self.exps_ = exps_[k+1:n+2]/dt
+            T = T[k:n+1]
         else:
             self.Q = Q
-            self.exps = (1/dt)*cs(self.lys[k:], axis=0)/ed(ar(1, len(self.lys)+1-k), 1)
-            T = T[k:]
+            self.exps = exps[k+1:n+2]/dt
+            self.exps_ = exps_[k+1:n+2]/dt
+            T = T[k:n+1]
 
         if hasattr(self, 'lys_'):
-            return T, self.exps, self.lys, self.lys_
+            return T, (self.exps, self.lys, conv, paired), (self.exps_, self.lys_, conv_, paired_)
         else:
-            return self.exps, self.lys
+            return T, (self.exps, self.lys, conv, paired)
 
     def ts_int(self, T, D=None,
                order='high'):
@@ -391,9 +421,9 @@ class Trajectory(object):
 
             vL = self.mps.new_vL
 
-            if order=='high':
+            if order == 'high':
                 self.mps = self.invfree4(self.mps, dt, H)
-            elif order=='low':
+            elif order == 'low':
                 self.mps = self.invfree(self.mps, dt, H)
 
             self.mps.old_vL = vL
@@ -429,16 +459,16 @@ class Trajectory(object):
         V, W = ops
         mps_0, mpo = self.mps, self.W
         Ws = []
-        psi_1 = mps_0 #|s>
-        psi_2 = mps_0.copy().apply(V).left_canonicalise() # V|s>
+        psi_1 = mps_0  # |s>
+        psi_2 = mps_0.copy().apply(V).left_canonicalise()  # V|s>
         n2_0 = psi_2.norm_
         T = ct([[0], T])
         for t1, t2 in zip(T, T[1:]):
             for _ in linspace(t1, t2, int((t2-t1)/dt)):
                 psi_1 = self.invfree(psi_1, dt)
                 psi_2 = self.invfree(psi_2, dt)
-            psi_1_ = psi_1.copy().apply(W).left_canonicalise() #WU|s>
-            psi_2_ = psi_2.copy().apply(W).left_canonicalise() #WUV|s>
+            psi_1_ = psi_1.copy().apply(W).left_canonicalise()  # WU|s>
+            psi_2_ = psi_2.copy().apply(W).left_canonicalise()  # WUV|s>
             n1_1 = psi_1_.norm_
             n2_1 = psi_2_.norm_
             for _ in linspace(t1, t2, int((t2-t1)/dt)):
@@ -448,7 +478,7 @@ class Trajectory(object):
             n1_0 = psi_1_.norm_
             psi_1[0] *= n1_0*n1_1
             psi_2[0] *= n2_0*n2_1
-            Ws.append(psi_1_.overlap(psi_1_)+psi_2_.overlap(psi_2_)-
+            Ws.append(psi_1_.overlap(psi_1_)+psi_2_.overlap(psi_2_) -
                       0.5*re(psi_1_.overlap(psi_2_)))
 
         return Ws
@@ -456,7 +486,8 @@ class Trajectory(object):
     def mps_list(self):
         if hasattr(self, 'ed_history') and not self.mps_history:
             for x in tqdm(self.ed_history):
-                mps = fMPS().left_from_state(x.reshape([self.mps.d]*self.mps.L)).left_canonicalise()
+                mps = fMPS().left_from_state(
+                    x.reshape([self.mps.d]*self.mps.L)).left_canonicalise()
                 self.mps_history.append(mps.serialize(real=True))
         assert self.mps_history
         L, d, D = self.mps.L, self.mps.d, self.mps.D
@@ -465,12 +496,13 @@ class Trajectory(object):
     def mps_evs(self, ops, site):
         if hasattr(self, 'ed_history') and not self.mps_history:
             for x in self.ed_history:
-                mps = fMPS().left_from_state(x.reshape([self.mps.d]*self.mps.L)).left_canonicalise()
+                mps = fMPS().left_from_state(
+                    x.reshape([self.mps.d]*self.mps.L)).left_canonicalise()
                 self.mps_history.append(mps.serialize(real=True))
         assert self.mps_history
         L, d, D = self.mps.L, self.mps.d, self.mps.D
         return array([mps.Es(ops, site)
-                     for mps in (fMPS().deserialize(x, L, d, D, real=True) for D, x in zip(self.Ds, self.mps_history))])
+                      for mps in (fMPS().deserialize(x, L, d, D, real=True) for D, x in zip(self.Ds, self.mps_history))])
 
     def mps_energies(self):
         assert self.H is not None
@@ -495,7 +527,8 @@ class Trajectory(object):
             mpss = []
             print('calculating mps from ed...')
             for x in tqdm(self.ed_history):
-                mps = fMPS().left_from_state(x.reshape([self.mps.d]*self.mps.L))
+                mps = fMPS().left_from_state(
+                    x.reshape([self.mps.d]*self.mps.L))
                 sch.append([diag(x) for x in mps.left_canonicalise().Ls])
             return sch
         else:
@@ -529,7 +562,9 @@ class Trajectory(object):
     def save(self, loc='data/', exps=True, clear=True):
         assert self.mps_history
         assert hasattr(self, 'exps') if exps else True
-        self.id = self.run_name+'_L{}_D{}_N{}'.format(self.mps.L, self.mps.D, len(self.mps_history))
+        self.id = self.run_name + \
+            '_L{}_D{}_N{}'.format(self.mps.L, self.mps.D,
+                                  len(self.mps_history))
         save(loc+self.id, self.mps_history if not exps else self.lys)
         if exps:
             if hasattr(self, 'q'):
@@ -559,7 +594,8 @@ class Trajectory(object):
             os.makedirs(run_dir)
 
         self.run_dir = run_dir
-        name = 'L{}_D{}_N{}'.format(self.mps.L, self.mps.D, len(self.mps_history))
+        name = 'L{}_D{}_N{}'.format(
+            self.mps.L, self.mps.D, len(self.mps_history))
 
         self.mps.store(os.path.join(run_dir, name+'_state'))
         self.mps_0.store(os.path.join(run_dir, name+'_initial_state'))
@@ -586,26 +622,8 @@ class Trajectory(object):
         if n is None:
             n = max(list(map(lambda x: int(x[-1]), glob.glob(run_dir+'_*'))))
         self.run_dir = run_dir+'_'+str(n)
-        istate, state = sorted(glob.glob(os.path.join(self.run_dir, '*state*')))
-        H_loc = glob.glob(os.path.join(self.run_dir, '*ham*'))[0]
-        W_loc = glob.glob(os.path.join(self.run_dir, '*mpo*'))[0]
-        vL_loc = glob.glob(os.path.join(self.run_dir, '*vL*'))[0]
-        self.mps_0, self.mps = fMPS().load(istate), fMPS().load(state)
-        with open(H_loc, 'rb') as f:
-            self.H = pickle.load(f)
-        with open(W_loc, 'rb') as f:
-            self.W = pickle.load(f)
-        with open(vL_loc, 'rb') as f:
-            self.mps.old_vL = pickle.load(f)
+        istate, state = sorted(
+            glob.glob(os.path.join(self.run_dir, '*state*')))
 
-        if lys:
-            Q_loc = glob.glob(os.path.join(self.run_dir, '*basis*'))[0]
-            lys_loc = glob.glob(os.path.join(self.run_dir, '*inst*'))[0]
-            self.Q = load(Q_loc)
-            self.lys = load(lys_loc)
-
-        return self
-
-    def delete(self):
-        print('deleting...',  self.run_dir)
-        shutil.rmtree(self.run_dir)
+    def copy(self):
+        return copy(self)
