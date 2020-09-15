@@ -1,7 +1,8 @@
-from xmps.fMPS import fMPS, vfMPS
+from xmps.fMPS import fMPS, vfMPS, fTFD, fs
 
 import unittest
 
+import numpy as np
 from numpy.random import rand, randint, randn
 from numpy.linalg import svd, inv, norm, cholesky as ch, qr
 from numpy.linalg import eig, eigvalsh
@@ -14,9 +15,10 @@ from numpy import eye, cumsum as cs, sqrt, expand_dims as ed, imag as im
 from numpy import transpose as tra, trace as tr, tensordot as td, kron
 from numpy import mean, sign, angle, unwrap, exp, diff, pi, squeeze as sq
 from numpy import round, flipud, cos, sin, exp, arctan2, arccos, sign
+from numpy import linspace
 
 from scipy.linalg import null_space as null, orth, expm#, sqrtm as ch
-from scipy.linalg import polar
+from scipy.linalg import polar, block_diag as bd
 from scipy.sparse.linalg import LinearOperator, aslinearoperator
 
 from xmps.tests import is_right_canonical, is_right_env_canonical, is_full_rank
@@ -25,7 +27,7 @@ from xmps.tests import is_left_canonical, is_left_env_canonical, has_trace_1
 from xmps.tensor import H as cT, truncate_A, truncate_B, diagonalise, rank, mps_pad
 from xmps.tensor import C as c, lanczos_expm, tr_svd, T
 from xmps.tensor import rdot, ldot, structure
-from xmps.left_transfer import lt as lt_
+from xmps.fMPS import lt_ as lt_
 
 from xmps.spin import n_body, N_body_spins, spins
 
@@ -64,12 +66,22 @@ class TestfMPS(unittest.TestCase):
                             randint(D_min, D_max)).right_canonicalise(
                             randint(D_min, D_max))
                             for _ in range(N)]
+        self.right_ortho_cases = [fMPS().random(
+                                randint(L_min, L_max),
+                                randint(d_min, d_max),
+                                randint(D_min, D_max)).right_orthogonalise()
+                           for _ in range(N)]
         # N random MPSs, left canonicalised and truncated to random D
         self.left_cases = [fMPS().random(
                             randint(L_min, L_max),
                             randint(d_min, d_max),
                             randint(D_min, D_max)).left_canonicalise(
                             randint(D_min, D_max))
+                           for _ in range(N)]
+        self.left_ortho_cases = [fMPS().random(
+                                randint(L_min, L_max),
+                                randint(d_min, d_max),
+                                randint(D_min, D_max)).left_orthogonalise()
                            for _ in range(N)]
         self.mixed_cases = [fMPS().random(
                             randint(L_min, L_max),
@@ -79,8 +91,9 @@ class TestfMPS(unittest.TestCase):
                             randint(D_min, D_max))
                             for _ in range(N)]
 
+
         # finite fixtures 
-        fix_loc = 'tests/fixtures/'
+        fix_loc = 'fixtures/'
         self.tens_0_2 = load(fix_loc+'mat2x2.npy')
         self.tens_0_3 = load(fix_loc+'mat3x3.npy')
         self.tens_0_4 = load(fix_loc+'mat4x4.npy')
@@ -116,6 +129,41 @@ class TestfMPS(unittest.TestCase):
         self.fixtures = [self.mps_0_2, self.mps_0_3, self.mps_0_4,
                          self.mps_0_5, self.mps_0_6, self.mps_0_7,
                          self.mps_0_8, self.mps_0_9]
+
+        self.all_cases = self.rand_cases+self.right_cases+self.left_cases+self.mixed_cases+self.fixtures
+
+    def test_orthogonalise(self):
+        for case_ in self.rand_cases:
+            case = case_.copy().left_orthogonalise()
+            self.assertTrue(is_left_canonical(case.data))
+            self.assertTrue(not allclose(case.norm_, 1))
+            self.assertTrue(allclose(case.norm(), 1))
+
+            case = case_.copy().right_orthogonalise()
+            self.assertTrue(is_right_canonical(case.data))
+            self.assertTrue(not allclose(case.norm_, 1))
+            self.assertTrue(allclose(case.norm(), 1))
+
+            old_evs = case.Es([Sx, Sy, Sz], 3)
+            for _ in range(10):
+                case = case.right_orthogonalise()
+                self.assertTrue(np.allclose(old_evs, case.Es([Sx, Sy, Sz], 3)))
+
+                case = case.left_orthogonalise()
+                self.assertTrue(np.allclose(old_evs, case.Es([Sx, Sy, Sz], 3)))
+
+            for i in range(case_.L):
+                case = case_.copy().mixed_orthogonalise(i)
+                self.assertTrue(is_left_canonical(case.data[:i]))
+                self.assertTrue(is_right_canonical(case.data[i+1:]))
+
+                self.assertTrue(np.allclose(case_.copy().E(Sx, i), case_.copy().E_(Sx, i)))
+                self.assertTrue(np.allclose(case_.copy().E(Sy, i), case_.copy().E_(Sy, i)))
+                self.assertTrue(np.allclose(case_.copy().E(Sz, i), case_.copy().E_(Sz, i)))
+
+    def test_overlap(self):
+        for case1, case2 in product(self.left_cases[1:], self.left_cases):
+            self.assertAlmostEqual(np.abs(case1.overlap(case2)), np.abs(case1.full_overlap(case2)))
 
     def test_random_with_energy(self):
         Sx12, Sy12, Sz12 = N_body_spins(0.5, 1, 2)
@@ -800,14 +848,14 @@ class TestfMPS(unittest.TestCase):
 
         mps = mps_0.copy()
         for _ in range(30):
-            evs.append(mps.E(Sx, 0))
+            evs.append(mps.E_(Sx, 0))
             old_mps = mps.copy()
             mps = (mps + mps.dA_dt(H)*0.1).left_canonicalise()
             mps = mps.match_gauge_to(old_mps).copy()
 
         mps = mps_0.copy()
         for _ in range(30):
-            evs_.append(mps.E(Sx, 0))
+            evs_.append(mps.E_(Sx, 0))
             mps = (mps + mps.dA_dt(H)*0.1).left_canonicalise()
 
         self.assertTrue(allclose(array(evs),array(evs_)))
@@ -841,6 +889,55 @@ class TestvfMPS(unittest.TestCase):
         self.assertTrue(array([fMPS1 == fMPS2
                                for fMPS1, fMPS2 in zip(self.cases,
                                                        other_cases)]).all())
+
+class testfTFD(unittest.TestCase):
+    def setUp(self):
+        """setUp"""
+        self.N = N = 4  # Number of MPSs to test
+        #  min and max params for randint
+        L_min, L_max = 7, 8
+        d_min, d_max = 2, 3
+        D, D_sq = 3, 9
+        # N random MPSs
+        self.pure_cases = [fTFD().random(randint(L_min, L_max),
+                                         randint(d_min, d_max),
+                                         D=D,
+                                         pure=True)
+                           for _ in range(N)]
+        self.mixed_cases = [fTFD().random(randint(L_min, L_max),
+                                          randint(d_min, d_max),
+                                          D=D_sq,
+                                          pure=False)
+                           for _ in range(N)]
+
+        psi_0_2 = load('fixtures/mat2x2.npy')
+        self.tfd_0_2 = fTFD().from_fMPS(fMPS().left_from_state(psi_0_2))
+
+    def test_symmetries(self):
+        """test_symmetry"""
+        for A, A_ in zip(self.pure_cases, self.mixed_cases):
+            self.assertTrue(A==A.symmetry())
+            self.assertFalse(A_==A_.symmetry())
+            for n in range(A.L):
+                vL_sym, vL_asy, M = A.get_vL()[n]
+                self.assertTrue(allclose(vL_sym,  M@fs(vL_sym)))
+                self.assertTrue(allclose(vL_asy, -M@fs(vL_asy)))
+
+                vL_sym, vL_asy, M = A_.get_vL()[n]
+                self.assertTrue(allclose(vL_sym,  M@fs(vL_sym)))
+                self.assertTrue(allclose(vL_asy, -M@fs(vL_asy)))
+
+    def test_time_evolution(self):
+        """test_time_evolution"""
+        Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
+        Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
+        H = [Sz1@Sz2+Sx1+Sx2]
+        T = linspace(0, 0.1, 2)
+        A = self.tfd_0_2
+        evs = []
+        for _ in range(400):
+            evs.append(A.Es([Sx, Sy, Sz], 1))
+            A = (A+A.dA_dt(H)*0.1).left_canonicalise()
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

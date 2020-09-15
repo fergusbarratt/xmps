@@ -45,10 +45,11 @@ class TestTrajectory(unittest.TestCase):
     """TestF"""
     def setUp(self):
         """setUp"""
-        self.tens_0_2 = load('fixtures/mat2x2.npy')
-        self.tens_0_3 = load('fixtures/mat3x3.npy')
-        self.tens_0_4 = load('fixtures/mat4x4.npy')
-        self.tens_0_5 = load('fixtures/mat5x5.npy')
+        fix_dir = 'fixtures/'
+        self.tens_0_2 = load(fix_dir+'mat2x2.npy')
+        self.tens_0_3 = load(fix_dir+'mat3x3.npy')
+        self.tens_0_4 = load(fix_dir+'mat4x4.npy')
+        self.tens_0_5 = load(fix_dir+'mat5x5.npy')
 
         self.mps_0_1 = fMPS().left_from_state(self.tens_0_2).right_canonicalise(1)
 

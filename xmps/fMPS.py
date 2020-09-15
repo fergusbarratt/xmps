@@ -1,5 +1,6 @@
 """fMPS: Finite length matrix product states"""
 import numpy as np
+import scipy as sp
 import pyximport
 pyximport.install(setup_args={"include_dirs":np.get_include()},
                   reload_support=True)
@@ -7,7 +8,7 @@ pyximport.install(setup_args={"include_dirs":np.get_include()},
 import unittest
 
 from numpy.random import rand, randint, randn
-from numpy.linalg import svd, inv, norm, cholesky as ch, qr
+from numpy.linalg import inv, norm, cholesky as ch, qr
 from numpy.linalg import eig, eigvalsh
 
 from numpy import array, concatenate, diag, dot, allclose, isclose, swapaxes as sw
@@ -20,7 +21,7 @@ from numpy import mean, sign, angle, unwrap, exp, diff, pi, squeeze as sq
 from numpy import round, flipud, cos, sin, exp, arctan2, arccos, sign
 
 from scipy.linalg import null_space as null, orth, expm#, sqrtm as ch
-from scipy.linalg import polar
+from scipy.linalg import polar, block_diag as bd
 from scipy.sparse.linalg import LinearOperator, aslinearoperator
 
 from .tests import is_right_canonical, is_right_env_canonical, is_full_rank
@@ -29,7 +30,16 @@ from .tests import is_left_canonical, is_left_env_canonical, has_trace_1
 from .tensor import H as cT, truncate_A, truncate_B, diagonalise, rank, mps_pad
 from .tensor import C as c, lanczos_expm, tr_svd, T
 from .tensor import rdot, ldot, structure
-from .left_transfer import lt as lt_
+
+from .peps_tools import group_legs, ungroup_legs
+
+#from .left_transfer import lt as lt_
+def lt_(op,As,j,i):
+    Ls = [op]
+    for m in range(i-1, j-1, -1):
+        W = np.tensordot(As[m], np.tensordot(As[m].conj(), Ls[-1], [2, 1]), [[0, 2], [0, 2]])
+        Ls.append(W)
+    return Ls[::-1]
 
 from .spin import n_body, N_body_spins, spins
 from copy import deepcopy, copy
@@ -38,12 +48,79 @@ from itertools import product
 import cProfile
 from time import time
 import uuid
+from .svd_robust import svd
 
 Sx, Sy, Sz = spins(0.5)
 Sx, Sy, Sz = 2*Sx, 2*Sy, 2*Sz
+SWAP = np.array([[1, 0, 0, 0],
+                 [0, 0, 1, 0],
+                 [0, 1, 0, 0],
+                 [0, 0, 0, 1]])
 
-from .ncon import ncon as ncon
-#def ncon(*args): return nc(*args, check_indices=False)
+from .ncon import ncon as nc
+def ncon(*args): return nc(*args, check_indices=False) # make default ncon not check indices
+
+def apply_unitary(tensors, U, which='l', D=None):
+    if D is None:
+        if which == 'l':
+            return separate_tensor_qr(np.tensordot(U, group_tensors(tensors), [1, 0]))
+        elif which == 'r':
+            return separate_tensor_rq(np.tensordot(U, group_tensors(tensors), [1, 0]))
+    else:
+        return separate_tensor_svd(np.tensordot(U, group_tensors(tensors), [1, 0]), D, which)
+
+
+def apply_isometry(tensors, Is):
+    return np.tensordot(Is, group_tensors(tensors), [1, 0])
+
+def group_tensors(tensors):
+    return ncon(tensors, [[-1, -3, 1], [-2, 1, -4]]).reshape(tensors[0].shape[0]*tensors[1].shape[0], tensors[0].shape[1], tensors[1].shape[2])
+
+def factors(n):
+    ''' return a, b such that a*b == n, a, b are integers, and |a-b| is minimised'''
+    for i in range(int(n**0.5)+1, 0, -1):
+        if n % i ==0:
+            return [i, n//i]
+    raise Exception('something\'s wrong here')
+
+def separate_tensor_svd(tensor, D=None, which='l'):
+    d1, d2 = factors(tensor.shape[0]) # this is a guess at the two local hilbert space dimensions
+    # there's a non-uniqueness as soon as you've grouped them - makes them as similar as poss.
+    u, s, v = svd(tensor.reshape(d1, d2, tensor.shape[1], tensor.shape[2]
+                             ).transpose([0, 2, 1, 3]
+                             ).reshape(d1*tensor.shape[1], d2*tensor.shape[2]), full_matrices=False)
+
+    D = u.shape[1] if D is None else D
+    if which == 'l':
+        n = norm(s)
+        A, B = u[:, :D], np.diag(s)[:D, :]@v/norm(s[:D])
+        A, B = A.reshape(d1, tensor.shape[1], A.shape[1]), B.reshape(B.shape[0], d2, tensor.shape[2]).transpose([1, 0, 2])
+    elif which == 'r':
+        n = norm(s)
+        A, B = u[:, :]@np.diag(s)[:, :D]/norm(s[:D]), v[:D, :]
+        A, B = A.reshape(d1, tensor.shape[1], A.shape[1]), B.reshape(B.shape[0], d2, tensor.shape[2]).transpose([1, 0, 2])
+    else:
+        raise Exception('which should be l or r')
+    return [A, B]
+
+def separate_tensor_qr(tensor):
+    d1, d2 = factors(tensor.shape[0]) # this is a guess at the two local hilbert space dimensions
+    # there's a non-uniqueness as soon as you've grouped them - makes them as similar as poss.
+    A, B = sp.linalg.qr(tensor.reshape(d1, d2, tensor.shape[1], tensor.shape[2]
+                             ).transpose([0, 2, 1, 3]
+                             ).reshape(d1*tensor.shape[1], d2*tensor.shape[2]), mode='economic')
+
+    A, B = A.reshape(d1, tensor.shape[1], A.shape[1]), B.reshape(B.shape[0], d2, tensor.shape[2]).transpose([1, 0, 2])
+    return [A, B]
+
+def separate_tensor_rq(tensor):
+    d1, d2 = factors(tensor.shape[0]) # this is a guess at the two local hilbert space dimensions
+    # there's a non-uniqueness as soon as you've grouped them - makes them as similar as poss.
+    A, B = sp.linalg.rq(tensor.reshape(d1, d2, tensor.shape[1], tensor.shape[2]
+                             ).transpose([0, 2, 1, 3]
+                             ).reshape(d1*tensor.shape[1], d2*tensor.shape[2]), mode='economic')
+    A, B = A.reshape(d1, tensor.shape[1], A.shape[1]), B.reshape(B.shape[0], d2, tensor.shape[2]).transpose([1, 0, 2])
+    return [A, B]
 
 class fMPS(object):
     """finite MPS:
@@ -71,6 +148,8 @@ class fMPS(object):
             else:
                 self.D = max([max(x.shape[1:]) for x in data])
             self.data = data
+            self.canonical = False
+            self.orthogonal = False
 
     def __call__(self, k):
         """__call__: 1-based indexing
@@ -118,6 +197,20 @@ class fMPS(object):
         """
         return fMPS([a+b for a, b in zip(self.data, other.data)])
 
+    def add(self, other):
+        """add: proper mps addition here
+        """
+        new_data = [1j*np.zeros((self[i].shape[0], self[i].shape[1]+other[i].shape[1], self[i].shape[2]+other[i].shape[2])) for i in range(self.L)]
+        for i in range(self.L):
+            if i == 0:
+                new_data[i] = np.concatenate([self[i], other[i]], 2)
+            elif i == self.L-1:
+                new_data[i] = np.concatenate([self[i], other[i]], 1)
+            else:
+                new_data[i][:, :self[i].shape[1], :self[i].shape[2]] = self[i]
+                new_data[i][:, self[i].shape[1]:, self[i].shape[2]:] = other[i]
+        return fMPS(new_data)
+
     def __sub__(self, other):
         """__sub: This is not how to subtract two MPS: it's itemwise addition.
                     A hack for time evolution.
@@ -134,6 +227,11 @@ class fMPS(object):
         :param other: scalar to multiply
         """
         return fMPS([other*a for a in self.data], self.d)
+
+    def mul(self, other):
+        """ proper mps multiplication (by scalar) here"""
+        site = 0
+        return fMPS([x if i!=site else other*x for i, x in enumerate(self.data)])
 
     def __rmul__(self, other):
         """__rmul__: right scalar multiplication
@@ -153,6 +251,10 @@ class fMPS(object):
 
     def __str__(self):
         return 'fMPS: L={}, d={}, D={}'.format(self.L, self.d, self.D)
+
+    @property
+    def bond_dimension(self):
+        return max([max(x.shape[1:]) for x in self.data])
 
     def left_from_state(self, state):
         """left_from_state: generate left canonical mps from state tensor
@@ -180,6 +282,9 @@ class fMPS(object):
 
         self.D = max([max(shape[1:]) for shape in self.structure()])
 
+        self.orthogonal = True
+        self.canonical = False
+        self.oc = self.L
         return self
 
     def right_from_state(self, state):
@@ -209,6 +314,9 @@ class fMPS(object):
 
         self.D = max([max(shape[1:]) for shape in self.structure()])
 
+        self.orthogonal = True
+        self.canonical = False
+        self.oc = 0
         return self
 
     def recombine(self):
@@ -296,6 +404,8 @@ class fMPS(object):
                 for shape in self.create_structure(L, d, D)]
         self.D = max([max(shape[1:]) for shape in self.create_structure(L, d, D)])
         self.data = MPS
+        self.canonical = False
+        self.orthogonal = False
         return self
 
     def create_structure(self, L, d, D, phys=False):
@@ -394,6 +504,9 @@ class fMPS(object):
                 and self.is_full_rank\
                 and self.has_trace_1
 
+        self.canonical = True
+        self.orthogonal = True
+        self.oc = 0
         return self
 
     def left_canonicalise(self, D=None, testing=False, sweep_back=True, minD=True):
@@ -469,9 +582,12 @@ class fMPS(object):
                 and self.is_full_rank\
                 and self.has_trace_1
 
+        self.canonical=True
+        self.orthogonal=True
+        self.oc = self.L
         return self
 
-    def mixed_canonicalise(self, oc, D=None, testing=False):
+    def mixed_canonicalise(self, oc, D=None, testing=False, sweep_back=True):
         """mixed_canonicalise: bring internal fMPS to mixed canonical form with
         orthogonality center oc, potentially with a truncation
 
@@ -481,7 +597,7 @@ class fMPS(object):
         """
         self.ok = True
         self.oc = oc
-        self.right_canonicalise(D, minD=False)
+        self.right_canonicalise(D, minD=False, sweep_back=sweep_back)
 
         def split(M):
             """split: Do SVD and reshape A matrix
@@ -502,13 +618,68 @@ class fMPS(object):
             self.ok = self.ok and is_left_canonical(self.data[:oc])\
                               and is_right_canonical(self.data[oc+1:])
 
+        self.canonical = True
+        self.orthogonal = True
         return self
 
-    def entanglement_entropy(self, site):
+    def right_orthogonalise(self, fr=0, to=None):
+        """right_orthogonalise: bring internal fMPS to right orthogonal form
+           (no sweeping back to sort out left envs, no info on rank anywhere. Uses QR)
+           :param fr: where to orthogonalise from. Inclusive (self[fr] gets orthoed)"""
+        to = self.L if to is None else to
+        for m in reversed(range(fr, to)):
+            A, pipe = group_legs(self.data[m], [[1], [0, 2]])
+            R, Q = sp.linalg.rq(A, mode='economic')
+            self.data[m] = ungroup_legs(Q, pipe)
+            if m!= 0:
+                self.data[m-1] = self.data[m-1]@R
+            else:
+                self.norm_ = R
+        if fr == 0 and to == self.L:
+            self.orthogonal = True
+            self.oc = 0
+        return self
+
+    def left_orthogonalise(self, fr=0, to=None):
+        """left_orthogonalise: bring internal fMPS to left orthogonal form
+           (no sweeping back to sort out right envs, no info on rank anywhere. Uses QR)
+           :param to: where to orthogonalise to. Exclusive (self[to] doesn't get orthoed"""
+        to = self.L if to is None else to
+        for m in range(fr, to):
+            A, pipe = group_legs(self.data[m], [[0, 1], [2]])
+            Q, R = sp.linalg.qr(A, mode='economic')
+            self.data[m] = ungroup_legs(Q, pipe)
+            if m != self.L-1:
+                self.data[m+1] = R@self.data[m+1]
+            else:
+                self.norm_ = R
+        if fr == 0 and to == self.L:
+            self.orthogonal = True
+            self.oc = self.L
+        return self
+
+    def mixed_orthogonalise(self, oc, current_oc=None):
+        '''mixed_orthogonalise: bring to mixed orthogonal form.
+           (no sweeping back to sort out right envs or rank, no info on rank anywhere. Uses QR)
+           :param current_status: \in ('l', 'r'): if the current mps is left/right orthogonal (up to the oc)
+        '''
+        if current_oc is None:
+            self.right_orthogonalise(fr=oc)
+            self.left_orthogonalise(to=oc)
+        else:
+            raise NotImplementedError
+        self.norm_ = norm(self[oc].reshape(-1))
+        self[oc] /= self.norm_
+        self.orthogonal = True
+        self.oc = oc
+        return self
+
+    def entanglement_entropy(self, site, thresh=1e-8):
         """von neumann entanglement entropy across bond to left of site
         """
         self.left_canonicalise()
-        return -self.Ls[site]@log(self.Ls[site])
+        LL = np.abs(np.diag(self.Ls[site]))[np.abs(np.diag(self.Ls[site]))>1e-8]
+        return -LL@np.log(LL)
 
     def update_properties(self):
         """update_properties: Could be slow"""
@@ -533,7 +704,7 @@ class fMPS(object):
         return [x[0].shape for x in self.data]
 
     def overlap(self, other):
-        """overlap
+        """overlap: BUGGED i think
 
         :param other: other with which to calculate overlap
         """
@@ -542,12 +713,25 @@ class fMPS(object):
         padded_self, padded_other = mps_pad(self, other)
 
         F = ones((1, 1))
-        for L, R in zip(padded_self, padded_other):
-            F = tensordot(tensordot(cT(L), F, (-1, 1)), R, ([0, -1], [0, 1]))
+        for t, b in zip(padded_self, padded_other):
+            F = ncon([F, t, c(b)], [[1, 2], [3, 1, -1], [3, 2, -2]])
         return F[0][0]
 
+    def from_product_state(self, product_state):
+        """ product_state should be shape (L, 2)
+        """
+        return fMPS([np.expand_dims(np.expand_dims(A, -1), -1) for A in product_state])
+
+    def product_state_overlap(self, other):
+        """ other should be of the form (L, 2)
+        """
+        return self.left_canonicalise().overlap(fMPS().from_product_state(other).left_canonicalise())
+
+    def full_overlap(self, other):
+        return self.recombine().reshape(-1).conj().T@other.recombine().reshape(-1)
+
     def norm(self):
-        """norm: not efficient - computes full overlap.
+        """norm: not (that) efficient - computes the overlap. (not the full one tho)
         use self.E(identity(self.d), site) for mixed
         canonicalising version"""
         return self.overlap(self)
@@ -614,7 +798,46 @@ class fMPS(object):
 
     def apply(self, opsite):
         op, site = opsite
-        self[site] = td(op, self[site], [1, 0])
+        new_data = [x for x in self.data]
+        new_data[site] = td(op, new_data[site], [1, 0])
+        return fMPS(new_data)
+
+    def apply_two_site(self, opsites, which='l', D=None, truncate_swaps=False):
+        '''apply a two site operator op to sites (i, j) = sites, (op, sites) = opsites
+        :param opsites: operator and sites to apply
+        :param which: which site to leave a canonical tensor on
+        :param D: what bond dimension to truncate to. None means no truncation
+        :param truncate_swaps: whether to truncate to bond dimension D with each swap 
+        when applying long range operators.'''
+        swap_D = None if not truncate_swaps else D
+        op, (i, j) = opsites
+        i, j = (i, j) if (j > i) else (j, i)
+        i_ = j-1
+        while i_ >= i+1:
+            self[i_], self[i_+1] = apply_unitary([self[i_], self[i_+1]], SWAP, which, swap_D)
+            #self.apply_two_site((SWAP, (i_, i_+1)))
+            i_ = i_-1
+        self[i], self[i+1] = apply_unitary([self[i], self[i+1]], op, which, D)
+        while i_ < j-1:
+            i_ = i_+1
+            self[i_], self[i_+1] = apply_unitary([self[i_], self[i_+1]], SWAP, which, swap_D)
+            #self.apply_two_site((SWAP, (i_, i_+1)))
+        return self
+
+    def apply_two_site_isometry(self, opsites, lr=0):
+        # replaces (left, right)[lr] site with the result of the isometry
+        op, (i, j) = opsites
+        assert j != i
+        if not j > i:
+            j, i = i, j
+        i_ = j-1
+        while i_ >= i+1:
+            self.apply_two_site((SWAP, (i_, i_+1)))
+            i_ = i_-1
+        self[(i, j)[lr]] = apply_isometry([self[i], self[i+1]], op)
+        while i_ < j-1:
+            i_ = i_+1
+            self.apply_two_site((SWAP, (i_, i_+1)))
         return self
 
     def copy(self):
@@ -625,14 +848,29 @@ class fMPS(object):
 
         :param op: 1 site operator
         :param site: site
+        :param current_status: if the mps is left/right orthogonal, then set to ('l', 'r')
         """
-        M = self.mixed_canonicalise(site)[site]
-        return re(tensordot(op, trace(dot(cT(M),  M), axis1=1, axis2=3), [[0, 1], [0, 1]]))
+        if (not self.canonical and not self.orthogonal) or (hasattr(self, 'oc') and self.oc != site):
+            self.mixed_orthogonalise(site)
+        M = self[site]
+        return re(ncon([M, c(M), op], [[1, 3, 4], [2, 3, 4], [1, 2]], [3, 4, 1, 2]))
+        #return re(tensordot(op, trace(dot(cT(M),  M), axis1=1, axis2=3), [[0, 1], [0, 1]]))
+
+    def E_(self, op, site):
+        """E: one site expectation value. Canonicalises (rather than orthogonalises). This is sometimes important (don't know why rn.). 
+
+        :param op: 1 site operator
+        :param site: site
+        """
+        M = self.mixed_canonicalise(site, sweep_back=True)[site]
+        return re(ncon([M, c(M), op], [[1, 3, 4], [2, 3, 4], [1, 2]]))
+        #return re(tensordot(op, trace(dot(cT(M),  M), axis1=1, axis2=3), [[0, 1], [0, 1]]))
+
 
     def Es(self, ops, site):
         M = self.mixed_canonicalise(site)[site]
-        return [re(tensordot(op, trace(dot(cT(M),  M), axis1=1, axis2=3), [[0, 1], [0, 1]]))
-                for op in ops]
+        return np.array([re(tensordot(op, trace(dot(cT(M),  M), axis1=1, axis2=3), [[0, 1], [0, 1]]))
+                for op in ops])
 
     def E_L(self, op):
         """E_L: expectation of a full size operator
@@ -666,7 +904,7 @@ class fMPS(object):
         else:
             return vec
 
-    def deserialize(self, vec, L, d, D, real=False):
+    def deserialize(self, vec, L=None, d=None, D=None, real=False, structure=None):
         """deserialize: take a vector with mps data (from serialize),
                         make MPS
 
@@ -674,31 +912,47 @@ class fMPS(object):
         :param L: length of mps to make
         :param d: local hilbert space dimension
         :param D: bond dimension
+        :structure
         """
         if real:
             vec = reduce(lambda x, y: x+1j*y, chop(vec, 2))
-        self.L, self.d, self.D = L, d, D
-        structure = [(d, *x) for x in self.create_structure(L, d, D)]
-        self.data = []
+        if structure is None and L is not None and d is not None and D is not None:
+            structure = [(d, *x) for x in self.create_structure(L, d, D)]
+        new_data = []
         for shape in structure:
-            self.data.append(vec[:prod(shape)].reshape(shape))
+            new_data.append(vec[:prod(shape)].reshape(shape))
             _, vec = chop(vec, [prod(shape)])
-        return self
+        return fMPS(new_data)
 
-    def store(self, filename):
+    def store(self, filename, structured=False):
         """store in file
         :param filename: filename to store in
+        :param structured: whether the mps has a non standard structure
+                           i.e. not (1, d, d**2, ... D, D, D, ..., d**2, d, 1) 
+                           but bd varies along chain.
         """
-        save(filename, ct([array([self.L, self.d, self.D]), self.serialize()]))
+        if not structured:
+            save(filename, ct([array([self.L, self.d, self.D]), self.serialize()]))
+        else:
+            st = reduce(tuple.__add__, [x.shape for x in self.data])
+            st = (len(st),)+st
+            save(filename, ct([array(st), self.serialize()]))
 
-    def load(self, filename):
+    def load(self, filename, structured=False):
         """load from file
 
         :param filename: filename to load from
         """
-        params, arr = chop(load(filename), [3])
-        self.L, self.d, self.D = map(lambda x: int(re(x)), params)
-        return self.deserialize(arr, self.L, self.d, self.D)
+        if structured:
+            ψ = load(filename)
+            L = int(ψ[0])
+            st, tensors = ψ[1:L+1].astype(int), ψ[L+1:]
+            st = [tuple(st[3*i:3*(i+1)]) for i in range(int(L//3))]
+            return self.deserialize(tensors, structure=st)
+        else:
+            params, arr = chop(load(filename), [3])
+            self.L, self.d, self.D = map(lambda x: int(re(x)), params)
+            return self.deserialize(arr, self.L, self.d, self.D)
 
     def projection_error(self, H, dt):
         """projection_error: error in projection to mps manifold
@@ -767,6 +1021,7 @@ class fMPS(object):
                         [[2, 1, 4], [6, 4, 8], [3, 6, 2, 7], [3, 1, -1], [7, -2, 8]])
 
         if threshold is not None:
+            raise Exception
             if self.projection_error(H, dt) < threshold:
                 return self
 
@@ -780,6 +1035,7 @@ class fMPS(object):
 
             U, s, V = tr_svd(G(m), D_-D)
             x, y = U@sqrt(s), sqrt(s)@V
+            self.xy = x, y
             dA01, dA10 = sqrt(dt)*l(m-1)@vL(m)@x, sqrt(dt)*y@vR(m+1)@r(m+1)
 
             A[m], A[m+1] = ct([A[m]+dt*dA_dt[m], dA01], 2), ct([A[m+1]+dt*dA_dt[m+1], dA10], 1)
@@ -1625,6 +1881,155 @@ class fMPS(object):
         Bs = [zl(A) for A in self.data[:nulls]] + \
              [inv(ch(l_(n-1)))@vL@x@inv(ch(r_(n))) for n, (vL, x) in enumerate(zip(vLs, xs))]
         return fMPS(Bs)
+
+def fs(X):
+    return X.reshape(int(sqrt(X.shape[0])), int(sqrt(X.shape[0])), *X.shape[1:]
+                     ).transpose(1, 0, *list(range(2, len(X.shape)+1))
+                     ).reshape(X.shape) 
+
+class fTFD(fMPS):
+    """ thermofield double states
+        Non obvious: the overlap of two thermofield states is the fidelity F(ρ, σ)
+    """
+    def __init__(self, data=None, d=None, D=None):
+        """__init__"""
+        super().__init__(data, d, D)
+
+    def __add__(self, other):
+        """__add__: This is not how to add two TFD: it's itemwise addition.
+                    A hack for time evolution.
+
+        :param other: TFD with arrays to add
+        """
+        return fTFD([a+b for a, b in zip(self.data, other.data)])
+
+    def __sub__(self, other):
+        """__sub: This is not how to subtract two TFD: it's itemwise addition.
+                    A hack for time evolution.
+
+        :param other: TFD with arrays to subtract
+        """
+        return fTFD([a-b for a, b in zip(self.data, other.data)])
+
+    def __mul__(self, other):
+        """__mul__: This is not multiplying an TFD by a scalar: it's itemwise:
+                    Hack for time evolution.
+                    Multiplication by other**L
+
+        :param other: scalar to multiply
+        """
+        return fTFD([other*a for a in self.data], self.d)
+
+    def __rmul__(self, other):
+        """__rmul__: right scalar multiplication
+
+        :param other: scalar to multiply
+        """
+        return self.__mul__(other)
+
+    def __truediv__(self, other):
+        """__mul__: This is not multiplying an TFD by a scalar: it's itemwise:
+                    Hack for time evolution.
+                    Multiplication by other**L
+
+        :param other: scalar to multiply
+        """
+        return self.__mul__(1/other)
+
+    def __str__(self):
+        return 'Thermofield Double: L={}, d={}, D={}'.format(self.L, sqrt(self.d), self.D)
+
+    def add(self, other):
+        """add: proper mps addition here
+        """
+        new_data = [1j*np.zeros((self[i].shape[0], self[i].shape[1]+other[i].shape[1], self[i].shape[2]+other[i].shape[2])) for i in range(self.L)]
+        for i in range(self.L):
+            if i == 0:
+                new_data[i] = np.concatenate([self[i], other[i]], 2)
+            elif i == self.L-1:
+                new_data[i] = np.concatenate([self[i], other[i]], 1)
+            else:
+                new_data[i][:, :self[i].shape[1], :self[i].shape[2]] = self[i]
+                new_data[i][:, self[i].shape[1]:, self[i].shape[2]:] = other[i]
+        return fTFD(new_data)
+
+    def random(self, L, d, D, pure=True):
+        if pure:
+            data = super().random(L, d, D)
+            self.data = [kron(a, b) for a, b in zip(data, data)]
+            self.d = d**2
+            self.D = D**2
+        else:
+            data = super().random(L, d**2, D)
+        return self
+
+    def from_fMPS(self, mps):
+        # TFD corresponding to the (pure) mps.
+        self.data = [kron(a, a) for a in mps.data]
+        self.d = mps.d**2
+        self.D = mps.D**2
+        self.L = mps.L
+        return self
+
+    def symmetry(self):
+        return fTFD([tra(X.reshape((int(sqrt(X.shape[0])), int(sqrt(X.shape[0])),
+                                    int(sqrt(X.shape[1])), int(sqrt(X.shape[1])), 
+                                    int(sqrt(X.shape[2])), int(sqrt(X.shape[2])))), 
+                         [1, 0, 3, 2, 5, 4]).reshape(X.shape) for X in self])
+
+    def symm_asymm(self, D):
+        D = int(sqrt(D))
+        return ((eye(D**2) + bd(eye(int(D*(D+1)/2)), -eye(int(D*(D-1)/2))))/2,
+                (eye(D**2) - bd(eye(int(D*(D+1)/2)), -eye(int(D*(D-1)/2))))/2,
+                bd(eye(int(D*(D+1)/2)), -eye(int(D*(D-1)/2))))
+
+    def get_vL(self):
+        prs_vLs = [self.left_null_projector(n, get_vL=True) for n in range(self.L)]
+        def vLs(n):
+            Pp, Pm, M = self.symm_asymm(self.data[n].shape[1])
+            return ((1/2)*prs_vLs[n][1]+(1/2)*M@fs(prs_vLs[n][1]),
+                    (1/2)*prs_vLs[n][1]-(1/2)*M@fs(prs_vLs[n][1]), M)
+        return [vLs(n) for n in range(self.L)]
+
+    def left_null_projector(self, n, l=None, get_vL=False, store_envs=False, vL=None):
+        """left_null_projector:           |
+                         - inv(sqrt(l)) - vL = vL- inv(sqrt(l))-
+                                               |
+        replaces A(n) in TDVP
+
+        :param n: site
+        """
+        if l is None:
+            l, _ = self.get_envs(store_envs)
+        if vL is None:
+            L_ = sw(cT(self[n])@ch(l(n-1)), 0, 1)
+            L = L_.reshape(-1, self.d*L_.shape[-1])
+            vL = null(L).reshape((self.d, L.shape[1]//self.d, -1))
+        pr = ncon([inv(ch(l(n-1)))@vL, inv(ch(l(n-1)))@c(vL)], [[-1, -2, 1], [-3, -4, 1]])
+        if get_vL:
+            return pr, vL
+        return pr
+
+    def dA_dt(self, H, fullH=False):
+        H_ = [(kron(eye(len(h)), h)+kron(h, eye(len(h)))) for h in H]
+        dA_dt = super().dA_dt(H_, fullH)
+        return dA_dt
+
+    def E(self, op, site):
+        """E: one site expectation value
+
+        :param op: 1 site operator
+        :param site: site
+        """
+        op = kron(op, eye(len(op)))
+        M = self.mixed_canonicalise(site)[site]
+        return trace(sum(cT(M)@tensordot(op, M, [0, 0]), axis=0))
+
+    def Es(self, ops, site):
+        ops = [kron(op, eye(len(op))) for op in ops]
+        M = self.mixed_canonicalise(site)[site]
+        return [trace(sum(cT(M)@tensordot(op, M, [0, 0]), axis=0))
+                for op in ops]
 
 class vfMPS(object):
     """vidal finite MPS
