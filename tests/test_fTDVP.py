@@ -45,10 +45,10 @@ class TestTrajectory(unittest.TestCase):
     """TestF"""
     def setUp(self):
         """setUp"""
-        self.tens_0_2 = load('tests/fixtures/mat2x2.npy')
-        self.tens_0_3 = load('tests/fixtures/mat3x3.npy')
-        self.tens_0_4 = load('tests/fixtures/mat4x4.npy')
-        self.tens_0_5 = load('tests/fixtures/mat5x5.npy')
+        self.tens_0_2 = load('fixtures/mat2x2.npy')
+        self.tens_0_3 = load('fixtures/mat3x3.npy')
+        self.tens_0_4 = load('fixtures/mat4x4.npy')
+        self.tens_0_5 = load('fixtures/mat5x5.npy')
 
         self.mps_0_1 = fMPS().left_from_state(self.tens_0_2).right_canonicalise(1)
 
@@ -103,17 +103,24 @@ class TestTrajectory(unittest.TestCase):
 
     @unittest.skipIf(not tdvp_available, 'tdvp module not available')
     def test_integrators(self):
-        test_D_1 = False
+        test_D_1 = True
         if test_D_1:
             Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
             Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
 
-            dt, t_fin = 2e-2, 10
+            dt, t_fin = 1e-2, 10
             T = linspace(0, t_fin, int(t_fin//dt)+1)
+            mpss = {2:self.mps_0_2, 3:self.mps_0_3, 4:self.mps_0_4, 5:self.mps_0_5}
 
-            mps_0 = self.mps_0_2.left_canonicalise(1)
-            H = [Sz1@Sz2+Sx1+Sx2]
-            W = mps_0.L*[MPO_TFI(0, 0.25, 0.5, 0)]
+            L = 3
+            mps_0 = mpss[L].left_canonicalise(1)
+            from xmps.hamiltonian import Hamiltonian
+            Ham = Hamiltonian({'XX': 1, 'ZZ':1})
+            H = Ham.to_finite_list(L)
+            W = Ham.to_mpo(L)
+            #H = [Sz1@Sz2+Sx1+Sx2] + (L-2)*[Sz1@Sz2+Sx2]
+            #raise Exception
+            #W = mps_0.L*[MPO_TFI(0, 0.25, 0.5, 0)]
             F = Trajectory(mps_0, H=H, W=W)
 
             C = F.invfreeint(T).mps_evs([Sx, Sy, Sz], 0)
@@ -135,7 +142,7 @@ class TestTrajectory(unittest.TestCase):
             dt, t_fin = 2e-2, 10
             T = linspace(0, t_fin, int(t_fin//dt)+1)
 
-            mps_0 = self.mps_0_2
+            mps_0 = self.mps_0_2.left_canonicalise(1)
             H = [Sz1@Sz2+Sx1+Sx2]
             W = mps_0.L*[MPO_TFI(0, 0.25, 0.5, 0)]
             F = Trajectory(mps_0, H=H, W=W)
@@ -146,15 +153,15 @@ class TestTrajectory(unittest.TestCase):
             F.clear()
             C = F.invfreeint(T).mps_evs([Sx, Sy, Sz], 0)
             F.clear()
-            self.assertTrue(norm(B-A)/prod(A.shape)<dt**2)
-            self.assertTrue(norm(C-A)/prod(A.shape)<dt**2)
+            #self.assertTrue(norm(B-A)/prod(A.shape)<dt**2)
+            #self.assertTrue(norm(C-A)/prod(A.shape)<dt**2)
 
-            plot=False
+            plot=True
             if plot:
                 fig, ax = plt.subplots(1, 1, sharex=True, sharey=True)
                 ax.set_ylim([-1, 1])
                 ax.plot(T, A)
-                ax.plot(T, B)
+                #ax.plot(T, B)
                 ax.plot(T, C)
                 plt.show()
 
@@ -193,17 +200,17 @@ class TestTrajectory(unittest.TestCase):
                 ax.plot(T, C)
                 plt.show()
 
-        test_4 = True
+        test_4 = False
         if test_4:
             Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
             Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
 
-            dt, t_fin = 0.5, 10
+            dt, t_fin = 1e-2,4 
             T = linspace(0, t_fin, int(t_fin//dt)+1)
 
-            mps_0 = self.mps_0_4.right_canonicalise(1)
-            H = [Sz1@Sz2+Sx1+Sx2+Sz1+Sz2] + [Sz1@Sz2+Sx2+Sz2] + [Sz1@Sz2+Sx2+Sz2]
-            W = mps_0.L*[MPO_TFI(0, 0.25, 0.5, 0.5)]
+            mps_0 = self.mps_0_4.left_canonicalise(1)
+            H = [Sz1@Sz2+Sx1+Sx2] + 2*[Sz1@Sz2+Sx2]
+            W = mps_0.L*[MPO_TFI(0, 0.25, 0.5, 0)]
             F = Trajectory(mps_0, H=H, W=W)
 
             Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 4)
@@ -238,11 +245,11 @@ class TestTrajectory(unittest.TestCase):
                 ax.plot(T, B)
                 ax.plot(T, C)
                 plt.show()
-                plt.plot(T, A_e, label='ed')
-                plt.plot(T, B_e, label='euler')
-                plt.plot(T, C_e, label='invfree')
-                plt.legend()
-                plt.show()
+                #plt.plot(T, A_e, label='ed')
+                #plt.plot(T, B_e, label='euler')
+                #plt.plot(T, C_e, label='invfree')
+                #plt.legend()
+                #plt.show()
 
         test_5 = False
         if test_5:

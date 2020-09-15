@@ -470,6 +470,24 @@ class Trajectory(object):
                 sch.append([diag(x) for x in mps.left_canonicalise().Ls])
             return sch
 
+    def loschmidt(self):
+        if hasattr(self, 'ed_history'):
+            sch = []
+            mpss = []
+            print('calculating mps from ed...')
+            for x in tqdm(self.ed_history):
+                mps = fMPS().left_from_state(x.reshape([self.mps.d]*self.mps.L))
+                sch.append([diag(x) for x in mps.left_canonicalise().Ls])
+            return sch
+        else:
+            assert self.mps_history
+            L, d, D = self.mps.L, self.mps.d, self.mps.D
+            psi_0 = fMPS().deserialize(self.mps_history[0], L, d, D, real=True)
+            lss = []
+            for psi in map(lambda x: fMPS().deserialize(x, L, d, D, real=True), self.mps_history):
+                lss.append(np.abs(psi_0.overlap(psi)))
+            return lss
+
     def von_neumann(self, i=None):
         sch = array(self.schmidts())
         S_max = array([max(sum([-re(s@log(s)) for s in S])) for S in sch])

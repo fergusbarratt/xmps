@@ -265,7 +265,7 @@ class fMPS(object):
             dt = dt/3
         return self
 
-    def random(self, L, d, D):
+    def random(self, L, d, D, real=False):
         """__init__
 
         :param L: Length
@@ -289,10 +289,10 @@ class fMPS(object):
             V = to_spherical(V)
             self.data = []
             for _, th, f in V:
-                self.data.append(ed(ed(array([cos(th/2), exp(1j*f)*sin(th/2)]), -1), -1))
+                self.data.append(ed(ed(array([cos(th/2), exp(1j*f*(1-int(real)))*sin(th/2)]), -1), -1))
             return self
 
-        MPS = [randn(*((d,) + shape)) + 1j*randn(*((d,) + shape))
+        MPS = [randn(*((d,) + shape)) + (1-int(real))*1j*randn(*((d,) + shape))
                 for shape in self.create_structure(L, d, D)]
         self.D = max([max(shape[1:]) for shape in self.create_structure(L, d, D)])
         self.data = MPS
