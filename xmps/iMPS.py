@@ -1,4 +1,5 @@
 import unittest
+from functools import reduce
 
 from numpy.random import rand, randint, randn
 from numpy import zeros_like as zl
