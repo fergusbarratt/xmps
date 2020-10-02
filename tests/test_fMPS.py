@@ -132,6 +132,55 @@ class TestfMPS(unittest.TestCase):
 
         self.all_cases = self.rand_cases+self.right_cases+self.left_cases+self.mixed_cases+self.fixtures
 
+    def test_local_overlap(self):
+        for x in self.left_cases:
+            L = x.L
+            y = fMPS().random(L, 2, 1).left_canonicalise()
+            self.assertTrue(np.allclose(x.local_overlap(y, list(range(L))),y.local_overlap(x, list(range(L)))))
+            self.assertTrue(np.allclose(x.local_overlap(y, list(range(L))),np.abs(x.overlap(y))**2))
+
+            z = fMPS().random(L, 2, x.D).left_canonicalise()
+            self.assertTrue(np.allclose(x.local_overlap(y, list(range(L))),y.local_overlap(x, list(range(L)))))
+            self.assertTrue(np.allclose(x.local_overlap(y, list(range(L))),np.abs(x.overlap(y))**2))
+
+    def test_rho(self):
+        for x in self.left_cases:
+            op = Sx
+            L = x.L
+            y = fMPS().random(L, 2, 1).left_canonicalise()
+
+            sites = list(range(L))
+            rho = y.rho(sites)
+            # full overlap equal to expectation value of product state projector
+            self.assertTrue(np.allclose(x.E_k(rho, sites, single_string=True), np.abs(x.overlap(y))**2))
+
+            for site in range(0, L):
+                # single site, bond dimension 1
+                rho = y.rho([site])
+                self.assertTrue(np.allclose(np.trace(rho[0]@op), y.E(op, site)))
+
+            # full overlap equal to expectation value of density matrix of other operator
+            z = fMPS().random(L, 2, 3).left_canonicalise()
+            sites = list(range(L))
+            rho = z.rho(sites)
+            self.assertTrue(np.allclose(x.E_k(rho, sites), np.abs(x.overlap(z))**2))
+
+    def test_E_k(self):
+        for x in self.left_cases:
+            L = x.L
+            sites = list(range(L))
+            for site in sites:
+                # single sites
+                self.assertTrue(np.allclose(x.E_k(Sx, [site]), x.E(Sx, site)))
+            # all sites
+            self.assertTrue(np.allclose(x.E_k(reduce(np.kron, [Sx]*L), sites), x.E_L(reduce(np.kron, [Sx]*L))))
+
+            sitess = [sites[i-3:i] for i in range(3,len(sites))]
+            ops = [Sx, Sx, Sx]
+            big_op = reduce(np.kron, ops)
+            for sites in sitess:
+                self.assertTrue(np.allclose(x.E_k(big_op, sites), x.E_k(ops, sites, single_string=True)))
+
     def test_orthogonalise(self):
         for case_ in self.rand_cases:
             case = case_.copy().left_orthogonalise()
@@ -939,5 +988,30 @@ class testfTFD(unittest.TestCase):
             evs.append(A.Es([Sx, Sy, Sz], 1))
             A = (A+A.dA_dt(H)*0.1).left_canonicalise()
 
+def test_local_overlap(N):
+    import matplotlib.pyplot as plt
+    plt.style.use('ggplot')
+    L = 5
+    width = 3
+    fig, ax = plt.subplots(1, 5, sharex=True, sharey=True, figsize=(L*width, width+0.8))
+    for k in range(0, L):
+        real_overlaps = []
+        approx_overlaps = []
+        print(k)
+        for _ in range(N):
+            y = fMPS().random(L, 2, 3).left_canonicalise()
+            x = y.copy().left_canonicalise(1)
+            As = [list(range(i, i+1+k)) for i in range(L-k)]
+            approx_overlaps.append(x.approx_overlap(y, As))
+            real_overlaps.append(np.abs(x.overlap(y)**2))
+        ax[k].set_xlabel(f'{k+1}-local approximate overlaps')
+        ax[k].scatter(approx_overlaps, real_overlaps, marker='+')
+    ax[0].set_ylabel('true overlap')
+    fig.suptitle('$k$-local approx overlap: $\\frac{1}{N-k}\sum_{i=1}^{N-k} tr(\\rho^1_{i...i+k}\\rho^2_{i...i+k})$. Overlap between L=5, D=3 mps, and same mps truncated to D=1.')
+    fig.tight_layout()
+    fig.subplots_adjust(top=0.8)
+    plt.savefig('overlaps.pdf')
+
 if __name__ == '__main__':
-    unittest.main(verbosity=2)
+    #unittest.main(verbosity=2, failfast=True)
+    test_local_overlap(1000)

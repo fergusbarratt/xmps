@@ -704,18 +704,36 @@ class fMPS(object):
         return [x[0].shape for x in self.data]
 
     def overlap(self, other):
-        """overlap: BUGGED i think
+        """overlap:
 
         :param other: other with which to calculate overlap
         """
         assert len(self) == len(other)
 
-        padded_self, padded_other = mps_pad(self, other)
+        padded_self, padded_other = mps_pad(self.copy(), other.copy())
 
         F = ones((1, 1))
         for t, b in zip(padded_self, padded_other):
             F = ncon([F, t, c(b)], [[1, 2], [3, 1, -1], [3, 2, -2]])
         return F[0][0]
+
+    def local_overlap(self, other, sites):
+        """overlap:
+        partition should be contiguous
+        """
+        if self.bond_dimension == 1:
+            return other.E_k(self.rho(sites), sites, single_string=True)
+        elif other.bond_dimension == 1:
+            return self.E_k(other.rho(sites), sites, single_string=True)
+        else:
+            return self.E_k(other.rho(sites), sites, single_string=False)
+
+    def k_local_approx_overlap(self, other, k):
+        As = [list(range(i, i+1+k)) for i in range(L-k)]
+        return self.approx_overlap(self, other, As)
+
+    def approx_overlap(self, other, As):
+        return np.mean([self.local_overlap(other, A) for A in As])
 
     def from_product_state(self, product_state):
         """ product_state should be shape (L, 2)
@@ -781,18 +799,18 @@ class fMPS(object):
             Rs.append(ncon([self[m].conj(), self[m], Rs[-1]], [[1, 3, -len(op.shape)+1], [1, 2, -len(op.shape)], oplinks]))
         return (lambda n: Rs[n-i-1]) if ret_all else Rs[0]
 
-    def links(self, op=True):
+    def links(self, k=None, op=True):
         """links: op True: return the links for ncon for full contraction of this
-        mps with operator shape of [d,d]*L
+        mps with operator shape of [d,d]*k
                   op False: return links for full contraction of this mps
         """
         if op:
-            L = self.L
+            L = self.L if k is None else k
             links = [[n, 2*L+n, 2*L+n+1] for n in range(1, L+1)]+[list(range(1, 2*L+1))]+\
                     [[L+n, 3*L+n if n!=1 else 2*L+n , 3*L+n+1 if n!=L else 2*L+n+1] for n in range(1, L+1)]
             return links
         else:
-            L = self.L
+            L = self.L if k is None else k
             links = [[n, L+n, L+n+1] for n in range(1, L+1)]+[[n, (1+int(n!=1))*L+n, (1+int(n!=L))*L+n+1] for n in range(1, L+1)]
             return links
 
@@ -848,7 +866,6 @@ class fMPS(object):
 
         :param op: 1 site operator
         :param site: site
-        :param current_status: if the mps is left/right orthogonal, then set to ('l', 'r')
         """
         if (not self.canonical and not self.orthogonal) or (hasattr(self, 'oc') and self.oc != site):
             self.mixed_orthogonalise(site)
@@ -866,11 +883,30 @@ class fMPS(object):
         return re(ncon([M, c(M), op], [[1, 3, 4], [2, 3, 4], [1, 2]]))
         #return re(tensordot(op, trace(dot(cT(M),  M), axis1=1, axis2=3), [[0, 1], [0, 1]]))
 
-
     def Es(self, ops, site):
         M = self.mixed_canonicalise(site)[site]
         return np.array([re(tensordot(op, trace(dot(cT(M),  M), axis1=1, axis2=3), [[0, 1], [0, 1]]))
                 for op in ops])
+
+    def E_k(self, op, sites, single_string=False):
+        '''E_k expectation of an operator on k sites
+        :param op: k site operator
+        :param sites: sites operator acts on. Should be contiguous
+        :param single_string: whether the operator is of the form OxO'xO''x... (vs. sum of similar) 
+               if so, op should be list [(d, d), (d, d), ..]'''
+        if (not self.canonical and not self.orthogonal) or (hasattr(self, 'oc') and self.oc not in sites):
+            self.mixed_orthogonalise(sites[0])
+        Ms = [self.data[x] for x in sites]
+        k = len(sites)
+        if not single_string:
+            op = op.reshape([self.d, self.d]*k)
+            return re(ncon([M.conj() for M in Ms]+[op]+Ms, self.links(k)))
+        else:
+            links = self.links(k)
+            big_links = links[int(len(links)/2)]
+            op_links = [[big_links[i], big_links[i+k]] for i in range(k)]
+            links = links[:int(len(links)/2)] + op_links + links[int(len(links)/2)+1:]
+            return re(ncon([M.conj() for M in Ms]+op+Ms, links))
 
     def E_L(self, op):
         """E_L: expectation of a full size operator
@@ -879,6 +915,21 @@ class fMPS(object):
         """
         op = op.reshape([self.d, self.d]*self.L)
         return re(ncon([a.conj() for a in self]+[op]+self.data, self.links()))
+
+    def rho(self, sites, single_string=True):
+        '''reduced density matrix on sites
+        :param sites: sites to reduce to
+        :param single_string: whether to return a list of density matrices if D=1
+        '''
+        #if (not self.canonical and not self.orthogonal) or (hasattr(self, 'oc') and self.oc not in sites):
+        #    self.mixed_orthogonalise(sites[0])
+        if self.bond_dimension == 1 and single_string:
+            return [ncon([np.squeeze(self[i])]+[np.squeeze(self[i].conj())], [[-1], [-2]]) for i in sites]
+        else:
+            links = [([-i, i, i+1] if i!= len(sites) else [-i, i, 2*len(sites)+1]) for i in range(1, len(sites)+1)]+\
+                    [([-i, i, i+1] if i != len(sites)+1 else [-i, 1, i+1]) for i in range(len(sites)+1, 2*len(sites)+1)]
+
+            return ncon([self[i] for i in sites]+[self[i].conj() for i in sites], links).reshape(self.d**len(sites), -1)
 
     def energy(self, H, fullH=False):
         """energy: if fullH: alias for E_L, else does nn stuff
@@ -1021,7 +1072,6 @@ class fMPS(object):
                         [[2, 1, 4], [6, 4, 8], [3, 6, 2, 7], [3, 1, -1], [7, -2, 8]])
 
         if threshold is not None:
-            raise Exception
             if self.projection_error(H, dt) < threshold:
                 return self
 
