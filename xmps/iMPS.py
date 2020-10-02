@@ -42,10 +42,11 @@ class Map(object):
         self.shape = A.shape[1]**2, A.shape[2]**2
         self.dtype = A.dtype
 
-    def full_matrix(self):
+    def asmatrix(self):
+        # [0, 2, 3, 1]
         return transpose(tensordot(self.A, 
                                   cT(self.B), [0, 0]), 
-                         [0, 2, 1, 3]).reshape(self.shape)
+                         [0, 3, 1, 2]).reshape(self.shape)
 
     def mv(self, r):
         """mv: TM @ v
@@ -72,14 +73,15 @@ class Map(object):
         """return linear operator representation - for arnoldi etc."""
         return LinearOperator(self.shape, matvec=self.mv, rmatvec=self.mvr)
 
-    def right_fixed_point(self, r0=None, tol=0):
+    def right_fixed_point(self, r0=None, tol=0, rotate=True):
         d, D = self.d, self.D
         if r0 is not None:
             r0 = r0.reshape(D**2)
         η, r = arnoldi(self.aslinearoperator(), k=1, v0=r0, tol=tol)
-        r = rotate_to_hermitian(r)/sign(r[0])
-        r = r.reshape(D, D)
-        return η*np.sqrt(tr(r.conj().T@r)), r/np.sqrt(tr(r.conj().T@r))
+        if rotate:
+            w, r = rotate_to_hermitian(r, ret_phase=True)
+        r = r.reshape(D, D)/sign(r[0])
+        return η, r
 
     def left_fixed_point(self, l0=None, tol=0):
         d, D = self.d, self.D

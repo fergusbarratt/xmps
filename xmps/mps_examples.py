@@ -117,6 +117,19 @@ def i_comp_z(i):
         matrices[0][1] = 1
     return iMPS(matrices) 
 
+def i_cat(ϵ = 1e-2):
+    matrices = [zeros((2, 2, 2))]
+    matrices[0][0][0, 0] = 1
+    matrices[0][0][1, 1] = ϵ 
+    matrices[0][0][0, 1] = ϵ
+    matrices[0][0][1, 0] = ϵ
+
+    matrices[0][1][0, 0] = ϵ
+    matrices[0][1][0, 1] = ϵ
+    matrices[0][1][1, 0] = ϵ
+    matrices[0][1][1, 1] = 1
+    return iMPS(matrices) 
+
 def AKLT():
     """AKLT"""
     sx, sy, sz = spins(0.5)

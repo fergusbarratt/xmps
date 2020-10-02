@@ -15,6 +15,21 @@ from scipy.linalg import norm
 from itertools import product
 
 
+H = np.array([[1, 1], [1, -1]])/np.sqrt(2)
+
+def Nsphere(v):
+    # Spherical coordinates for the (len(v)-1)-sphere
+    def sts(v):
+        # [a, b, c..] -> [[a], [a, b], [a, b, c], ..]
+        return [np.array(v[:b]) for b in range(1, len(v)+1)]
+    def cs(v):
+        # [[a], [a, b], [a, b, c], ..] -> [prod([cos(a)]), prod([sin(a), cos(b)]), ...]
+        return np.prod(np.array([*np.sin(v[:-1]), np.cos(v[-1])]))
+    def ss(v):
+        # same as cs but with just sines
+        return np.prod(np.sin(v))
+    return np.array([cs(v) for v in sts(v)]+[ss(v)])
+
 def partial_trace(rho, keep, dims, optimize=False):
     """Calculate the partial trace
     https://scicomp.stackexchange.com/questions/30052/calculate-partial-trace-of-an-outer-product-in-python
@@ -64,6 +79,15 @@ def swap():
                   [0, 0, 1, 0],
                   [0, 1, 0, 0], 
                   [0, 0, 0, 1]])
+
+def CZ():
+    return np.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, -1]])
+
+def CNOT():
+    return np.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 0, 1], [0, 0, 1, 0]])
+
+def CRy(θ):
+    return np.array([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, np.cos(θ/2), np.sin(θ/2)], [0, 0, np.sin(-θ/2), np.cos(θ/2)]])
 
 def levi_civita(dim):
     """levi_civita symbol rank dim

@@ -241,13 +241,15 @@ def diagonalise(M):
     S, V = neig(M)
     return (V, diag(S))
 
-def rotate_to_hermitian(r, testing=False):
+def rotate_to_hermitian(r, testing=False, ret_phase=False):
     """rotate_to_hermitian: arnoldi returns matrices that are hermitian up
     to phase w i.e. r = w r_H where r_H = r_H^\dagger and abs(w)=1
     Also slightly underspecified, only return r_H up to a sign
     """
     rr = r[0, 0]
     w = sqrt(conj(rr)/rr)
+    if ret_phase:
+        return w.conj(), r*w
     return r*w
 
 def r_eigenmatrix(M):
@@ -317,10 +319,18 @@ def mps_pad(mps1, mps2):
                                                        mps2.data))):
             pads = insert(array(shapes[1]) - array(shapes[0]), 0, 0)
             if (pads < 0).any():
-                assert not (pads > 0).any()
-                pads = list(zip([0, 0, 0], -pads))
-                padded_mps2[index] = pad(mps2_data, pads,
-                                         mode='constant')
+                if (pads > 0).any():
+                    pads1 = list(zip([0, 0, 0], pads*(pads>0).astype(int)))
+                    pads2 = list(zip([0, 0, 0], -pads*(pads<0).astype(int)))
+                    padded_mps1[index] = pad(mps1_data, pads1,
+                                             mode='constant')
+                    padded_mps2[index] = pad(mps2_data, pads2,
+                                             mode='constant')
+
+                else:
+                    pads = list(zip([0, 0, 0], -pads))
+                    padded_mps2[index] = pad(mps2_data, pads,
+                                             mode='constant')
             else:
                 pads = list(zip([0, 0, 0], pads))
                 padded_mps1[index] = pad(mps1_data, pads,
