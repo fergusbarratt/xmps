@@ -717,6 +717,16 @@ class fMPS(object):
             F = ncon([F, t, c(b)], [[1, 2], [3, 1, -1], [3, 2, -2]])
         return F[0][0]
 
+    def k_local_approx_overlap(self, other, k=None, L=None):
+        if k == None:
+            return self.overlap(other)
+        L = self.L if L is None else L
+        As = [list(range(i, i+k)) for i in range(self.L-k+1)]
+        return self.approx_overlap(other, As)
+
+    def approx_overlap(self, other, As):
+        return np.mean([self.local_overlap(other, A) for A in As])
+
     def local_overlap(self, other, sites):
         """overlap:
         partition should be contiguous
@@ -728,17 +738,16 @@ class fMPS(object):
         else:
             return self.E_k(other.rho(sites), sites, single_string=False)
 
-    def k_local_approx_overlap(self, other, k):
-        As = [list(range(i, i+1+k)) for i in range(L-k)]
-        return self.approx_overlap(self, other, As)
-
-    def approx_overlap(self, other, As):
-        return np.mean([self.local_overlap(other, A) for A in As])
 
     def from_product_state(self, product_state):
         """ product_state should be shape (L, 2)
         """
         return fMPS([np.expand_dims(np.expand_dims(A, -1), -1) for A in product_state])
+
+    def from_product_states(self, product_states):
+        """ product_state should be shape (L, 2)
+        """
+        return [fMPS([np.expand_dims(np.expand_dims(A, -1), -1) for A in product_state]) for product_state in product_states]
 
     def product_state_overlap(self, other):
         """ other should be of the form (L, 2)
@@ -921,8 +930,8 @@ class fMPS(object):
         :param sites: sites to reduce to
         :param single_string: whether to return a list of density matrices if D=1
         '''
-        #if (not self.canonical and not self.orthogonal) or (hasattr(self, 'oc') and self.oc not in sites):
-        #    self.mixed_orthogonalise(sites[0])
+        if (not self.canonical and not self.orthogonal) or (hasattr(self, 'oc') and self.oc not in sites):
+            self.mixed_orthogonalise(sites[0])
         if self.bond_dimension == 1 and single_string:
             return [ncon([np.squeeze(self[i])]+[np.squeeze(self[i].conj())], [[-1], [-2]]) for i in sites]
         else:
@@ -2005,12 +2014,14 @@ class fTFD(fMPS):
 
     def random(self, L, d, D, pure=True):
         if pure:
-            data = super().random(L, d, D)
+            data = super().random(L, d, D).data
             self.data = [kron(a, b) for a, b in zip(data, data)]
             self.d = d**2
             self.D = D**2
         else:
-            data = super().random(L, d**2, D)
+            data = super().random(L, d**2, D**2).data
+            self.data = data
+            self = self.symmetrise()
         return self
 
     def from_fMPS(self, mps):
@@ -2021,11 +2032,29 @@ class fTFD(fMPS):
         self.L = mps.L
         return self
 
+    def approx_overlap(self, other, As, double=False):
+        return np.mean([self.local_overlap(other, A, double) for A in As])
+
+    def local_overlap(self, other, sites, double=False):
+        """overlap:
+        partition should be contiguous
+        """
+        if not other.bond_dimension == 1:
+            raise NotImplementedError('Only implemented local overlaps for <ψψ|data>')
+        if double:
+            return self.E_k([np.kron(ρ, ρ) for ρ in other.rho(sites)], sites, single_string=True)
+        else:
+            return self.E_k([np.kron(np.eye(2), ρ) for ρ in other.rho(sites)], sites, single_string=True)
+
+
     def symmetry(self):
         return fTFD([tra(X.reshape((int(sqrt(X.shape[0])), int(sqrt(X.shape[0])),
                                     int(sqrt(X.shape[1])), int(sqrt(X.shape[1])), 
                                     int(sqrt(X.shape[2])), int(sqrt(X.shape[2])))), 
                          [1, 0, 3, 2, 5, 4]).reshape(X.shape) for X in self])
+
+    def symmetrise(self):
+        return (self+self.symmetry())
 
     def symm_asymm(self, D):
         D = int(sqrt(D))
@@ -2065,21 +2094,21 @@ class fTFD(fMPS):
         dA_dt = super().dA_dt(H_, fullH)
         return dA_dt
 
-    def E(self, op, site):
+    def E(self, op, site, lr=0):
         """E: one site expectation value
 
         :param op: 1 site operator
         :param site: site
         """
-        op = kron(op, eye(len(op)))
+        op = kron(op, eye(len(op))) if lr == 0 else kron(eye(len(op)), op)
         M = self.mixed_canonicalise(site)[site]
-        return trace(sum(cT(M)@tensordot(op, M, [0, 0]), axis=0))
+        return np.real(trace(sum(cT(M)@tensordot(op, M, [0, 0]), axis=0)))
 
-    def Es(self, ops, site):
-        ops = [kron(op, eye(len(op))) for op in ops]
+    def Es(self, ops, site, lr=0):
+        ops = [kron(op, eye(len(op))) for op in ops] if lr == 0 else [kron(eye(len(op)), op) for op in ops]
         M = self.mixed_canonicalise(site)[site]
-        return [trace(sum(cT(M)@tensordot(op, M, [0, 0]), axis=0))
-                for op in ops]
+        return np.array([trace(sum(cT(M)@tensordot(op, M, [0, 0]), axis=0))
+                for op in ops])
 
 class vfMPS(object):
     """vidal finite MPS

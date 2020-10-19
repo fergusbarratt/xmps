@@ -1,5 +1,5 @@
 from xmps.peps_tools import group_legs, ungroup_legs, U2
-from xmps.fMPS import separate_tensor, group_tensors
+from xmps.fMPS import separate_tensor_qr as separate_tensor, group_tensors
 from functools import reduce
 from itertools import product
 import numpy as np
@@ -1180,9 +1180,6 @@ def test_moses_move(N):
 
     print('success')
 
-test_moses_move(1)
-raise Exception
-
 def test_peps_transpose(N):
     print('testing peps transpose + flips ... ', end='')
     for _ in range(N):
@@ -1232,6 +1229,3 @@ def tests(N):
     test_isometrize(N)
     test_split_tensor(N)
 
-
-if __name__ == '__main__':
-    tests(1)

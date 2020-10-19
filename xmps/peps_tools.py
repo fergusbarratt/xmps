@@ -31,7 +31,6 @@ def group_legs(T, legs):
     T_ = T_.reshape(new_shape)
     return(T_, pipe)
 
-
 def inverse_transpose(perm):
     """ Returns the inverse of a permutation """
     inv = [0]* len(perm)
@@ -74,6 +73,9 @@ def E2(U, θ):
 def renyi(U, θ):
     d1, d2, Xl, Xr = θ.shape
     return -np.real(np.log(np.trace(ncon([U, E2(U, θ)], [[-1, -2, 1, 2], [1, 2, -3, -4]]).reshape(d1*d2, d1*d2))))
+
+def U2(*args, **kwargs):
+    pass
 
 #U_ = np.linalg.qr(np.random.randn(4, 4)+1j*np.random.randn(4, 4))[0]
 #U = U_.reshape(2, 2, 2, 2)

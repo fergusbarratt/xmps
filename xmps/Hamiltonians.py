@@ -1,3 +1,4 @@
+import math
 from functools import reduce
 from itertools import product
 from .spin import paulis
@@ -5,23 +6,48 @@ from numpy import zeros, kron, trace, eye, allclose
 import numpy as np
 
 Sx, Sy, Sz = paulis(0.5)
-S = {'I': eye(2), 'X': Sx, 'Y': Sy, 'Z': Sz}
+I = np.eye(2)+0j
+S = {'I': I, 'X': Sx, 'Y': Sy, 'Z': Sz}
 
-class Hamiltonian:
+class Hamiltonian(object):
     """Hamiltonian: string of terms in local hamiltonian.
        Just do quadratic spin 1/2
        ex. tfim = Hamiltonian({'ZZ': 1, 'X': λ}) = Hamiltonian({'ZZ': 1, 'IX': λ/2, 'XI': λ/2})
        for parity invariant specify can single site terms ('X')
        otherwise 'IX' 'YI' etc."""
 
-    def __init__(self, strings=None):
-        self.strings = strings
+    def __init__(self, strings=None, matrices=None, d=2):
         if strings is not None:
+            self.strings = strings
             for key, val in {key:val for key, val in self.strings.items()}.items():
                 if len(key)==1:
                     self.strings['I'+key] = val/2
                     self.strings[key+'I'] = val/2
                     self.strings.pop(key)
+        if matrices is not None:
+            self.d = d # local hilbert space dimension
+            self.matrices = matrices
+
+    @property
+    def has_strings(self):
+        return hasattr(self, 'strings')
+
+    @property
+    def has_matrices(self):
+        return hasattr(self, 'matrices')
+
+    @property
+    def k(self):
+        if self.has_matrices:
+            dk = self.matrices[0].shape[0]
+            k = math.log(dk, self.d)
+            assert np.allclose(k, int(k))
+            return int(k)
+    @property
+    def L(self):
+        if not self.has_matrices:
+            raise Exception('no length without matrices')
+        return len(self.matrices)+self.k-1
 
     def __str__(self):
         return str(self.strings)
@@ -92,3 +118,17 @@ class Hamiltonian:
         self.strings = {a+b:trace(kron(a, b)@mat) for a, b in strings}
         del self.strings['II']
         return self
+
+    def to_full(self, L=None):
+        if not self.has_matrices:
+            if self.has_strings:
+                assert L is not None
+                self.matrices = self.to_matrices(L)
+            else:
+                raise Exception('No strings or matrices')
+        if self.has_matrices:
+            total = np.zeros((2**self.L, 2**self.L))*1j
+            for i, matrix in enumerate(self.matrices):
+                total += reduce(np.kron, [I]*i+[matrix]+[I]*(self.L-self.k-i))
+            return total
+

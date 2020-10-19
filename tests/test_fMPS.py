@@ -1,4 +1,4 @@
-from xmps.fMPS import fMPS, vfMPS, fTFD, fs
+from xmps.fMPS import fMPS, vfMPS, fTFD, fs, group_tensors
 
 import unittest
 
@@ -40,6 +40,7 @@ import uuid
 
 Sx, Sy, Sz = spins(0.5)
 Sx, Sy, Sz = 2*Sx, 2*Sy, 2*Sz
+I = np.eye(2)
 
 from xmps.ncon import ncon as ncon
 
@@ -939,7 +940,7 @@ class TestvfMPS(unittest.TestCase):
                                for fMPS1, fMPS2 in zip(self.cases,
                                                        other_cases)]).all())
 
-class testfTFD(unittest.TestCase):
+class TestAfTFD(unittest.TestCase):
     def setUp(self):
         """setUp"""
         self.N = N = 4  # Number of MPSs to test
@@ -955,18 +956,30 @@ class testfTFD(unittest.TestCase):
                            for _ in range(N)]
         self.mixed_cases = [fTFD().random(randint(L_min, L_max),
                                           randint(d_min, d_max),
-                                          D=D_sq,
+                                          D=D,
                                           pure=False)
                            for _ in range(N)]
 
+        self.mps_cases = [fMPS().random(randint(L_min, L_max),
+                                        randint(d_min, d_max),
+                                        D=D)
+                          for _ in range(N)]
+
+
         psi_0_2 = load('fixtures/mat2x2.npy')
         self.tfd_0_2 = fTFD().from_fMPS(fMPS().left_from_state(psi_0_2))
+
+    def test_evs(self):
+        for A, A_ in zip(self.pure_cases, self.mixed_cases):
+            for site in range(len(A)):
+                self.assertTrue(np.allclose(A.Es([Sx, Sy, Sz], site, lr=0), A.Es([Sx, Sy, Sz], site, lr=1)))
+                self.assertTrue(np.allclose(A_.Es([Sx, Sy, Sz], site, lr=0), A_.Es([Sx, Sy, Sz], site, lr=1)))
 
     def test_symmetries(self):
         """test_symmetry"""
         for A, A_ in zip(self.pure_cases, self.mixed_cases):
             self.assertTrue(A==A.symmetry())
-            self.assertFalse(A_==A_.symmetry())
+            self.assertTrue(A_==A_.symmetry())
             for n in range(A.L):
                 vL_sym, vL_asy, M = A.get_vL()[n]
                 self.assertTrue(allclose(vL_sym,  M@fs(vL_sym)))
@@ -1012,6 +1025,34 @@ def test_local_overlap(N):
     fig.subplots_adjust(top=0.8)
     plt.savefig('overlaps.pdf')
 
+def test_local_overlap_tfd(N):
+    import matplotlib.pyplot as plt
+    plt.style.use('ggplot')
+    L = 8
+    width = 3
+    K = 5
+    D = 3
+    fig, ax = plt.subplots(1, K, sharex=True, sharey=True, figsize=(K*width, width+0.8))
+    for i, k in enumerate(list(range(0, L))[:K]):
+        real_overlaps = []
+        approx_overlaps = []
+        print(k)
+        for _ in range(N):
+            x = fMPS().random(L, 2, D)
+            y = fTFD().from_fMPS(x).left_canonicalise(3)
+            x = x.left_canonicalise(1)
+
+            As = [list(range(i, i+1+k)) for i in range(L-k)]
+            approx_overlaps.append(y.approx_overlap(x, As, double=False)**2)
+            real_overlaps.append(np.abs(y.overlap(fTFD().from_fMPS(x))**2))
+        ax[i].set_xlabel(f'{k+1}-local approximate overlaps')
+        ax[i].scatter(approx_overlaps, real_overlaps, marker='+')
+    ax[0].set_ylabel('true overlap')
+    fig.suptitle('$k$-local approx overlap: $\\frac{1}{N-k}\sum_{i=1}^{N-k} tr(\\rho^1_{i...i+k}\\rho^2_{i...i+k})$. Overlap between L=8, D=3 tfd mps, and same mps truncated to D=1.')
+    fig.tight_layout()
+    fig.subplots_adjust(top=0.8)
+    plt.savefig('tfd_overlaps.pdf')
+
 if __name__ == '__main__':
     #unittest.main(verbosity=2, failfast=True)
-    test_local_overlap(1000)
+    test_local_overlap_tfd(1000)
