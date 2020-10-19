@@ -58,7 +58,7 @@ SWAP = np.array([[1, 0, 0, 0],
                  [0, 0, 0, 1]])
 
 from .ncon import ncon as nc
-def ncon(*args): return nc(*args, check_indices=False) # make default ncon not check indices
+def ncon(*args, **kwargs): return nc(*args, check_indices=False, **kwargs) # make default ncon not check indices
 
 def apply_unitary(tensors, U, which='l', D=None):
     if D is None:
@@ -737,7 +737,6 @@ class fMPS(object):
             return self.E_k(other.rho(sites), sites, single_string=True)
         else:
             return self.E_k(other.rho(sites), sites, single_string=False)
-
 
     def from_product_state(self, product_state):
         """ product_state should be shape (L, 2)

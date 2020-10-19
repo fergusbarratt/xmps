@@ -1,5 +1,5 @@
 from xmps.peps_tools import group_legs, ungroup_legs, U2
-from xmps.fMPS import separate_tensor_qr as separate_tensor, group_tensors
+from xmps.fMPS import separate_tensor_svd as separate_tensor, group_tensors
 from functools import reduce
 from itertools import product
 import numpy as np
@@ -297,6 +297,58 @@ class fPEPS(object):
                 eq = eq and np.allclose(A, A_)
         return eq
 
+    def rho(self, sites, single_string=True):
+        '''reduced density matrix on sites
+        :param sites: sites to reduce to
+        :param single_string: whether to return a list of density matrices if D=1
+        '''
+        if not single_string:
+            raise NotImplementedError('only implemented for D=1')
+        assert self.bond_dimension==1
+        pass
+
+    def from_state(self, state):
+        '''This is gonna create an mps from state, then embed that mps in a peps'''
+        raise Exception
+
+    def apply_k(self, op, sites):
+        '''specify op as a full operator, sites as a pair, coords_of_top_left, width_height,
+           assume op is specified in reading order. contracts rows of peps that sites covers'''
+        (x, y), (width, height) = sites
+        block = [row[x:x+width] for row in self.data[y:y+height]]
+        op = op.reshape(*[2]*width*height*2)
+        block = reduce(list.__add__, block)
+        size = len(block)
+        def col(i):
+            return i % width
+        def row(i):
+            return i // width
+        links = [[-x-1 for x in range(size)]+list(range(1, size+1))] + \
+                [(i+1, (1+size+col(i)+width*row(i)) if row(i)!=0 else -(1+size+col(i)),
+                       (1+2*size+col(i)+width*row(i)) if col(i)!=width-1 else -(1+size+width+row(i)),
+                       (1+size+col(i)+width*(row(i)+1)) if row(i)!=height-1 else -(1+size+width+height+(col(i))),
+                       (1+2*size+col(i)-1+width*row(i)) if col(i)!=0 else -(1+size+width+height+width+(row(i)))
+                          ) for i in range(size)]
+        order = np.array(links[1:]).reshape(-1)
+        order = order[order>0]
+        collated = [x for i, x in enumerate(order) if x not in order[:i]]
+        op_block = ncon([op]+block, links, order=collated)
+        print(op_block.shape)
+        raise NotImplementedError('need to split op_block back up somehow')
+
+    def row_contract(self, fr, to):
+        cols = list(map(list, zip(*self.data[fr:to])))
+        new_data = self.data[:fr]+ [[reduce(col_contract, x) for x in cols]]+self.data[to:]
+        return fPEPS(new_data)
+
+    def col_contract(self, fr, to):
+        return self.T.row_contract(fr, to).T
+
+    def E_k(self, op, sites):
+        y = self.row_contract(0, 3).col_contract(0, 3)
+        print(*[[x.shape for x in row] for row in y.data], sep='\n')
+        new = self.apply_k(op, sites)
+
     def row_mpos(self, other=None):
         other = self if other is None else other
         return [fMPO([np.tensordot(A, B.conj(), [0, 0]).transpose(
@@ -348,6 +400,10 @@ class fPEPS(object):
         if hasattr(self, 'd'):
             ret.d = self.d
         return ret
+
+    @property
+    def bond_dimension(self):
+        return np.max(np.array([[x.shape[1:] for x in row] for row in self.data]))
 
     def truncate_above(self, row, D):
         '''truncate bonds above row to size D'''
@@ -928,19 +984,23 @@ def split_tensor(tens, chi):
     return [a, b, c]
 
 
+def all_equal(a):
+    return np.allclose(a, a[0])
+
+def close_up_to_factor(a, b):
+    return all_equal(np.array(a)/np.array(b))
+
 def test_separate_tensor(N):
     print('testing separate tensor ... ', end='')
     for _ in range(N):
         D = 10
         a = np.random.randn(4, 5, 5)
         b, c = separate_tensor(a, D)
-        assert np.allclose(a, group_tensors([b, c]))
+        assert close_up_to_factor(a, group_tensors([b, c]))
     print('success')
-
 
 def unsplit_tensor(a, b, c):
     return ncon([a, b, c], [[-1, 1, 2, -5, -6], [-2, 3, 1], [3, -3, -4, 2]])
-
 
 def test_split_tensor(N):
     print('testing split_tensor ... ', end='')
@@ -959,7 +1019,6 @@ def test_split_tensor(N):
                 if OR:
                     print('success at k={}, '.format(k), end='')
                     break
-
 
 def test_mpo_multiplication(N):
     print('testing mpo mps multiplication ... ', end='')
@@ -986,7 +1045,6 @@ def test_mpo_multiplication(N):
         f2 = A_ψ@B_ψ
         assert np.allclose(f1, f2)
     print('success')
-
 
 def test_fPEPS_evs(N):
     print('testing peps evs ... ', end='')
@@ -1023,7 +1081,6 @@ def test_fPEPS_evs(N):
         assert np.allclose(x.ev(X, (0, 1)), φ.conj().T@IXI@φ)
     print('success')
 
-
 def test_fPEPS_addition(N):
     print('testing peps addition ... ', end='')
     for _ in range(N):
@@ -1044,7 +1101,6 @@ def test_fPEPS_addition(N):
         assert np.allclose(x.recombine()+y.recombine(), x.add(y).recombine())
     print('success')
 
-
 def test_fPEPS_from_mps(N):
     print('testing peps from mps ... ', end='')
     np.set_printoptions(precision=1)
@@ -1054,7 +1110,6 @@ def test_fPEPS_from_mps(N):
         assert np.allclose(x.recombine().reshape(-1),
                            y.recombine('row_snake').reshape(-1))
     print('success')
-
 
 def test_overlap(N):
     print('testing peps overlap ... ', end='')
@@ -1067,8 +1122,8 @@ def test_overlap(N):
 
 def test_isometrize(N):
     for _ in range(N):
-        for L in range(2, 6):
-            for chi in range(2, 4):  # fails at chi=5!
+        for L in range(2, 5):
+            for chi in range(2, 5): 
                 print('testing isometric norm, evs chi={}, {}x{} ...'.format(
                     chi, L, L), end='')
                 for i, j in product(range(L), range(L)):
@@ -1099,7 +1154,6 @@ def test_isometrize(N):
                     #assert np.allclose(x.iso_ev(Y, (i, j)),x.ev(Y, (i, j)))
                     #assert np.allclose(x.iso_ev(Z, (i, j)),x.ev(Z, (i, j)))
                 print('success')
-
 
 def test_moses_move(N):
     print('testing moses move ... ', end='')
@@ -1216,9 +1270,29 @@ def test_peps_transpose(N):
             assert np.allclose(z.iso_ev(Z), z.U.iso_ev(Z))
     print('success')
 
+def test_rho(N):
+    L = 5
+    x = fPEPS().random(L, L, 2, 1).isometrise((2, 2))
+    print(x.bond_dimension)
+    print(x)
+    print(x.bond_dimension)
+
+def test_E_k(N):
+    L = 5
+    x = fPEPS().random(L, L, 2, 5)
+    width, height = 2, 2
+    op = np.eye(2**(width*height))
+    x.E_k(op, ((0, 1), (width, height)))
+
 
 def tests(N):
-    test_moses_move(N)
+    test_E_k(1)
+    raise Exception
+    test_isometrize(N)
+    test_rho(1)
+    raise Exception
+    #test_moses_move(N)
+    #test_split_tensor(N)
     test_fPEPS_from_mps(N)
     test_separate_tensor(N)
     test_fPEPS_addition(N)
@@ -1226,6 +1300,6 @@ def tests(N):
     test_mpo_multiplication(N)
     test_overlap(N)
     test_peps_transpose(N)
-    test_isometrize(N)
-    test_split_tensor(N)
 
+if __name__=='__main__':
+    tests(1)
