@@ -21,6 +21,7 @@ def to_diagram(tensor):
     return string
 
 
+
 def tuple_to_diagram(shape):
     string = """
               d={0} {1}
@@ -219,7 +220,7 @@ class fMPO(object):
         return [x.shape for x in self.data]
 
     def __str__(self):
-        return str(self.structure())
+        return str(self.structure)
 
     def random(self, L, d, X):
         self.L, self.d, self.X = L, d, X
@@ -267,7 +268,7 @@ class fPEPS(object):
 
     def __str__(self):
         assert hasattr(self, 'Lx') and hasattr(self, 'Ly')
-        return '\n'.join(map(str, self.structure()))
+        return '\n'.join(map(str, self.structure))
 
     def __eq__(self, other):
         '''whether two peps are exactly equal. (to machine precision i.e. no gauge stuff)'''
@@ -299,42 +300,22 @@ class fPEPS(object):
 
     def rho(self, sites, single_string=True):
         '''reduced density matrix on sites
-        :param sites: sites to reduce to
+        :param sites: sites to reduce to. specify as ((x, y), (width, height))
         :param single_string: whether to return a list of density matrices if D=1
         '''
         if not single_string:
             raise NotImplementedError('only implemented for D=1')
         assert self.bond_dimension==1
-        pass
+        (x, y), (width, height) = sites
+        rhos = np.zeros((width, height, self.d, self.d))*1j
+        for i, j in product(range(width), range(height)):
+            dd = np.squeeze(self.data[y+j][x+i])
+            rhos[i, j] = np.outer(dd, dd.conj())
+        return rhos
 
     def from_state(self, state):
         '''This is gonna create an mps from state, then embed that mps in a peps'''
         raise Exception
-
-    def apply_k(self, op, sites):
-        '''specify op as a full operator, sites as a pair, coords_of_top_left, width_height,
-           assume op is specified in reading order. contracts rows of peps that sites covers'''
-        (x, y), (width, height) = sites
-        block = [row[x:x+width] for row in self.data[y:y+height]]
-        op = op.reshape(*[2]*width*height*2)
-        block = reduce(list.__add__, block)
-        size = len(block)
-        def col(i):
-            return i % width
-        def row(i):
-            return i // width
-        links = [[-x-1 for x in range(size)]+list(range(1, size+1))] + \
-                [(i+1, (1+size+col(i)+width*row(i)) if row(i)!=0 else -(1+size+col(i)),
-                       (1+2*size+col(i)+width*row(i)) if col(i)!=width-1 else -(1+size+width+row(i)),
-                       (1+size+col(i)+width*(row(i)+1)) if row(i)!=height-1 else -(1+size+width+height+(col(i))),
-                       (1+2*size+col(i)-1+width*row(i)) if col(i)!=0 else -(1+size+width+height+width+(row(i)))
-                          ) for i in range(size)]
-        order = np.array(links[1:]).reshape(-1)
-        order = order[order>0]
-        collated = [x for i, x in enumerate(order) if x not in order[:i]]
-        op_block = ncon([op]+block, links, order=collated)
-        print(op_block.shape)
-        raise NotImplementedError('need to split op_block back up somehow')
 
     def row_contract(self, fr, to):
         cols = list(map(list, zip(*self.data[fr:to])))
@@ -344,10 +325,18 @@ class fPEPS(object):
     def col_contract(self, fr, to):
         return self.T.row_contract(fr, to).T
 
+    def contract(self, sites, single_string=False):
+        '''sites as a pair, coords_of_top_left, width_height,
+            contracts rows of peps that sites covers'''
+        (x, y), (width, height) = sites
+        E = self.row_contract(y, y+height).col_contract(x, x+width)
+        return E
+
     def E_k(self, op, sites):
-        y = self.row_contract(0, 3).col_contract(0, 3)
-        print(*[[x.shape for x in row] for row in y.data], sep='\n')
-        new = self.apply_k(op, sites)
+        ''' (x, y), (width, height) = sites. assume op is specified in reading order.'''
+        new = self.contract(sites)
+        (x, y), _ = sites
+        return new.E(op, (x, y))
 
     def row_mpos(self, other=None):
         other = self if other is None else other
@@ -611,6 +600,7 @@ class fPEPS(object):
 
         return fPEPS(reshaped)
 
+    @property
     def structure(self):
         return [[x.shape for x in row] for row in self.data]
 
@@ -625,7 +615,10 @@ class fPEPS(object):
         return self
 
     def normalise(self):
-        self.data[0][0] /= self.norm()
+        if self.bond_dimension==1:
+            self.data = [[x/norm(x) for x in row] for row in self.data]
+        else:
+            self.data[0][0] /= self.norm()
         return self
 
     def norm(self):
@@ -783,24 +776,24 @@ class fPEPS(object):
                             self.data[j][i])
         return self
 
-    def ev(self, op, site):
+    def E(self, op, site):
         return np.real(self.apply(op, site).overlap(self))[0, 0]
 
-    def iso_ev(self, op, site=None, chi=None):
+    def iso_E(self, op, site=None, chi=None):
         if not hasattr(self, 'oc'):
             raise Exception('Not an isometric peps - try isometrising')
         elif site is not None and site != self.oc:
-            return self.copy().moses_move_oc_to(site, chi).iso_ev(op) 
+            return self.copy().moses_move_oc_to(site, chi).iso_E(op) 
         else:
             site = site if site is not None else self.oc
             i, j = site
             A = self.data[j][i]
             return np.real(ncon([A.conj(), op, A], [[5, 1, 2, 3, 4], [5, 6], [6, 1, 2, 3, 4]]))
 
-    def iso_evs(self, opsites, chi=None):
+    def iso_Es(self, opsites, chi=None):
         ret = []
         for opsite in opsites:
-            ret.append(self.iso_ev(*opsite, chi))
+            ret.append(self.iso_E(*opsite, chi))
         return np.array(ret)
 
     def moses_move_right(self, chi=None, testing=True, truncate=False):
@@ -958,7 +951,7 @@ def split_tensor(tens, chi):
 
     BlX, BrX = factors(ABlBrC0.shape[0])
     # truncate further (have to split ~chi**2 -> ~chi, ~chi)
-    # print(BlX*BrX, a0.shape[1]) - sometimes theres a truncation here, even if the bond
+    # print(BlX*BrX, a0.shape[1]) - sometimes theres a truncation here, Even if the bond
     # dimension is high enough
     #a0, ABlBrC0 = a0[:, :BlX*BrX], ABlBrC0[:BlX*BrX, :]
 
@@ -1046,13 +1039,13 @@ def test_mpo_multiplication(N):
         assert np.allclose(f1, f2)
     print('success')
 
-def test_fPEPS_evs(N):
-    print('testing peps evs ... ', end='')
+def test_fPEPS_Es(N):
+    print('testing peps Es ... ', end='')
     for _ in range(N):
         x = fPEPS().random(3, 3, 2, 2).normalise()
-        e1 = x.ev(X, (0, 0))
-        e2 = x.ev(Y, (0, 0))
-        e3 = x.ev(Z, (0, 0))
+        e1 = x.E(X, (0, 0))
+        e2 = x.E(Y, (0, 0))
+        e3 = x.E(Z, (0, 0))
         n = np.sqrt(e1**2+e2**2+e3**2)
         assert np.abs(e1) <= 1
         assert np.abs(e2) <= 1
@@ -1060,9 +1053,9 @@ def test_fPEPS_evs(N):
         assert np.abs(n) <= 1
 
         x = fPEPS().random(3, 3, 2, 1).normalise()
-        e1 = x.ev(X, (0, 0))
-        e2 = x.ev(Y, (0, 0))
-        e3 = x.ev(Z, (0, 0))
+        e1 = x.E(X, (0, 0))
+        e2 = x.E(Y, (0, 0))
+        e3 = x.E(Z, (0, 0))
         n = np.sqrt(e1**2+e2**2+e3**2)
         assert np.abs(e1) <= 1
         assert np.abs(e2) <= 1
@@ -1078,7 +1071,7 @@ def test_fPEPS_evs(N):
         assert np.allclose(φ.conj().T@ZI@φ, e3)
 
         IXI = reduce(np.kron, [I]*3+[X]+[I]*5)
-        assert np.allclose(x.ev(X, (0, 1)), φ.conj().T@IXI@φ)
+        assert np.allclose(x.E(X, (0, 1)), φ.conj().T@IXI@φ)
     print('success')
 
 def test_fPEPS_addition(N):
@@ -1124,15 +1117,15 @@ def test_isometrize(N):
     for _ in range(N):
         for L in range(2, 5):
             for chi in range(2, 5): 
-                print('testing isometric norm, evs chi={}, {}x{} ...'.format(
+                print('testing isometric norm, Es chi={}, {}x{} ...'.format(
                     chi, L, L), end='')
                 for i, j in product(range(L), range(L)):
                     #    print('orthogonality center: ', i, j)
                     x = fPEPS().random(L, L, 2, chi).isometrise((i, j))
                     assert np.allclose(x.norm(), 1)
-                    assert np.allclose(x.iso_ev(X, (i, j)), x.ev(X, (i, j)))
-                    assert np.allclose(x.iso_ev(Y, (i, j)), x.ev(Y, (i, j)))
-                    assert np.allclose(x.iso_ev(Z, (i, j)), x.ev(Z, (i, j)))
+                    assert np.allclose(x.iso_E(X, (i, j)), x.E(X, (i, j)))
+                    assert np.allclose(x.iso_E(Y, (i, j)), x.E(Y, (i, j)))
+                    assert np.allclose(x.iso_E(Z, (i, j)), x.E(Z, (i, j)))
                 print('success')
 
                # if L < 6:
@@ -1142,17 +1135,17 @@ def test_isometrize(N):
                     x = fPEPS().random(1, L, 2, chi).isometrise((i, j))
                     assert np.allclose(x.full_overlap(x), 1)
                     '''TODO: implement 1d properly (just hand off to mps)'''
-                    #assert np.allclose(x.iso_ev(X, (i, j)),x.ev(X, (i, j)))
-                    #assert np.allclose(x.iso_ev(Y, (i, j)),x.ev(Y, (i, j)))
-                    #assert np.allclose(x.iso_ev(Z, (i, j)),x.ev(Z, (i, j)))
+                    #assert np.allclose(x.iso_E(X, (i, j)),x.E(X, (i, j)))
+                    #assert np.allclose(x.iso_E(Y, (i, j)),x.E(Y, (i, j)))
+                    #assert np.allclose(x.iso_E(Z, (i, j)),x.E(Z, (i, j)))
 
                 for i, j in product(range(L), range(1)):
                     #print('orthogonality center: ', i, j)
                     x = fPEPS().random(L, 1, 2, chi).isometrise((i, j))
                     assert np.allclose(x.full_overlap(x), 1)
-                    #assert np.allclose(x.iso_ev(X, (i, j)),x.ev(X, (i, j)))
-                    #assert np.allclose(x.iso_ev(Y, (i, j)),x.ev(Y, (i, j)))
-                    #assert np.allclose(x.iso_ev(Z, (i, j)),x.ev(Z, (i, j)))
+                    #assert np.allclose(x.iso_E(X, (i, j)),x.E(X, (i, j)))
+                    #assert np.allclose(x.iso_E(Y, (i, j)),x.E(Y, (i, j)))
+                    #assert np.allclose(x.iso_E(Z, (i, j)),x.E(Z, (i, j)))
                 print('success')
 
 def test_moses_move(N):
@@ -1160,8 +1153,8 @@ def test_moses_move(N):
     for _ in range(N):
         L, chi = 6, 2
         x = fPEPS().random(L, L, 2, chi).isometrise((1, 1))
-        print(*x.structure(), sep='\n')
-        print(x.iso_ev(X, (3, 1)), x.ev(X, (3, 1)))
+        print(*x.structure, sep='\n')
+        print(x.iso_E(X, (3, 1)), x.E(X, (3, 1)))
 
         raise Exception
 
@@ -1171,11 +1164,11 @@ def test_moses_move(N):
             x = fPEPS().random(L, L, 2, chi).isometrise(oc)
 
             # x has norm 1 to start
-            assert np.allclose(x.iso_ev(I), 1)
+            assert np.allclose(x.iso_E(I), 1)
 
             for op in [X, Y, Z]:
                 # x is isometric to start
-                assert np.allclose(x.iso_ev(op), x.ev(op, x.oc))
+                assert np.allclose(x.iso_E(op), x.E(op, x.oc))
 
             old_oc = x.oc
             yr = x.copy().moses_move_right()
@@ -1199,38 +1192,38 @@ def test_moses_move(N):
             assert np.allclose(yl.oc, (x.oc[0]-1, x.oc[1]))
 
             # doesn't change the norm
-            assert np.allclose(yr.iso_ev(I), 1)
-            assert np.allclose(yd.iso_ev(I), 1)
-            assert np.allclose(yu.iso_ev(I), 1)
-            assert np.allclose(yl.iso_ev(I), 1)
+            assert np.allclose(yr.iso_E(I), 1)
+            assert np.allclose(yd.iso_E(I), 1)
+            assert np.allclose(yu.iso_E(I), 1)
+            assert np.allclose(yl.iso_E(I), 1)
             
             for op in [X, Y, Z]:
                 for k, l in product(range(1, L-1), range(1, L-1)):
-                    # get same single site ev by moving oc or by full ev
-                    assert np.allclose(x.ev(op, (k, l)), x.iso_ev(op, (k, l)))
+                    # get same single site E by moving oc or by full E
+                    assert np.allclose(x.E(op, (k, l)), x.iso_E(op, (k, l)))
 
                     # #expectation of pre-move peps, with op on new oc
                     # #is same as expectation of post move peps on new oc
-                    assert np.allclose(yr.ev(op, yr.oc), x.ev(op, yr.oc))
-                    assert np.allclose(yd.ev(op, yd.oc), x.ev(op, yd.oc))
-                    assert np.allclose(yu.ev(op, yu.oc), x.ev(op, yu.oc))
-                    assert np.allclose(yl.ev(op, yl.oc), x.ev(op, yl.oc))
+                    assert np.allclose(yr.E(op, yr.oc), x.E(op, yr.oc))
+                    assert np.allclose(yd.E(op, yd.oc), x.E(op, yd.oc))
+                    assert np.allclose(yu.E(op, yu.oc), x.E(op, yu.oc))
+                    assert np.allclose(yl.E(op, yl.oc), x.E(op, yl.oc))
 
                     # new oc is a proper oc
-                    assert np.allclose(yr.iso_ev(op), yr.ev(op, yr.oc))
-                    assert np.allclose(yd.iso_ev(op), yd.ev(op, yd.oc))
-                    assert np.allclose(yu.iso_ev(op), yu.ev(op, yu.oc))
-                    assert np.allclose(yl.iso_ev(op), yl.ev(op, yl.oc))
+                    assert np.allclose(yr.iso_E(op), yr.E(op, yr.oc))
+                    assert np.allclose(yd.iso_E(op), yd.E(op, yd.oc))
+                    assert np.allclose(yu.iso_E(op), yu.E(op, yu.oc))
+                    assert np.allclose(yl.iso_E(op), yl.E(op, yl.oc))
 
             #for op in [X, Y, Z]:
             #    for c in [(1, 2), (2, 1), (1, 1), (2, 2)]:
-            #        print('old oc', x.oc, 'ev site', c)
-            #        print('post move ev on ev site: r', x.ev(op, c), yr.ev(op, c))
-            #        print('post move ev on ev site: u', x.ev(op, c), yu.ev(op, c))
-            #        print('post move ev on ev site: d', x.ev(op, c), yd.ev(op, c))
-            #        print('post move ev on ev site: l', x.ev(op, c), yl.ev(op, c))
+            #        print('old oc', x.oc, 'E site', c)
+            #        print('post move E on E site: r', x.E(op, c), yr.E(op, c))
+            #        print('post move E on E site: u', x.E(op, c), yu.E(op, c))
+            #        print('post move E on E site: d', x.E(op, c), yd.E(op, c))
+            #        print('post move E on E site: l', x.E(op, c), yl.E(op, c))
             #        print('\n')
-            #    #print('post move iso ev on old oc: ', yr.iso_ev(op))
+            #    #print('post move iso E on old oc: ', yr.iso_E(op))
 
     print('success')
 
@@ -1244,59 +1237,73 @@ def test_peps_transpose(N):
             assert x==x.R.R
             assert x==x.U.U
 
-            assert np.allclose(x.ev(X, (i, j)), x.T.ev(X, (j, i)))
-            assert np.allclose(x.ev(Y, (i, j)), x.T.ev(Y, (j, i)))
-            assert np.allclose(x.ev(Z, (i, j)), x.T.ev(Z, (j, i)))
+            assert np.allclose(x.E(X, (i, j)), x.T.E(X, (j, i)))
+            assert np.allclose(x.E(Y, (i, j)), x.T.E(Y, (j, i)))
+            assert np.allclose(x.E(Z, (i, j)), x.T.E(Z, (j, i)))
 
-            assert np.allclose(x.ev(X, (i, j)), x.R.ev(X, (L-i-1, j)))
-            assert np.allclose(x.ev(Y, (i, j)), x.R.ev(Y, (L-i-1, j)))
-            assert np.allclose(x.ev(Z, (i, j)), x.R.ev(Z, (L-i-1, j)))
+            assert np.allclose(x.E(X, (i, j)), x.R.E(X, (L-i-1, j)))
+            assert np.allclose(x.E(Y, (i, j)), x.R.E(Y, (L-i-1, j)))
+            assert np.allclose(x.E(Z, (i, j)), x.R.E(Z, (L-i-1, j)))
 
-            assert np.allclose(x.ev(X, (i, j)), x.U.ev(X, (i, L-j-1)))
-            assert np.allclose(x.ev(Y, (i, j)), x.U.ev(Y, (i, L-j-1)))
-            assert np.allclose(x.ev(Z, (i, j)), x.U.ev(Z, (i, L-j-1)))
+            assert np.allclose(x.E(X, (i, j)), x.U.E(X, (i, L-j-1)))
+            assert np.allclose(x.E(Y, (i, j)), x.U.E(Y, (i, L-j-1)))
+            assert np.allclose(x.E(Z, (i, j)), x.U.E(Z, (i, L-j-1)))
 
             z = fPEPS().random(L, L, 2, 3).isometrise((i, j))
-            assert np.allclose(z.iso_ev(X), z.T.iso_ev(X))
-            assert np.allclose(z.iso_ev(X), z.R.iso_ev(X))
-            assert np.allclose(z.iso_ev(X), z.U.iso_ev(X))
+            assert np.allclose(z.iso_E(X), z.T.iso_E(X))
+            assert np.allclose(z.iso_E(X), z.R.iso_E(X))
+            assert np.allclose(z.iso_E(X), z.U.iso_E(X))
 
-            assert np.allclose(z.iso_ev(Y), z.T.iso_ev(Y))
-            assert np.allclose(z.iso_ev(Y), z.R.iso_ev(Y))
-            assert np.allclose(z.iso_ev(Y), z.U.iso_ev(Y))
+            assert np.allclose(z.iso_E(Y), z.T.iso_E(Y))
+            assert np.allclose(z.iso_E(Y), z.R.iso_E(Y))
+            assert np.allclose(z.iso_E(Y), z.U.iso_E(Y))
 
-            assert np.allclose(z.iso_ev(Z), z.T.iso_ev(Z))
-            assert np.allclose(z.iso_ev(Z), z.R.iso_ev(Z))
-            assert np.allclose(z.iso_ev(Z), z.U.iso_ev(Z))
+            assert np.allclose(z.iso_E(Z), z.T.iso_E(Z))
+            assert np.allclose(z.iso_E(Z), z.R.iso_E(Z))
+            assert np.allclose(z.iso_E(Z), z.U.iso_E(Z))
     print('success')
 
 def test_rho(N):
-    L = 5
-    x = fPEPS().random(L, L, 2, 1).isometrise((2, 2))
-    print(x.bond_dimension)
-    print(x)
-    print(x.bond_dimension)
+    L = 8
+    x = fPEPS().random(L, L, 2, 1).normalise()
+    for loc in product(range(4), range(4)):
+        for wh in product(range(1, 4), range(1, 4)):
+            where = (loc, wh)
+            ρ = x.rho(where)
+            assert np.allclose(x.E_k(reduce(np.kron, ρ.reshape(-1, 2, 2)), where), 1) # expectation of rhos is 1
 
 def test_E_k(N):
-    L = 5
-    x = fPEPS().random(L, L, 2, 5)
+    L = 4
+    state = fPEPS().random(L, L, 2, 2).normalise()
     width, height = 2, 2
+    x, y = 1, 1
     op = np.eye(2**(width*height))
-    x.E_k(op, ((0, 1), (width, height)))
+    assert np.allclose(state.E_k(op, ((x, y), (width, height))), 1)
 
+    for op in [X, Y, Z]:
+        big_op = reduce(np.kron, [op]+[I]*3)
+        assert np.allclose(state.E_k(big_op, ((x, y), (width, height))), state.E(op, ((x, y))))
+
+        big_op = reduce(np.kron, [I]+[op]+[I]*2)
+        assert np.allclose(state.E_k(big_op, ((x, y), (width, height))), state.E(op, ((x+1, y))))
+
+        big_op = reduce(np.kron, [I]+[I]+[op]+[I])
+        assert np.allclose(state.E_k(big_op, ((x, y), (width, height))), state.E(op, ((x, y+1))))
+
+        big_op = reduce(np.kron, [I]+[I]+[I]+[op])
+        assert np.allclose(state.E_k(big_op, ((x, y), (width, height))), state.E(op, ((x+1, y+1))))
 
 def tests(N):
-    test_E_k(1)
-    raise Exception
-    test_isometrize(N)
     test_rho(1)
     raise Exception
+    test_isometrize(N)
+    test_E_k(1)
     #test_moses_move(N)
     #test_split_tensor(N)
     test_fPEPS_from_mps(N)
     test_separate_tensor(N)
     test_fPEPS_addition(N)
-    test_fPEPS_evs(N)
+    test_fPEPS_Es(N)
     test_mpo_multiplication(N)
     test_overlap(N)
     test_peps_transpose(N)
