@@ -2037,7 +2037,10 @@ class fTFD(fMPS):
     def local_overlap(self, other, sites, double=False):
         """overlap:
         partition should be contiguous
+        should be local overlap with fMPS (NOT fTFD)
         """
+        if not isinstance(other, 'fMPS'):
+            raise NotImplementedError('other should be an fMPS, set double to get the overlap with the embedded fTFD')
         if not other.bond_dimension == 1:
             raise NotImplementedError('Only implemented local overlaps for <ψψ|data>')
         if double:
