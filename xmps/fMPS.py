@@ -929,7 +929,7 @@ class fMPS(object):
         :param sites: sites to reduce to
         :param single_string: whether to return a list of density matrices if D=1
         '''
-        if (not self.canonical and not self.orthogonal) or (hasattr(self, 'oc') and self.oc not in sites):
+        if not hasattr(self, 'oc') or self.oc not in sites:
             self.mixed_orthogonalise(sites[0])
         if self.bond_dimension == 1 and single_string:
             return [ncon([np.squeeze(self[i])]+[np.squeeze(self[i].conj())], [[-1], [-2]]) for i in sites]

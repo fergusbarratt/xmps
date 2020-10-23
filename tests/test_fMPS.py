@@ -1054,5 +1054,5 @@ def test_local_overlap_tfd(N):
     plt.savefig('tfd_overlaps.pdf')
 
 if __name__ == '__main__':
-    #unittest.main(verbosity=2, failfast=True)
-    test_local_overlap_tfd(1000)
+    unittest.main(verbosity=2, failfast=True)
+    #test_local_overlap_tfd(1000)
