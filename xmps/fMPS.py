@@ -1941,12 +1941,11 @@ class fMPS(object):
             if H is None:
                 raise Exception
             J1, J2, F = self.jac(H, real_matrix=False)
-            J2 = J2+F
+            J2 = J2#+F
             J1 = kron(eye(2), re(J1)) + kron(-1j*Sy, im(J1))
             J2 = kron(Sz, re(J2)) + kron(Sx, im(J2))
             l, V = sp.linalg.eigh(J2)
-            idx = l.argsort()
-            return V[:, ::-1]
+            return V
 
     def extract_tangent_vector(self, dA):
         """extract_tangent_vector from dA:

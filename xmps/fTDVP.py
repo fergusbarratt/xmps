@@ -282,7 +282,7 @@ class Trajectory(object):
 
     def lyapunov(self, T, D=None, thresh=1e-5, conv_window=100,
                  just_max=False,
-                 t_burn=20,
+                 t_burn=2,
                  initial_basis='F2',
                  order='low',
                  k=0):
@@ -296,10 +296,11 @@ class Trajectory(object):
             print('starting pre evolution ... ', end='', flush=True)
 
             if has_mpo:
-                self.mps = self.mps.left_orthogonalise().expand(D)
+                self.mps = self.mps.left_canonicalise().expand(D)
                 self.invfreeint(
                     linspace(0, t_burn, int(50*t_burn)), order=order)
                 self.burn_len = int(200*t_burn)
+                self.mps = self.mps.left_canonicalise()
                 self.mps_history = []
             else:
                 self.mps = self.mps.grow(self.H, 0.1, D).right_canonicalise()
