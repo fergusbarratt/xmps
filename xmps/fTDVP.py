@@ -280,9 +280,9 @@ class Trajectory(object):
 
         return eigvalsh(Js)
 
-    def lyapunov(self, T, D=None, thresh=1e-5, conv_window=20,
+    def lyapunov(self, T, D=None, thresh=1e-5, conv_window=100,
                  just_max=False,
-                 t_burn=2,
+                 t_burn=20,
                  initial_basis='F2',
                  order='low',
                  k=0):
@@ -296,7 +296,7 @@ class Trajectory(object):
             print('starting pre evolution ... ', end='', flush=True)
 
             if has_mpo:
-                self.mps = self.mps.right_canonicalise().expand(D)
+                self.mps = self.mps.left_orthogonalise().expand(D)
                 self.invfreeint(
                     linspace(0, t_burn, int(50*t_burn)), order=order)
                 self.burn_len = int(200*t_burn)
@@ -349,17 +349,17 @@ class Trajectory(object):
                 Q, R = qr(M)
                 lys.append(log(abs(diag(R))))
                 exps.append((exps[-1]*n+lys[-1])/(n+1))
-                conv.append(norm(np.var(np.array(exps[-conv_window-1:])/dt, axis=0), ord=np.inf))
+                conv.append(np.mean(np.var(np.array(exps[-conv_window-1:])/dt, axis=0)))
                 paired.append(norm(exps[-1]+exps[-1][::-1]))
 
                 M_ = expm_multiply(-J.T*dt, Q_)
                 Q_, R_ = qr(M_)
-                lys_.append(log(abs(diag(R_))))
-                exps_.append((exps[-1]*n+lys_[-1])/(n+1))
-                conv_.append(norm(np.var(np.array(exps_[-conv_window-1:])/dt, axis=0), ord=np.inf))
+                lys_.append((lys[-1]+log(abs(diag(R_))))/2)
+                exps_.append((exps_[-1]*n+lys_[-1])/(n+1))
+                conv_.append(np.mean(np.var(np.array(exps_[-conv_window-1:])/dt, axis=0)))
                 paired_.append(norm(exps_[-1]+exps_[-1][::-1]))
 
-                if thresh is not None and conv[-1] < thresh and conv_[-1] < thresh:
+                if thresh is not None and conv[-1] < thresh:
                     break
 
             if has_mpo:
@@ -507,7 +507,7 @@ class Trajectory(object):
     def mps_energies(self):
         assert self.H is not None
         assert self.mps_history
-        return [mps.energy(self.H) for mps in self.mps_list()]
+        return np.array([mps.left_canonicalise().energy(self.H) for mps in self.mps_list()])
 
     def ed_energies(self):
         assert self.H is not None
@@ -559,12 +559,12 @@ class Trajectory(object):
 
     def von_neumann(self, i=None):
         sch = array(self.schmidts())
-        S_max = array([max(sum([-re(s@log(s)) for s in S])) for S in sch])
+        S_max = array([max([-re(s@log(s)) for s in S]) for S in sch])
         return S_max
 
-    def renyi(self):
+    def renyi(self, α=2):
         sch = array(self.schmidts())
-        R = array([max([-1/2*log(sum(s**2)) for s in S]) for S in sch])
+        R = array([max([1/(1-α)*log(sum(s**α)) for s in S]) for S in sch])
         return R
 
     def ed_evs(self, ops):

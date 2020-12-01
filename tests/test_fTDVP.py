@@ -103,37 +103,127 @@ class TestTrajectory(unittest.TestCase):
         shutil.rmtree(F_.run_dir)
 
     @unittest.skipIf(not tdvp_available, 'tdvp module not available')
-    def test_integrators(self):
-        test_D_1 = True
-        if test_D_1:
+    def test_AAintegrators(self):
+        test_D_1_1 = False
+        if test_D_1_1:
             Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
             Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
 
-            dt, t_fin = 1e-2, 10
-            T = linspace(0, t_fin, int(t_fin//dt)+1)
             mpss = {2:self.mps_0_2, 3:self.mps_0_3, 4:self.mps_0_4, 5:self.mps_0_5}
 
             L = 3
             mps_0 = mpss[L].left_canonicalise(1)
-            from xmps.hamiltonian import Hamiltonian
-            Ham = Hamiltonian({'XX': 1, 'ZZ':1})
-            H = Ham.to_finite_list(L)
-            W = Ham.to_mpo(L)
-            #H = [Sz1@Sz2+Sx1+Sx2] + (L-2)*[Sz1@Sz2+Sx2]
-            #raise Exception
-            #W = mps_0.L*[MPO_TFI(0, 0.25, 0.5, 0)]
-            F = Trajectory(mps_0, H=H, W=W)
+            from xmps.Hamiltonians import Hamiltonian
+            J1, J2, h1, h2 = 0., 0.25, 0.5, 0.
+            Ham = Hamiltonian({'XX':J1, 'ZZ':J2, 'X':h1, 'Z':h2})
+            #H = Ham.to_matrices(L)
+            #H = [J2*4*Sz1@Sz2+J1*4*Sx1@Sx2+h1*2*(Sx1+Sx2)+h2*2*(Sz1+Sz2)] +\
+            #    (L-2)*[J1*4*Sx1@Sx2+J2*4*Sz1@Sz2+h1*2*Sx2+h2*2*Sz2+h2*2*Sz2]
 
+            H = [Sz1@Sz2+Sx1+0.5*Sx2]+(L-2)*[Sz1@Sz2+0.5*Sx1+Sx2]
+            H_ = Ham.to_matrices(L)
+            #raise Exception
+            W = mps_0.L*[MPO_TFI(J1, J2, h1, h2)]
+            W_ = Ham.to_mpo(L)
+            F = Trajectory(mps_0, H=H, W=W)
+            F_ = Trajectory(mps_0, H=H_, W=W_)
+
+            dt, t_fin = 1e-2, 5
+            T = linspace(0, t_fin, int(t_fin//dt)+1)
             C = F.invfreeint(T).mps_evs([Sx, Sy, Sz], 0)
+            E = F_.invfreeint(T).mps_evs([Sx, Sy, Sz], 0)
             F.clear()
+            F_.clear()
             D = F.eulerint(T).mps_evs([Sx, Sy, Sz], 0)
+            Q = F_.eulerint(T).mps_evs([Sx, Sy, Sz], 0)
             F.clear()
 
             plot = True
             if plot:
                 plt.plot(T, C)
                 plt.plot(T, D)
-                plt.show()
+                plt.plot(T, E, linestyle='--')
+                plt.plot(T, Q, linestyle='-.')
+                plt.savefig('test_trajs.pdf')
+
+        test_D_1_2 = False
+        if test_D_1_2:
+            Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
+            Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
+
+            mpss = {2:self.mps_0_2, 3:self.mps_0_3, 4:self.mps_0_4, 5:self.mps_0_5}
+
+            L = 4
+            mps_0 = mpss[L].left_canonicalise(1)
+            from xmps.Hamiltonians import Hamiltonian
+            J1, J2, h1, h2 = 0., 0.25, 0.5, 0.5
+            Ham = Hamiltonian({'XX':J1, 'ZZ':J2, 'X':h1, 'Z':h2})
+
+            H_ = Ham.to_matrices(L)
+            W = mps_0.L*[MPO_TFI(J1, J2, h1, h2)]
+            W_ = Ham.to_mpo(L)
+
+            F = Trajectory(mps_0, H=H_, W=W)
+            F_ = Trajectory(mps_0, H=H_, W=W_)
+
+            dt, t_fin = 1e-2, 5
+            T = linspace(0, t_fin, int(t_fin//dt)+1)
+            C = F.invfreeint(T).mps_evs([Sx, Sy, Sz], 0)
+
+            E = F_.invfreeint(T).mps_evs([Sx, Sy, Sz], 0)
+            F_.clear()
+            Q = F_.eulerint(T).mps_evs([Sx, Sy, Sz], 0)
+
+            plot = True
+            if plot:
+                fig, ax = plt.subplots(2, 1, sharex=True)
+                ax[0].plot(T, C)
+                ax[0].plot(T, E, linestyle='--')
+                ax[0].plot(T, Q, linestyle='-.')
+                ax[1].plot(T, F.mps_energies())
+                ax[1].plot(T, F_.mps_energies())
+                plt.savefig('test_trajs.pdf')
+
+        test_D_2_1 = True
+        if test_D_2_1:
+            Sx1, Sy1, Sz1 = N_body_spins(0.5, 1, 2)
+            Sx2, Sy2, Sz2 = N_body_spins(0.5, 2, 2)
+
+            mpss = {2:self.mps_0_2, 3:self.mps_0_3, 4:self.mps_0_4, 5:self.mps_0_5}
+
+            L = 3
+            mps_0 = mpss[L].left_canonicalise(2)
+            from xmps.Hamiltonians import Hamiltonian
+            J1, J2, h1, h2 = 0., 0.25, 0.5, 0.5
+            Ham = Hamiltonian({'XX':J1, 'ZZ':J2, 'X':h1, 'Z':h2})
+
+            H_ = Ham.to_matrices(L)
+            W = mps_0.L*[MPO_TFI(J1, J2, h1, h2)]
+            W_ = Ham.to_mpo(L)
+
+            F = Trajectory(mps_0, H=H_, W=W)
+            F_ = Trajectory(mps_0, H=H_, W=W_)
+
+            dt, t_fin = 5e-3, 10
+            T = linspace(0, t_fin, int(t_fin//dt)+1)
+            C = F.invfreeint(T).mps_evs([Sx, Sy, Sz], 0)
+
+            E = F_.invfreeint(T).mps_evs([Sx, Sy, Sz], 0)
+            F_.clear()
+            Q = F_.eulerint(T).mps_evs([Sx, Sy, Sz], 0)
+
+            plot = True
+            if plot:
+                fig, ax = plt.subplots(2, 1, sharex=True)
+                ax[0].plot(T, C)
+                ax[0].plot(T, E, linestyle='--')
+                ax[0].plot(T, Q, linestyle='-.')
+                ax[1].plot(T, F.mps_energies(), label='invfree')
+                ax[1].plot(T, F_.mps_energies(), label='euler')
+                plt.legend()
+                plt.savefig('test_trajs.pdf')
+
+        raise Exception
 
         test_2 = False
         if test_2:
@@ -402,4 +492,4 @@ class TestTrajectory(unittest.TestCase):
         self.assertTrue(allclose(exps[-1], 0))
 
 if __name__ == '__main__':
-    unittest.main(verbosity=2)
+    unittest.main(verbosity=2, failfast=True)

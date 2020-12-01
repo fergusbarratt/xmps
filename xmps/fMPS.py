@@ -69,7 +69,6 @@ def apply_unitary(tensors, U, which='l', D=None):
     else:
         return separate_tensor_svd(np.tensordot(U, group_tensors(tensors), [1, 0]), D, which)
 
-
 def apply_isometry(tensors, Is):
     return np.tensordot(Is, group_tensors(tensors), [1, 0])
 
@@ -210,6 +209,12 @@ class fMPS(object):
                 new_data[i][:, :self[i].shape[1], :self[i].shape[2]] = self[i]
                 new_data[i][:, self[i].shape[1]:, self[i].shape[2]:] = other[i]
         return fMPS(new_data)
+
+    def append(self, tensor):
+        return fMPS(self.data+[tensor])
+
+    def extend(self, other):
+        return fMPS(self.data+other.data)
 
     def __sub__(self, other):
         """__sub: This is not how to subtract two MPS: it's itemwise addition.
@@ -710,12 +715,12 @@ class fMPS(object):
         """
         assert len(self) == len(other)
 
-        padded_self, padded_other = mps_pad(self.copy(), other.copy())
+        #padded_self, padded_other = mps_pad(self.copy(), other.copy())
 
         F = ones((1, 1))
-        for t, b in zip(padded_self, padded_other):
+        for t, b in zip(self, other):
             F = ncon([F, t, c(b)], [[1, 2], [3, 1, -1], [3, 2, -2]])
-        return F[0][0]
+        return np.squeeze(F)
 
     def k_local_approx_overlap(self, other, k=None, L=None):
         if k == None:
@@ -751,7 +756,7 @@ class fMPS(object):
     def product_state_overlap(self, other):
         """ other should be of the form (L, 2)
         """
-        return self.left_canonicalise().overlap(fMPS().from_product_state(other).left_canonicalise())
+        return self.overlap(fMPS().from_product_state(other))
 
     def full_overlap(self, other):
         return self.recombine().reshape(-1).conj().T@other.recombine().reshape(-1)
@@ -828,6 +833,15 @@ class fMPS(object):
         new_data[site] = td(op, new_data[site], [1, 0])
         return fMPS(new_data)
 
+    def post_select(self, site, which=0):
+        '''post select on which (0 or 1) on site i'''
+        if site!=0:
+            self.data[site-1] = self.data[site-1]@self.data[site][which, :, :]
+        else:
+            self.data[site+1] = self.data[site][which, :, :]@self.data[site+1]
+        del self.data[site]
+        return self
+
     def apply_two_site(self, opsites, which='l', D=None, truncate_swaps=False):
         '''apply a two site operator op to sites (i, j) = sites, (op, sites) = opsites
         :param opsites: operator and sites to apply
@@ -836,19 +850,29 @@ class fMPS(object):
         :param truncate_swaps: whether to truncate to bond dimension D with each swap 
         when applying long range operators.'''
         swap_D = None if not truncate_swaps else D
-        op, (i, j) = opsites
-        i, j = (i, j) if (j > i) else (j, i)
-        i_ = j-1
-        while i_ >= i+1:
-            self[i_], self[i_+1] = apply_unitary([self[i_], self[i_+1]], SWAP, which, swap_D)
-            #self.apply_two_site((SWAP, (i_, i_+1)))
-            i_ = i_-1
-        self[i], self[i+1] = apply_unitary([self[i], self[i+1]], op, which, D)
-        while i_ < j-1:
-            i_ = i_+1
-            self[i_], self[i_+1] = apply_unitary([self[i_], self[i_+1]], SWAP, which, swap_D)
-            #self.apply_two_site((SWAP, (i_, i_+1)))
-        return self
+        op, sites = opsites
+        assert op.shape[0]==op.shape[1]
+        if op.shape[0] == 2:
+            if len(sites) == 1:
+                self = self.apply((op, sites[0]))
+                return self
+            else:
+                self = self.apply((op, [i, j][{'l':0, 'r':1}[which]]))
+                return self
+        else:
+            i, j = sites
+            i, j = (i, j) if (j > i) else (j, i)
+            i_ = j-1
+            while i_ >= i+1:
+                self[i_], self[i_+1] = apply_unitary([self[i_], self[i_+1]], SWAP, which, swap_D)
+                #self.apply_two_site((SWAP, (i_, i_+1)))
+                i_ = i_-1
+            self[i], self[i+1] = apply_unitary([self[i], self[i+1]], op, which, D)
+            while i_ < j-1:
+                i_ = i_+1
+                self[i_], self[i_+1] = apply_unitary([self[i_], self[i_+1]], SWAP, which, swap_D)
+                #self.apply_two_site((SWAP, (i_, i_+1)))
+            return self
 
     def apply_two_site_isometry(self, opsites, lr=0):
         # replaces (left, right)[lr] site with the result of the isometry
@@ -929,15 +953,27 @@ class fMPS(object):
         :param sites: sites to reduce to
         :param single_string: whether to return a list of density matrices if D=1
         '''
-        if not hasattr(self, 'oc') or self.oc not in sites:
-            self.mixed_orthogonalise(sites[0])
         if self.bond_dimension == 1 and single_string:
             return [ncon([np.squeeze(self[i])]+[np.squeeze(self[i].conj())], [[-1], [-2]]) for i in sites]
         else:
+            if not hasattr(self, 'oc') or self.oc not in sites:
+                self.mixed_orthogonalise(sites[0])
             links = [([-i, i, i+1] if i!= len(sites) else [-i, i, 2*len(sites)+1]) for i in range(1, len(sites)+1)]+\
                     [([-i, i, i+1] if i != len(sites)+1 else [-i, 1, i+1]) for i in range(len(sites)+1, 2*len(sites)+1)]
 
             return ncon([self[i] for i in sites]+[self[i].conj() for i in sites], links).reshape(self.d**len(sites), -1)
+
+    def rho_proj(self, other, sites, single_string=True):
+        '''reduced density matrix on sites: partial trace of |self><other| on sites.
+        :param other: other state |other>
+        :param sites: sites to reduce to
+        :param single_string: whether to return a list of density matrices if D=1
+        '''
+        if self.bond_dimension == 1 and single_string:
+            not_sites = [site for site in range(self.L) if site not in sites]
+            partial_overlap = [np.squeeze(self[i]).conj().T@np.squeeze(other[i].conj()) for i in not_sites]
+            return np.prod(partial_overlap)*reduce(np.kron, [ncon([np.squeeze(self[i])]+[np.squeeze(other[i].conj()).T], [[-1], [-2]]) for i in sites])
+
 
     def energy(self, H, fullH=False):
         """energy: if fullH: alias for E_L, else does nn stuff
@@ -951,7 +987,7 @@ class fMPS(object):
                 h = h.reshape(*[self.d]*4)
                 C = ncon([h]+self.data[m:m+2], [[-1, -2, 1, 2], [1, -3, 3], [2, 3, -4]])
                 e.append(ncon([c(l(m-1))@self.data[m].conj(), self.data[m+1].conj()@c(r(m+1))]+[C], [[1, 3, 4], [2, 4, 5], [1, 2, 3, 5]]))
-            return re(sum(e))
+            return re(sum(e))/self.L
         else:
             return self.E_L(H)
 
@@ -1906,11 +1942,11 @@ class fMPS(object):
                 raise Exception
             J1, J2, F = self.jac(H, real_matrix=False)
             J2 = J2+F
-            J1 = kron(eye(2), re(J1))+kron(-1j*Sy, im(J1))
+            J1 = kron(eye(2), re(J1)) + kron(-1j*Sy, im(J1))
             J2 = kron(Sz, re(J2)) + kron(Sx, im(J2))
-            l, V = eig(J2)
+            l, V = sp.linalg.eigh(J2)
             idx = l.argsort()
-            return V[:, idx]
+            return V[:, ::-1]
 
     def extract_tangent_vector(self, dA):
         """extract_tangent_vector from dA:

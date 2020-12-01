@@ -313,6 +313,23 @@ class fPEPS(object):
             rhos[i, j] = np.outer(dd, dd.conj())
         return rhos
 
+    def rho_proj(self, other, sites, single_string=True):
+        '''reduced density matrix on sites: partial trace of |self><other| on sites.
+        :param other: other state |other>
+        :param sites: sites to reduce to
+        :param single_string: whether to return a list of density matrices if D=1
+        '''
+        if not single_string:
+            raise NotImplementedError('only implemented for D=1')
+        assert self.bond_dimension==1
+        (x, y), (width, height) = sites
+        rhos = np.zeros((width, height, self.d, self.d))*1j
+        for i, j in product(range(width), range(height)):
+            dd = np.squeeze(self.data[y+j][x+i])
+            ddother = np.squeeze(other.data[y+j][x+i])
+            rhos[i, j] = np.outer(dd, ddother.conj())
+        return rhos
+
     def from_state(self, state):
         '''This is gonna create an mps from state, then embed that mps in a peps'''
         raise Exception

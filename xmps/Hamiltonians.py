@@ -21,8 +21,8 @@ class Hamiltonian(object):
             self.strings = strings
             for key, val in {key:val for key, val in self.strings.items()}.items():
                 if len(key)==1:
-                    self.strings['I'+key] = val/2
-                    self.strings[key+'I'] = val/2
+                    self.strings['I'+key] = val
+                    self.strings[key+'I'] = val
                     self.strings.pop(key)
         if matrices is not None:
             self.d = d # local hilbert space dimension
@@ -59,17 +59,19 @@ class Hamiltonian(object):
     def to_matrix(self):
         assert self.strings is not None
         h_i = zeros((4, 4))+0j
+        local = ['XI', 'YI', 'ZI', 'IX', 'IY', 'IZ']
         for js, J in self.strings.items():
+            J = J if js in local else J
             h_i += J*reduce(kron, [S[j] for j in js])
         self._matrix = h_i
         return h_i
 
     def to_mpo(self, L):
         def heis_mpo(Jx, Jy, Jz, hx, hy, hz):
-            I = np.eye(2)
-            Sx = np.array([[0., 1.], [1., 0.]])
+            I = np.eye(2)+0j
+            Sx = np.array([[0., 1.], [1., 0.]])+0j
             Sy = np.array([[0, -1j], [1j, 0]])
-            Sz = np.array([[1., 0.], [0., -1.]])
+            Sz = np.array([[1., 0.], [0., -1.]])+0j
             d = 2
 
             chi = 5
@@ -97,20 +99,27 @@ class Hamiltonian(object):
         return [heis_mpo(*[self.strings.get(key, 0) for key in heis_keys])]*L
 
     def to_matrices(self, L):
-        h_i = self.to_matrix()
         h_0_strings = self.strings.copy()
         h_L_strings = self.strings.copy()
+        h_i_strings = self.strings.copy()
+
         for st in ['X', 'Y', 'Z']:
-            h_0_strings.pop('I'+st, None)
-            h_L_strings.pop(st+'I', None)
+            if st+'I' in h_i_strings:
+                h_i_strings[st+'I'] = h_i_strings[st+'I']/2
+                h_L_strings[st+'I'] = h_L_strings[st+'I']/2
+            if 'I'+st in h_i_strings:
+                h_i_strings['I'+st] = h_i_strings['I'+st]/2
+                h_0_strings['I'+st] = h_0_strings['I'+st]/2
+
         H_0 = Hamiltonian(h_0_strings)._squeeze()
         H_L = Hamiltonian(h_L_strings)._squeeze()
+        H_i = Hamiltonian(h_i_strings)._squeeze()
         if L==2:
-            return [h_i]
+            return [H_i.to_matrix()]
         elif L==3:
-            return [H_0.to_matrix()] + [h_i]
+            return [H_0.to_matrix()] + [H_L.to_matrix()]
         else:
-            return [H_0.to_matrix()] + [h_i]*(L-3)+[H_L.to_matrix()]
+            return [H_0.to_matrix()] + [H_i.to_matrix()]*(L-3)+[H_L.to_matrix()]
 
     def from_matrix(self, mat):
         xyz = list(S.keys())
