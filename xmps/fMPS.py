@@ -1976,8 +1976,6 @@ class fMPS(object):
             assert np.allclose(norm(J2-J2.T), 0) # J2 is the symmetric part
             assert np.allclose(norm(J1+J1.T), 0) # J1 the antisymmetric part
 
-            np.set_printoptions(6)
-
             V, _, _ = sp.linalg.svd(M)
             M = M@V
             Q, R1 = sp.linalg.qr(M)
