@@ -19,10 +19,12 @@ from numpy import eye, cumsum as cs, sqrt, expand_dims as ed, imag as im
 from numpy import transpose as tra, trace as tr, tensordot as td, kron
 from numpy import mean, sign, angle, unwrap, exp, diff, pi, squeeze as sq
 from numpy import round, flipud, cos, sin, exp, arctan2, arccos, sign
+from numpy import log, abs, diag
 
 from scipy.linalg import null_space as null, orth, expm#, sqrtm as ch
 from scipy.linalg import polar, block_diag as bd
 from scipy.sparse.linalg import LinearOperator, aslinearoperator
+from scipy.sparse.linalg import expm_multiply
 
 from .tests import is_right_canonical, is_right_env_canonical, is_full_rank
 from .tests import is_left_canonical, is_left_env_canonical, has_trace_1
@@ -32,8 +34,10 @@ from .tensor import C as c, lanczos_expm, tr_svd, T
 from .tensor import rdot, ldot, structure
 
 from .peps_tools import group_legs, ungroup_legs
+from .peps_tools import inverse_transpose
 
 #from .left_transfer import lt as lt_
+
 def lt_(op,As,j,i):
     Ls = [op]
     for m in range(i-1, j-1, -1):
@@ -59,6 +63,22 @@ SWAP = np.array([[1, 0, 0, 0],
 
 from .ncon import ncon as nc
 def ncon(*args, **kwargs): return nc(*args, check_indices=False, **kwargs) # make default ncon not check indices
+
+def sympmat(N, dtype=np.float64):
+    '''produce the symplectic matrix'''
+    I = np.identity(N, dtype=dtype)
+    O = np.zeros_like(I, dtype=dtype)
+    S = np.block([[O, I], [-I, O]])
+    return S
+
+def changebasis(n):
+    """(x_1,...,x_n,p_1,...,p_n) > (x_1,p_1,...,x_n,p_n)
+    """
+    m = np.zeros((2 * n, 2 * n))
+    for i in range(n):
+        m[2 * i, i] = 1
+        m[2 * i + 1, i + n] = 1
+    return m
 
 def apply_unitary(tensors, U, which='l', D=None):
     if D is None:
@@ -1944,20 +1964,24 @@ class fMPS(object):
             J2 = J2#+F
             J1 = kron(eye(2), re(J1)) + kron(-1j*Sy, im(J1))
             J2 = kron(Sz, re(J2)) + kron(Sx, im(J2))
-            l, V = sp.linalg.eigh(J2)
             J = self.jac(H)
 
-            dt = 0.1
-            from scipy.sparse.linalg import expm_multiply
-            from numpy import log, abs, diag
-            np.set_printoptions(6)
-            M = expm_multiply(J*dt, V)
 
+            Ω = sympmat(int(J.shape[1]/2))
+            A = Ω@J
+            M = expm(J*0.1)
+
+            assert np.allclose(norm(A-A.T), 0) # J is Hamiltonian
+            assert np.allclose(norm(M.T@Ω@M-Ω), 0) # M is symplectic
+            assert np.allclose(norm(J2-J2.T), 0) # J2 is the symmetric part
+            assert np.allclose(norm(J1+J1.T), 0) # J1 the antisymmetric part
+
+            np.set_printoptions(6)
+
+            V, _, _ = sp.linalg.svd(M)
+            M = M@V
             Q, R1 = sp.linalg.qr(M)
             v = log(abs(diag(R1)))
-            print(v+v[::-1])
-            raise Exception
-            raise Exception
 
             return V
 
