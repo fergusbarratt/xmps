@@ -1945,6 +1945,20 @@ class fMPS(object):
             J1 = kron(eye(2), re(J1)) + kron(-1j*Sy, im(J1))
             J2 = kron(Sz, re(J2)) + kron(Sx, im(J2))
             l, V = sp.linalg.eigh(J2)
+            J = self.jac(H)
+
+            dt = 0.1
+            from scipy.sparse.linalg import expm_multiply
+            from numpy import log, abs, diag
+            np.set_printoptions(6)
+            M = expm_multiply(J*dt, V)
+
+            Q, R1 = sp.linalg.qr(M)
+            v = log(abs(diag(R1)))
+            print(v+v[::-1])
+            raise Exception
+            raise Exception
+
             return V
 
     def extract_tangent_vector(self, dA):
