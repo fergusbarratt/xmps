@@ -508,7 +508,7 @@ class Trajectory(object):
     def mps_energies(self):
         assert self.H is not None
         assert self.mps_history
-        return np.array([mps.left_canonicalise().energy(self.H) for mps in self.mps_list()])
+        return np.array([mps.left_canonicalise().energy(self.H, fullH=self.fullH) for mps in self.mps_list()])
 
     def ed_energies(self):
         assert self.H is not None
